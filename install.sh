@@ -361,16 +361,22 @@ install_binary() {
       return 1
     fi
   else
-    # Remote mode — try gh first, fallback to curl
-    local tmp="/tmp/${BINARY_NAME}"
-    rm -f "$tmp"
+    # Remote mode — assets are .tar.gz archives from GoReleaser
+    local tarball="${BINARY_NAME}.tar.gz"
+    local tmp_tar="/tmp/${tarball}"
+    local tmp_dir="/tmp/bravros-extract-$$"
+    rm -f "$tmp_tar"
+    rm -rf "$tmp_dir"
+    mkdir -p "$tmp_dir"
 
     if command -v gh &>/dev/null; then
       info "Downloading via gh CLI..."
-      if gh release download --repo "$GITHUB_REPO" --pattern "$BINARY_NAME" --dir /tmp 2>/dev/null; then
-        if [ -s "$tmp" ]; then
-          mv -f "$tmp" "$target"
+      if gh release download --repo "$GITHUB_REPO" --pattern "$tarball" --dir /tmp 2>/dev/null && [ -s "$tmp_tar" ]; then
+        tar -xzf "$tmp_tar" -C "$tmp_dir" 2>/dev/null
+        if [ -f "$tmp_dir/bravros" ]; then
+          mv -f "$tmp_dir/bravros" "$target"
           chmod +x "$target"
+          rm -rf "$tmp_dir" "$tmp_tar"
           ok "Downloaded binary via gh (${OS}/${ARCH})"
           return 0
         fi
@@ -382,23 +388,33 @@ install_binary() {
     info "Downloading via curl..."
     local download_url
     download_url=$(curl -fsSL "$GITHUB_API" 2>/dev/null | \
-      grep -o "\"browser_download_url\": *\"[^\"]*${BINARY_NAME}\"" | \
+      grep -o "\"browser_download_url\": *\"[^\"]*${tarball}\"" | \
       head -1 | \
       grep -o 'https://[^"]*' || true)
 
     if [ -n "$download_url" ]; then
-      curl -fSL --progress-bar -o "$tmp" "$download_url"
-      if [ -s "$tmp" ]; then
-        mv -f "$tmp" "$target"
-        chmod +x "$target"
-        ok "Downloaded binary via curl (${OS}/${ARCH})"
+      curl -fSL --progress-bar -o "$tmp_tar" "$download_url"
+      if [ -s "$tmp_tar" ]; then
+        tar -xzf "$tmp_tar" -C "$tmp_dir" 2>/dev/null
+        if [ -f "$tmp_dir/bravros" ]; then
+          mv -f "$tmp_dir/bravros" "$target"
+          chmod +x "$target"
+          rm -rf "$tmp_dir" "$tmp_tar"
+          ok "Downloaded binary via curl (${OS}/${ARCH})"
+        else
+          err "Tarball did not contain bravros binary"
+          rm -rf "$tmp_dir" "$tmp_tar"
+          return 1
+        fi
       else
         err "Download produced empty file"
+        rm -rf "$tmp_dir" "$tmp_tar"
         return 1
       fi
     else
-      err "Could not find release asset: $BINARY_NAME"
+      err "Could not find release asset: $tarball"
       warn "Ensure a release exists at https://github.com/${GITHUB_REPO}/releases"
+      rm -rf "$tmp_dir"
       return 1
     fi
   fi
@@ -414,7 +430,7 @@ if ! $DRY_RUN; then
 
   # Verify binary
   if [ -x "$BIN_DIR/bravros" ]; then
-    _ver=$("$BIN_DIR/bravros" --version 2>/dev/null || echo "installed (version check unavailable)")
+    _ver=$("$BIN_DIR/bravros" version 2>/dev/null || echo "installed (version check unavailable)")
     ok "Binary: $_ver"
   else
     warn "Binary installed but not executable"
@@ -463,50 +479,62 @@ if ! $DRY_RUN; then
     ok "Installed ${count} skills to $SKILLS_DIR"
 
   elif [ "$INSTALL_MODE" = "remote" ]; then
-    info "Downloading skills tarball..."
-    local_tmp="/tmp/bravros-skills-$$.tar.gz"
+    info "Downloading skills and templates from repo..."
+    local_tmp="/tmp/bravros-repo-$$.tar.gz"
+    tmpdir="/tmp/bravros-repo-$$"
     rm -f "$local_tmp"
+    rm -rf "$tmpdir"
+    mkdir -p "$tmpdir"
 
     downloaded=false
+
+    # Download repo archive via gh (handles private repo auth)
     if command -v gh &>/dev/null; then
-      if gh release download --repo "$GITHUB_REPO" --pattern "skills.tar.gz" --dir /tmp 2>/dev/null; then
-        mv -f /tmp/skills.tar.gz "$local_tmp" 2>/dev/null || true
+      if gh api repos/${GITHUB_REPO}/tarball -H "Accept: application/vnd.github+json" > "$local_tmp" 2>/dev/null && [ -s "$local_tmp" ]; then
         downloaded=true
       fi
     fi
 
-    if ! $downloaded; then
-      skills_url=$(curl -fsSL "$GITHUB_API" 2>/dev/null | \
-        grep -o '"browser_download_url": *"[^"]*skills\.tar\.gz"' | \
-        head -1 | \
-        grep -o 'https://[^"]*' || true)
-      if [ -n "$skills_url" ]; then
-        curl -fSL --progress-bar -o "$local_tmp" "$skills_url"
-        downloaded=true
-      fi
-    fi
+    if $downloaded; then
+      tar -xzf "$local_tmp" -C "$tmpdir" --strip-components=1 2>/dev/null
 
-    if $downloaded && [ -s "$local_tmp" ]; then
-      tmpdir="/tmp/bravros-skills-$$"
-      mkdir -p "$tmpdir"
-      tar -xzf "$local_tmp" -C "$tmpdir" 2>/dev/null
+      # Install skills
       if [ -d "$tmpdir/skills" ]; then
-        cp -rf "$tmpdir/skills/"* "$SKILLS_DIR/" 2>/dev/null || true
+        count=0
+        total=$(find "$tmpdir/skills" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
+        for item in "$tmpdir/skills/"*/; do
+          [ -d "$item" ] || continue
+          name=$(basename "$item")
+          count=$((count + 1))
+          printf "\r  Installing skill %d/%d: %-30s" "$count" "$total" "$name"
+          cp -rf "$item" "$SKILLS_DIR/"
+        done
+        printf "\r%80s\r" ""
+
+        # Remove macOS-only skills on Linux
+        if [ "$OS" = "linux" ]; then
+          rm -rf "$SKILLS_DIR/obsidian-setup" 2>/dev/null || true
+          rm -rf "$SKILLS_DIR/ha-mac-unlock" 2>/dev/null || true
+        fi
+
+        ok "Installed ${count} skills to $SKILLS_DIR"
       else
-        cp -rf "$tmpdir/"* "$SKILLS_DIR/" 2>/dev/null || true
+        warn "No skills directory found in repo archive"
       fi
+
+      # Install templates
+      if [ -d "$tmpdir/templates" ]; then
+        cp -rf "$tmpdir/templates/." "$TEMPLATES_DIR/"
+        chmod +x "$TEMPLATES_DIR/.githooks/commit-msg" 2>/dev/null || true
+        chmod +x "$TEMPLATES_DIR/.githooks/pre-push" 2>/dev/null || true
+        ok "Templates installed from repo archive"
+      fi
+
       rm -rf "$tmpdir" "$local_tmp"
-
-      # Remove macOS-only skills on Linux
-      if [ "$OS" = "linux" ]; then
-        rm -rf "$SKILLS_DIR/obsidian-setup" 2>/dev/null || true
-        rm -rf "$SKILLS_DIR/ha-mac-unlock" 2>/dev/null || true
-      fi
-
-      skill_count=$(find "$SKILLS_DIR" -maxdepth 2 -name 'SKILL.md' 2>/dev/null | wc -l | tr -d ' ')
-      ok "Installed ${skill_count} skills from release tarball"
     else
-      warn "Could not download skills tarball — skills not installed"
+      warn "Could not download repo archive — skills and templates not installed"
+      warn "Ensure you have access to https://github.com/${GITHUB_REPO}"
+      rm -rf "$tmpdir" "$local_tmp"
     fi
   else
     warn "No skills source found"
@@ -897,7 +925,7 @@ printf "  ${_BOLD}Next steps:${_RESET}\n"
 if [ -n "$SHELL_RC" ]; then
   printf "  ${_DIM}1.${_RESET} source ~/%s\n" "$_shell_name"
 fi
-printf "  ${_DIM}2.${_RESET} bravros --version\n"
+printf "  ${_DIM}2.${_RESET} bravros version\n"
 printf "  ${_DIM}3.${_RESET} ${_BOLD}${_MAGENTA}bravros activate${_RESET} — license and unlock features\n"
 printf "  ${_DIM}4.${_RESET} cd ~/your-project && /start\n"
 
