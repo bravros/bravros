@@ -144,7 +144,38 @@ func extractMvSource(command string) string {
 	return ""
 }
 
-// RunRules executes all 23 enforcement rules.
+// LicenseTier is set by cmd/audit.go before calling RunRules.
+// It holds the active license tier (e.g. "free", "pro", "trial") or "" if not activated.
+var LicenseTier string
+
+// coreSkills is the allowlist of skills available on the free tier.
+var coreSkills = map[string]bool{
+	"audit":        true,
+	"status":       true,
+	"commit":       true,
+	"branch":       true,
+	"push":         true,
+	"pr":           true,
+	"context":      true,
+	"quick":        true,
+	"ship":         true,
+	"start":        true,
+	"review":       true,
+	"address-pr":   true,
+	"run-tests":    true,
+	"test":         true,
+	"debug":        true,
+	"backlog":      true,
+	"plan":         true,
+	"plan-review":  true,
+	"plan-approved": true,
+	"plan-check":   true,
+	"finish":       true,
+	"resume":       true,
+	"flow":         true,
+}
+
+// RunRules executes all 24 enforcement rules.
 func RunRules(p *Payload, state *SessionState, log *Logger) {
 	paths := p.AllPaths()
 
@@ -222,6 +253,9 @@ func RunRules(p *Payload, state *SessionState, log *Logger) {
 
 	// ENFORCEMENT 23: Block writes to ~/.claude/ deployed dir
 	rule23BlockDeployedDirWrites(p, state, log)
+
+	// ENFORCEMENT 24: Free-tier skill gate
+	rule24FreeTierGate(p, state, log)
 }
 
 func rule1SkillReadBeforeFrontend(p *Payload, state *SessionState, log *Logger, paths []string) {
@@ -1029,5 +1063,21 @@ func rule23BlockDeployedDirWrites(p *Payload, state *SessionState, log *Logger) 
 		portableRepo := detectPortableRepo()
 		log.Block(i18n.Tf("audit.block_deployed_dir_write", portableRepo, portableRepo))
 		return
+	}
+}
+
+func rule24FreeTierGate(p *Payload, state *SessionState, log *Logger) {
+	if LicenseTier != "free" {
+		return
+	}
+	if p.ToolName != "skill" {
+		return
+	}
+	skillName := strings.TrimSpace(firstInputString(p.Input, "skill"))
+	if skillName == "" {
+		return
+	}
+	if !coreSkills[skillName] {
+		log.Block(i18n.Tf("license.free_tier_block", skillName))
 	}
 }

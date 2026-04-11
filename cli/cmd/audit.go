@@ -36,6 +36,12 @@ var auditCmd = &cobra.Command{
 			}
 		}()
 
+		// Set license tier before running rules so rule 24 can gate free-tier skills.
+		audit.LicenseTier = ""
+		if claims := GetLicense(); claims != nil {
+			audit.LicenseTier = claims.Tier
+		}
+
 		audit.RunRules(payload, state, logger)
 
 		// All good

@@ -15,7 +15,7 @@ cli/
 ├── main.go              # Entry point
 ├── cmd/                 # Cobra commands (audit, sdlc, pr, ha, statusline, etc.)
 ├── internal/
-│   ├── audit/           # Pre-commit/pre-push enforcement rules (23 rules)
+│   ├── audit/           # Pre-commit/pre-push enforcement rules (24 rules)
 │   ├── backup/          # Backup utilities
 │   ├── git/             # Git context helpers (branch, diff, PR info)
 │   ├── github/          # GitHub API helpers (PR, repo)
@@ -77,7 +77,7 @@ gh run list --workflow=release.yml --limit=1
 gh release view vX.Y.Z
 ```
 
-## Audit Rules (23 rules in `internal/audit/rules.go`)
+## Audit Rules (24 rules in `internal/audit/rules.go`)
 
 All rules live in a single file. Do NOT split into multiple files — keep them together for grep-ability and simplicity.
 

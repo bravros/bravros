@@ -1609,3 +1609,74 @@ func TestRule23_BlockDeployedDirWrites(t *testing.T) {
 		})
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Rule 24 — Free-tier skill gate
+// ---------------------------------------------------------------------------
+
+func TestRule24FreeTierGate(t *testing.T) {
+	tests := []struct {
+		name      string
+		tier      string
+		skillName string
+		blocks    bool
+	}{
+		// Free tier — premium skill blocked
+		{"free tier blocks brand-generator", "free", "brand-generator", true},
+		{"free tier blocks frontend-design", "free", "frontend-design", true},
+		{"free tier blocks auto-pr", "free", "auto-pr", true},
+		// Free tier — core skills allowed
+		{"free tier allows commit", "free", "commit", false},
+		{"free tier allows plan", "free", "plan", false},
+		{"free tier allows audit", "free", "audit", false},
+		{"free tier allows debug", "free", "debug", false},
+		{"free tier allows finish", "free", "finish", false},
+		// Pro tier — any skill allowed
+		{"pro tier allows brand-generator", "pro", "brand-generator", false},
+		{"pro tier allows auto-pr", "pro", "auto-pr", false},
+		// Trial tier — any skill allowed
+		{"trial tier allows brand-generator", "trial", "brand-generator", false},
+		// No tier (not activated) — any skill allowed
+		{"no tier allows brand-generator", "", "brand-generator", false},
+		// Non-skill tool — not affected
+		{"free tier does not block bash tool", "free", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			origTier := LicenseTier
+			LicenseTier = tt.tier
+			defer func() { LicenseTier = origTier }()
+
+			var p *Payload
+			if tt.skillName != "" && tt.tier == "" || tt.skillName == "" {
+				// Non-skill tool or no-tier test
+				p = &Payload{
+					ToolName: "bash",
+					Input:    map[string]interface{}{"command": "ls"},
+				}
+				if tt.skillName != "" {
+					p = &Payload{
+						ToolName: "skill",
+						Input:    map[string]interface{}{"skill": tt.skillName},
+					}
+				}
+			} else {
+				p = &Payload{
+					ToolName: "skill",
+					Input:    map[string]interface{}{"skill": tt.skillName},
+				}
+			}
+
+			state := newTempState(t)
+			log := newTestLogger()
+
+			blocked := didBlock(func() {
+				rule24FreeTierGate(p, state, log)
+			})
+			if blocked != tt.blocks {
+				t.Errorf("tier=%q skill=%q: blocked=%v, want %v", tt.tier, tt.skillName, blocked, tt.blocks)
+			}
+		})
+	}
+}

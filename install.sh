@@ -1,843 +1,926 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# Claude Code SDLC Installer
-# Syncs skills, references, hooks, scripts, templates, and settings across machines.
-# Repo: github.com/skaisser/claude
+# Bravros Installer
+# AI-native SDLC. License-enforced. Zero bloat.
+#
+# Usage:
+#   curl -fsSL https://bravros.dev/install | bash    # remote install
+#   bash install.sh                                   # local install
+#   bash install.sh --uninstall                       # remove everything
+#   bash install.sh --dry-run                         # print steps without executing
+#
+# Repo: github.com/bravros/bravros
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# ============================================================================
+# CONSTANTS
+# ============================================================================
+
+BRAVROS_VERSION="1.0.0"
+GITHUB_REPO="bravros/bravros"
+GITHUB_API="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
 TS="$(date +%Y%m%d-%H%M%S)"
+INSTALL_DIR="$HOME/.claude"
+BIN_DIR="$INSTALL_DIR/bin"
+SKILLS_DIR="$INSTALL_DIR/skills"
+TEMPLATES_DIR="$INSTALL_DIR/templates"
+
+DRY_RUN=false
+UNINSTALL=false
 
 # ============================================================================
-# OS DETECTION
+# PHASE 1: PLATFORM DETECTION
 # ============================================================================
 
-detect_os() {
-  case "$(uname -s)" in
-    Darwin*) IS_MACOS=true; IS_LINUX=false ;;
-    Linux*)  IS_MACOS=false; IS_LINUX=true ;;
-    *)       IS_MACOS=false; IS_LINUX=false ;;
-  esac
+OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+ARCH="$(uname -m)"
+case "$ARCH" in
+  x86_64)  ARCH="amd64" ;;
+  aarch64) ARCH="arm64" ;;
+esac
 
-  if $IS_MACOS; then
-    PORTABLE_REPO_DEFAULT="$HOME/Sites/claude"
-  else
-    PORTABLE_REPO_DEFAULT="$HOME/claude"
-  fi
-}
-detect_os
+case "$OS" in
+  darwin|linux) ;;
+  *) echo "Unsupported OS: $OS" >&2; exit 1 ;;
+esac
 
+case "$ARCH" in
+  amd64|arm64) ;;
+  *) echo "Unsupported architecture: $ARCH" >&2; exit 1 ;;
+esac
+
+BINARY_NAME="bravros-${OS}-${ARCH}"
+
+# sed_inplace — cross-platform sed -i
 sed_inplace() {
-  if $IS_MACOS; then
+  if [ "$OS" = "darwin" ]; then
     sed -i '' "$@"
   else
     sed -i "$@"
   fi
 }
 
-echo "🚀 Installing Claude Code SDLC configuration..."
-echo ""
-
-# ============================================================================
-# 1. CREATE DIRECTORIES
-# ============================================================================
-
-mkdir -p ~/.claude/skills
-mkdir -p ~/.claude/hooks
-mkdir -p ~/.claude/scripts
-mkdir -p ~/.claude/templates
-mkdir -p ~/.claude/cache
-
-# Detect shell rc file (used later for aliases and env vars)
-# Prefer the RC file matching the user's actual shell to avoid writing to
-# a stub created by other installers (e.g., UV creates a tiny .zshrc on Linux).
-if [[ "$SHELL" == */zsh ]] && [ -f ~/.zshrc ]; then
-    SHELL_RC=~/.zshrc
-elif [[ "$SHELL" == */bash ]] && [ -f ~/.bashrc ]; then
-    SHELL_RC=~/.bashrc
-elif [ -f ~/.zshrc ]; then
-    SHELL_RC=~/.zshrc
-elif [ -f ~/.bashrc ]; then
-    SHELL_RC=~/.bashrc
+# Detect shell RC file
+if [[ "$SHELL" == */zsh ]] && [ -f "$HOME/.zshrc" ]; then
+  SHELL_RC="$HOME/.zshrc"
+elif [[ "$SHELL" == */bash ]] && [ -f "$HOME/.bashrc" ]; then
+  SHELL_RC="$HOME/.bashrc"
+elif [ -f "$HOME/.zshrc" ]; then
+  SHELL_RC="$HOME/.zshrc"
+elif [ -f "$HOME/.bashrc" ]; then
+  SHELL_RC="$HOME/.bashrc"
 else
-    SHELL_RC=""
+  SHELL_RC=""
+fi
+
+# Detect install mode
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || echo "")"
+if [ -n "$SCRIPT_DIR" ] && [ -d "$SCRIPT_DIR/skills" ] && [ -d "$SCRIPT_DIR/cli" ]; then
+  INSTALL_MODE="local"
+else
+  INSTALL_MODE="remote"
 fi
 
 # ============================================================================
-# 2. CLEAN UP DEPRECATED FILES
+# HELPERS — ANSI-colored output (no gum dependency)
 # ============================================================================
 
-echo "🧹 Cleaning up deprecated artifacts..."
+_BOLD='\033[1m'
+_DIM='\033[2m'
+_RESET='\033[0m'
+_GREEN='\033[38;5;82m'
+_YELLOW='\033[38;5;220m'
+_RED='\033[38;5;196m'
+_CYAN='\033[38;5;45m'
+_BLUE='\033[38;5;33m'
+_MAGENTA='\033[38;5;141m'
 
-# Remove stale .venv directories (created by agents, breaks cp -rf)
-find ~/.claude/skills -name ".venv" -type d -exec rm -rf {} + 2>/dev/null
+ok()   { printf "${_GREEN}  ✓${_RESET} %s\n" "$*"; }
+info() { printf "${_CYAN}  →${_RESET} %s\n" "$*"; }
+warn() { printf "${_YELLOW}  ⚠${_RESET} %s\n" "$*"; }
+err()  { printf "${_RED}  ✗${_RESET} %s\n" "$*" >&2; }
+step() { printf "\n${_BOLD}${_BLUE}  ▸ %s${_RESET}\n" "$*"; }
 
-# Remove commands directory entirely (skills replace commands)
-if [ -d ~/.claude/commands ]; then
-    echo "   Removing ~/.claude/commands/ (replaced by skills)"
-    rm -rf ~/.claude/commands
-fi
+# ============================================================================
+# PHASE 2: ASCII BANNER
+# ============================================================================
 
-# Remove agents directory entirely (skills replace agents)
-if [ -d ~/.claude/agents ]; then
-    echo "   Removing ~/.claude/agents/ (replaced by skills)"
-    rm -rf ~/.claude/agents
-fi
+show_banner() {
+  local c1='\033[38;5;33m'   # blue
+  local c2='\033[38;5;39m'
+  local c3='\033[38;5;45m'   # cyan
+  local c4='\033[38;5;51m'
+  local c5='\033[38;5;87m'
+  local c6='\033[38;5;123m'
+  local r='\033[0m'
 
-# Remove AGENTS.md (merged into CLAUDE.md)
-if [ -f ~/.claude/AGENTS.md ]; then
-    echo "   Removing ~/.claude/AGENTS.md (merged into CLAUDE.md)"
-    rm -f ~/.claude/AGENTS.md
-fi
+  printf "\n"
+  printf "  ${c1}██████╗ ██████╗  █████╗ ██╗   ██╗██████╗  ██████╗ ███████╗${r}\n"
+  printf "  ${c2}██╔══██╗██╔══██╗██╔══██╗██║   ██║██╔══██╗██╔═══██╗██╔════╝${r}\n"
+  printf "  ${c3}██████╔╝██████╔╝███████║██║   ██║██████╔╝██║   ██║███████╗${r}\n"
+  printf "  ${c4}██╔══██╗██╔══██╗██╔══██║╚██╗ ██╔╝██╔══██╗██║   ██║╚════██║${r}\n"
+  printf "  ${c5}██████╔╝██║  ██║██║  ██║ ╚████╔╝ ██║  ██║╚██████╔╝███████║${r}\n"
+  printf "  ${c6}╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝  ╚═══╝  ╚═╝  ╚═╝ ╚═════╝ ╚══════╝${r}\n"
+  printf "\n"
+  printf "  ${_DIM}AI-native SDLC. License-enforced. Zero bloat.${_RESET}\n"
+  printf "  ${_DIM}Version: ${BRAVROS_VERSION}  •  ${OS}/${ARCH}  •  ${INSTALL_MODE} mode${_RESET}\n"
+  printf "\n"
+}
 
-# Remove deprecated skills (if any old ones exist)
-DEPRECATED_SKILLS=("criar-campanha" "mcp-builder" "prepare4kaisser" "linear-init" "debug" "taste-skill")
-for skill in "${DEPRECATED_SKILLS[@]}"; do
-    if [ -d ~/.claude/skills/"$skill" ]; then
-        echo "   Removing deprecated skill: $skill/"
-        rm -rf ~/.claude/skills/"$skill"
-    fi
+# ============================================================================
+# PARSE ARGUMENTS
+# ============================================================================
+
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run)   DRY_RUN=true ;;
+    --uninstall) UNINSTALL=true ;;
+  esac
 done
 
-# Remove old skill names (renamed in SDLC 4.0)
-RENAMED_SKILLS=("flow-auto" "flow-auto-wt" "batch-flow")
-for skill in "${RENAMED_SKILLS[@]}"; do
-    if [ -d ~/.claude/skills/"$skill" ]; then
-        echo "   Removing renamed skill: $skill/"
-        rm -rf ~/.claude/skills/"$skill"
-    fi
-done
+show_banner
 
-# Remove consolidated firecrawl variants (now in firecrawl/references/commands/)
-FIRECRAWL_VARIANTS=("firecrawl-agent" "firecrawl-browser" "firecrawl-crawl" "firecrawl-download" "firecrawl-map" "firecrawl-scrape" "firecrawl-search")
-for skill in "${FIRECRAWL_VARIANTS[@]}"; do
-    if [ -d ~/.claude/skills/"$skill" ]; then
-        echo "   Removing consolidated firecrawl variant: $skill/"
-        rm -rf ~/.claude/skills/"$skill"
-    fi
-done
-
-# Remove deprecated audit.py hook (replaced by claude-cli audit)
-if [ -f ~/.claude/hooks/audit.py ]; then
-    echo "   Removing deprecated hook: audit.py (replaced by claude-cli audit)"
-    rm -f ~/.claude/hooks/audit.py
-fi
-
-# Remove blueprint CLI (replaced by claude-cli)
-if [ -d ~/.blueprint ]; then
-    echo "   Removing deprecated ~/.blueprint/ (replaced by claude-cli)"
-    rm -rf ~/.blueprint
-fi
-
-# Remove blueprint-specific skills (bp-* duplicates)
-BP_SKILLS=("bp-branch" "bp-commit" "bp-context" "bp-push" "bp-ship" "bp-status" "bp-tdd-review" "bp-test")
-for skill in "${BP_SKILLS[@]}"; do
-    if [ -d ~/.claude/skills/"$skill" ]; then
-        echo "   Removing blueprint skill: $skill/ (use non-prefixed version)"
-        rm -rf ~/.claude/skills/"$skill"
-    fi
-done
-
-# Remove deprecated scripts (replaced by claude-cli)
-DEPRECATED_SCRIPTS=("linear.py" "plan-status.py" "plan-meta.sh" "git-context.py" "plan-sync-frontmatter.py")
-for script in "${DEPRECATED_SCRIPTS[@]}"; do
-    if [ -f ~/.claude/scripts/"$script" ]; then
-        echo "   Removing deprecated script: $script (replaced by claude-cli)"
-        rm -f ~/.claude/scripts/"$script"
-    fi
-done
-
-# Remove deprecated Linear config files
-for f in ~/.linear-api-key ~/.linear-config; do
-    if [ -f "$f" ]; then
-        echo "   Removing deprecated: $(basename $f) (Linear syncs via GitHub)"
-        rm -f "$f"
-    fi
-done
-
-# Remove deprecated cache dirs
-if [ -d ~/.claude/cache/linear ]; then
-    echo "   Removing deprecated cache: linear/"
-    rm -rf ~/.claude/cache/linear
-fi
-
-# Remove root references directory (references now bundled inside each skill)
-if [ -d ~/.claude/references ]; then
-    echo "   Removing ~/.claude/references/ (bundled inside skills now)"
-    rm -rf ~/.claude/references
+if $DRY_RUN; then
+  info "DRY RUN — no changes will be made"
+  printf "\n"
 fi
 
 # ============================================================================
-# 3. COPY SKILLS
+# PHASE 3: UNINSTALL
 # ============================================================================
 
-echo "📦 Copying skills..."
-if [ -d "$SCRIPT_DIR/skills" ]; then
-    for item in "$SCRIPT_DIR/skills/"*; do
-        [ -d "$item" ] && cp -rf "$item" ~/.claude/skills/
+if $UNINSTALL; then
+  step "Uninstalling Bravros"
+
+  # Known Bravros skills (same list used in Phase 7 for deployment)
+  BRAVROS_SKILLS=(
+    _shared address-pr address-recap audit auto-merge auto-pr auto-pr-wt
+    backlog branch brand-generator brand-guidelines cf-browser cf-pages-deploy
+    cloudflare-auto-deploy commit complete context coverage debug drop-feature
+    excalidraw-diagram firecrawl finish flow frontend-design generate-component
+    home-assistant-manager hotfix laravel-db-diagram merge-chain migration-audit
+    n8n notebooklm obsidian-migrate obsidian-setup plan plan-approved plan-check
+    plan-review plan-wt pr push quick remove-watermark report resume review
+    run-tests session-recap ship simplify skill-creator squash-migrations start
+    status sync-upstream taste-skill tdd-review test unifi update-config
+    update-hooks uptime-kuma user-report verify-install workflow-sync yt-search
+    listmonk schedule loop
+  )
+
+  if ! $DRY_RUN; then
+    # Remove binary
+    rm -f "$BIN_DIR/bravros"
+    ok "Removed binary"
+
+    # Remove skills
+    for s in "${BRAVROS_SKILLS[@]}"; do
+      rm -rf "$SKILLS_DIR/$s" 2>/dev/null || true
     done
-else
-    echo "   No skills directory found"
-fi
+    ok "Removed skills"
 
-# Remove macOS-only skills on Linux
-if $IS_LINUX; then
-    echo "   Skipping macOS-only skills on Linux: obsidian-setup, ha-mac-unlock"
-    rm -rf ~/.claude/skills/obsidian-setup 2>/dev/null
-    rm -rf ~/.claude/scripts/ha-mac-unlock 2>/dev/null
-fi
-
-# References are bundled inside each skill's references/ directory.
-# No separate copy step needed — skills carry their own references.
-
-# ============================================================================
-# 4. COPY HOOKS
-# ============================================================================
-
-echo "📦 Copying hooks..."
-if [ -d "$SCRIPT_DIR/hooks" ]; then
-    for f in "$SCRIPT_DIR/hooks/"*.py "$SCRIPT_DIR/hooks/"*.sh; do
-        [ -f "$f" ] && cp -f "$f" ~/.claude/hooks/ && chmod +x ~/.claude/hooks/"$(basename "$f")"
-    done
-else
-    echo "   No hooks directory found"
-fi
-
-# ============================================================================
-# 5. COPY SCRIPTS
-# ============================================================================
-
-echo "📦 Copying scripts..."
-if [ -d "$SCRIPT_DIR/scripts" ]; then
-    for f in "$SCRIPT_DIR/scripts/"*.py "$SCRIPT_DIR/scripts/"*.sh; do
-        if [ -f "$f" ]; then
-            cp -f "$f" ~/.claude/scripts/
-            chmod +x ~/.claude/scripts/"$(basename "$f")" 2>/dev/null || true
-        fi
-    done
-else
-    echo "   No scripts directory found"
-fi
-
-# Clean up removed scripts from deployed location
-rm -f ~/.claude/scripts/ha.sh ~/.claude/scripts/ha-say.sh 2>/dev/null
-
-# ============================================================================
-# 5b. BUILD GO CLI (claude-cli)
-# ============================================================================
-
-echo "🔨 Installing claude-cli..."
-mkdir -p ~/.claude/bin
-
-# Auto-detect platform and copy the right binary
-_OS=$(uname -s | tr '[:upper:]' '[:lower:]')   # darwin or linux
-_ARCH=$(uname -m)                                # arm64 or x86_64
-case "$_ARCH" in
-    x86_64)  _ARCH="amd64" ;;
-    aarch64) _ARCH="arm64" ;;
-esac
-_BINARY="$SCRIPT_DIR/cli/claude-cli-${_OS}-${_ARCH}"
-
-_NEED_DOWNLOAD=false
-_GH_REPO="skaisser/claude"
-
-if [ -f "$_BINARY" ]; then
-    # Local binary exists (dev build) — copy it
-    cp -f "$_BINARY" ~/.claude/bin/claude-cli
-    chmod +x ~/.claude/bin/claude-cli
-    if $IS_MACOS; then
-      codesign -s - ~/.claude/bin/claude-cli 2>/dev/null || true
-    fi
-    echo "   ✅ Installed ~/.claude/bin/claude-cli (${_OS}/${_ARCH}) — $(~/.claude/bin/claude-cli version)"
-elif [ -x ~/.claude/bin/claude-cli ] && ~/.claude/bin/claude-cli version &>/dev/null; then
-    # Binary exists and runs — check if outdated vs latest release
-    _CURRENT_VERSION=$(~/.claude/bin/claude-cli version 2>/dev/null | awk '{print $NF}')
-    if command -v gh &>/dev/null; then
-        _LATEST_TAG=$(gh release view --repo "$_GH_REPO" --json tagName -q '.tagName' 2>/dev/null || true)
-        if [ -n "$_LATEST_TAG" ] && [ "$_CURRENT_VERSION" != "$_LATEST_TAG" ]; then
-            echo "   Outdated: ${_CURRENT_VERSION} → ${_LATEST_TAG}"
-            _NEED_DOWNLOAD=true
-        else
-            echo "   ✅ claude-cli already installed (${_CURRENT_VERSION}) — up to date"
-        fi
-    else
-        echo "   ✅ claude-cli already installed (${_CURRENT_VERSION}) — skipping version check (no gh)"
-    fi
-else
-    _NEED_DOWNLOAD=true
-fi
-
-if [ "$_NEED_DOWNLOAD" = true ]; then
-    if command -v gh &>/dev/null; then
-        _LATEST_TAG=${_LATEST_TAG:-$(gh release view --repo "$_GH_REPO" --json tagName -q '.tagName' 2>/dev/null || true)}
-        if [ -n "$_LATEST_TAG" ]; then
-            echo "   Downloading claude-cli ${_LATEST_TAG} from GitHub..."
-            rm -f "/tmp/claude-cli-${_OS}-${_ARCH}"
-            gh release download "$_LATEST_TAG" --repo "$_GH_REPO" --pattern "claude-cli-${_OS}-${_ARCH}" --dir /tmp 2>/dev/null || true
-            if [ -s "/tmp/claude-cli-${_OS}-${_ARCH}" ]; then
-                mv -f "/tmp/claude-cli-${_OS}-${_ARCH}" ~/.claude/bin/claude-cli
-                chmod +x ~/.claude/bin/claude-cli
-                if $IS_MACOS; then
-                  codesign -s - ~/.claude/bin/claude-cli 2>/dev/null || true
-                fi
-                echo "   ✅ Downloaded ~/.claude/bin/claude-cli (${_OS}/${_ARCH}) — $(~/.claude/bin/claude-cli version)"
-            else
-                echo "   ⚠️  Download failed — build manually: cd cli && go build -ldflags=\"-s -w\" -o claude-cli-${_OS}-${_ARCH} ."
-            fi
-        else
-            echo "   ⚠️  No GitHub release found"
-            echo "   To build: cd cli && go build -ldflags=\"-s -w\" -o claude-cli-${_OS}-${_ARCH} ."
-        fi
-    else
-        echo "   ⚠️  gh CLI not found and no local binary — install gh or build manually"
-        echo "   To build: cd cli && go build -ldflags=\"-s -w\" -o claude-cli-${_OS}-${_ARCH} ."
-    fi
-fi
-
-# Ensure ~/.claude/bin is in PATH
-if [ -n "$SHELL_RC" ]; then
-    if ! grep -q 'claude/bin' "$SHELL_RC" 2>/dev/null; then
-        echo 'export PATH="$HOME/.claude/bin:$PATH"' >> "$SHELL_RC"
-        echo "   Added ~/.claude/bin to PATH in $SHELL_RC"
-    fi
-fi
-
-# ============================================================================
-# 6. COPY TEMPLATES
-# ============================================================================
-
-echo "📦 Copying templates..."
-if [ -d "$SCRIPT_DIR/templates" ]; then
-    cp -rf "$SCRIPT_DIR/templates/." ~/.claude/templates/
-    chmod +x ~/.claude/templates/.githooks/commit-msg 2>/dev/null || true
-else
-    echo "   No templates directory found"
-fi
-
-# ============================================================================
-# 7. COPY CONFIG FILES
-# ============================================================================
-
-# Settings.json
-if [ -f "$SCRIPT_DIR/config/settings.json" ]; then
-    echo "📦 Copying settings..."
-    if [ -f ~/.claude/settings.json ]; then
-        if ! diff -q "$SCRIPT_DIR/config/settings.json" ~/.claude/settings.json > /dev/null 2>&1; then
-            echo "   Backing up existing settings to settings.json.bak.${TS}"
-            cp ~/.claude/settings.json ~/.claude/settings.json.bak."${TS}"
-        fi
-    fi
-    cp -f "$SCRIPT_DIR/config/settings.json" ~/.claude/settings.json
-fi
-
-# mcp.json
-if [ -f "$SCRIPT_DIR/config/mcp.json" ]; then
-    echo "📦 Copying MCP servers config..."
-    if [ -f ~/.claude/mcp.json ]; then
-        if ! diff -q "$SCRIPT_DIR/config/mcp.json" ~/.claude/mcp.json > /dev/null 2>&1; then
-            echo "   Backing up existing mcp.json to mcp.json.bak.${TS}"
-            cp ~/.claude/mcp.json ~/.claude/mcp.json.bak."${TS}"
-        fi
-    fi
-    cp -f "$SCRIPT_DIR/config/mcp.json" ~/.claude/mcp.json
-    chmod 600 ~/.claude/mcp.json 2>/dev/null || true
-
-    # Remove macOS-only MCP servers on non-macOS systems
-    if [ "$(uname)" != "Darwin" ] && command -v python3 &> /dev/null; then
-        python3 - <<'PY'
-import json
-from pathlib import Path
-
-cfg_path = Path.home() / '.claude' / 'mcp.json'
-if not cfg_path.exists():
-    raise SystemExit(0)
-
-config = json.loads(cfg_path.read_text())
-servers = config.get('mcpServers', {})
-macos_only = ['herd', 'browsermcp']
-removed = [s for s in macos_only if s in servers]
-for s in removed:
-    del servers[s]
-if removed:
-    cfg_path.write_text(json.dumps(config, indent=4) + "\n")
-PY
-        [ $? -eq 0 ] && echo "   Removed macOS-only MCP servers (herd, browsermcp) on Linux"
-    fi
-fi
-
-# Statusline — Go binary is primary, bash script is fallback
-if [ -f ~/.claude/bin/claude-cli ]; then
-    echo "📦 Statusline: using claude-cli statusline (Go binary)"
-    # Remove legacy bash statusline if Go binary is available
-    rm -f ~/.claude/statusline.sh 2>/dev/null
-elif [ -f "$SCRIPT_DIR/config/statusline.sh" ]; then
-    echo "📦 Copying statusline (bash fallback — no claude-cli binary)..."
-    cp -f "$SCRIPT_DIR/config/statusline.sh" ~/.claude/statusline.sh
-    chmod +x ~/.claude/statusline.sh
-    # Override settings.json statusLine to use bash fallback
-    if command -v python3 &> /dev/null && [ -f ~/.claude/settings.json ]; then
+    # Remove audit hook from settings.json
+    if [ -f "$INSTALL_DIR/settings.json" ]; then
+      if grep -q 'bravros audit' "$INSTALL_DIR/settings.json" 2>/dev/null; then
+        # Remove the entire PreToolUse hook block containing bravros audit
         python3 -c "
 import json
 from pathlib import Path
 p = Path.home() / '.claude' / 'settings.json'
 cfg = json.loads(p.read_text())
-cfg['statusLine'] = {'type': 'command', 'command': '\$HOME/.claude/statusline.sh'}
+hooks = cfg.get('hooks', {})
+ptu = hooks.get('PreToolUse', [])
+hooks['PreToolUse'] = [h for h in ptu if 'bravros audit' not in json.dumps(h)]
+if not hooks['PreToolUse']:
+    del hooks['PreToolUse']
+# Remove SessionStart bravros update hook
+ss = hooks.get('SessionStart', [])
+hooks['SessionStart'] = [h for h in ss if 'bravros update' not in json.dumps(h)]
+if not hooks['SessionStart']:
+    del hooks['SessionStart']
+cfg['hooks'] = hooks
+# Remove statusLine if it references bravros
+sl = cfg.get('statusLine', {})
+if isinstance(sl, dict) and 'bravros' in sl.get('command', ''):
+    del cfg['statusLine']
+p.write_text(json.dumps(cfg, indent=2) + '\n')
+" 2>/dev/null || true
+        ok "Removed audit hook and statusLine from settings.json"
+      fi
+    fi
+
+    # Remove PATH entry from shell RC
+    if [ -n "$SHELL_RC" ] && [ -f "$SHELL_RC" ]; then
+      if grep -q '# Bravros' "$SHELL_RC" 2>/dev/null; then
+        sed_inplace '/# Bravros/d' "$SHELL_RC"
+        sed_inplace '/\.claude\/bin/d' "$SHELL_RC"
+        ok "Removed PATH entry from $SHELL_RC"
+      fi
+    fi
+  else
+    info "Would remove: $BIN_DIR/bravros"
+    info "Would remove: ${#BRAVROS_SKILLS[@]} skills from $SKILLS_DIR"
+    info "Would remove: audit hook and statusLine from settings.json"
+    info "Would remove: PATH entry from $SHELL_RC"
+  fi
+
+  printf "\n"
+  ok "Bravros has been uninstalled."
+  exit 0
+fi
+
+# ============================================================================
+# PHASE 4: BLUEPRINT MIGRATION DETECTION
+# ============================================================================
+
+if [ -d "$HOME/.blueprint" ]; then
+  step "Blueprint installation detected"
+
+  MIGRATE=true
+  if [ -t 0 ]; then
+    printf "  Migrate to Bravros? [Y/n] "
+    read -r answer </dev/tty 2>/dev/null || answer="y"
+    case "$answer" in
+      [nN]*) MIGRATE=false ;;
+    esac
+  else
+    info "Pipe mode — auto-migrating from Blueprint"
+  fi
+
+  if $MIGRATE && ! $DRY_RUN; then
+    # Remove Blueprint directory
+    rm -rf "$HOME/.blueprint"
+    ok "Removed ~/.blueprint/"
+
+    # Remove Blueprint skills
+    BP_SKILLS=("bp-branch" "bp-commit" "bp-context" "bp-push" "bp-ship" "bp-status" "bp-tdd-review" "bp-test")
+    for s in "${BP_SKILLS[@]}"; do
+      rm -rf "$SKILLS_DIR/$s" 2>/dev/null || true
+    done
+    ok "Removed Blueprint skills"
+
+    # Replace blueprint audit hook with bravros in settings.json
+    if [ -f "$INSTALL_DIR/settings.json" ] && grep -q 'blueprint' "$INSTALL_DIR/settings.json" 2>/dev/null; then
+      sed_inplace 's/blueprint audit/bravros audit/g' "$INSTALL_DIR/settings.json"
+      sed_inplace 's/blueprint statusline/bravros statusline/g' "$INSTALL_DIR/settings.json"
+      sed_inplace 's/blueprint selfupdate/bravros selfupdate/g' "$INSTALL_DIR/settings.json"
+      ok "Migrated settings.json hooks from blueprint to bravros"
+    fi
+
+    # Remove .blueprint/bin PATH from shell RC
+    if [ -n "$SHELL_RC" ] && [ -f "$SHELL_RC" ]; then
+      if grep -q '\.blueprint/bin' "$SHELL_RC" 2>/dev/null; then
+        sed_inplace '/\.blueprint\/bin/d' "$SHELL_RC"
+        ok "Removed Blueprint PATH from $SHELL_RC"
+      fi
+    fi
+
+    info "Blueprint removed — continuing Bravros install"
+  elif $DRY_RUN; then
+    info "Would remove ~/.blueprint/ and migrate settings"
+  fi
+fi
+
+# ============================================================================
+# PHASE 5: DIRECTORY SETUP
+# ============================================================================
+
+step "Setting up directories"
+
+DIRS=("$BIN_DIR" "$SKILLS_DIR" "$TEMPLATES_DIR" "$INSTALL_DIR/hooks" "$INSTALL_DIR/scripts" "$INSTALL_DIR/cache")
+
+if ! $DRY_RUN; then
+  for d in "${DIRS[@]}"; do
+    mkdir -p "$d"
+  done
+  ok "Created directory structure"
+
+  # Clean up deprecated artifacts
+  DEPRECATED_SKILLS=("criar-campanha" "mcp-builder" "prepare4kaisser" "linear-init")
+  RENAMED_SKILLS=("flow-auto" "flow-auto-wt" "batch-flow")
+  FIRECRAWL_VARIANTS=("firecrawl-agent" "firecrawl-browser" "firecrawl-crawl" "firecrawl-download" "firecrawl-map" "firecrawl-scrape" "firecrawl-search")
+  BP_LEGACY=("bp-branch" "bp-commit" "bp-context" "bp-push" "bp-ship" "bp-status" "bp-tdd-review" "bp-test")
+
+  cleaned=0
+  for s in "${DEPRECATED_SKILLS[@]}" "${RENAMED_SKILLS[@]}" "${FIRECRAWL_VARIANTS[@]}" "${BP_LEGACY[@]}"; do
+    if [ -d "$SKILLS_DIR/$s" ]; then
+      rm -rf "$SKILLS_DIR/$s"
+      cleaned=$((cleaned + 1))
+    fi
+  done
+
+  # Remove deprecated directories
+  for d in commands agents references; do
+    if [ -d "$INSTALL_DIR/$d" ]; then
+      rm -rf "$INSTALL_DIR/$d"
+      cleaned=$((cleaned + 1))
+    fi
+  done
+
+  # Remove deprecated files
+  rm -f "$INSTALL_DIR/AGENTS.md" 2>/dev/null || true
+  rm -f "$INSTALL_DIR/hooks/audit.py" 2>/dev/null || true
+
+  # Remove stale .venv dirs in skills
+  find "$SKILLS_DIR" -name ".venv" -type d -exec rm -rf {} + 2>/dev/null || true
+
+  if [ "$cleaned" -gt 0 ]; then
+    ok "Cleaned $cleaned deprecated artifacts"
+  fi
+else
+  info "Would create: ${DIRS[*]}"
+  info "Would clean deprecated artifacts"
+fi
+
+# ============================================================================
+# PHASE 6: BINARY DOWNLOAD & INSTALL
+# ============================================================================
+
+step "Installing bravros binary"
+
+install_binary() {
+  local target="$BIN_DIR/bravros"
+
+  if [ "$INSTALL_MODE" = "local" ]; then
+    # Local mode — try multiple known locations
+    local src=""
+    if [ -f "$SCRIPT_DIR/bin/bravros" ]; then
+      src="$SCRIPT_DIR/bin/bravros"
+    elif [ -f "$SCRIPT_DIR/cli/${BINARY_NAME}" ]; then
+      src="$SCRIPT_DIR/cli/${BINARY_NAME}"
+    elif [ -f "$SCRIPT_DIR/bin/${BINARY_NAME}" ]; then
+      src="$SCRIPT_DIR/bin/${BINARY_NAME}"
+    fi
+    if [ -n "$src" ]; then
+      cp -f "$src" "$target"
+      chmod +x "$target"
+      ok "Installed binary from local build (${OS}/${ARCH})"
+    else
+      warn "Local binary not found in bin/ or cli/"
+      warn "Build with: cd cli && go build -ldflags=\"-s -w\" -o ../bin/bravros ."
+      return 1
+    fi
+  else
+    # Remote mode — try gh first, fallback to curl
+    local tmp="/tmp/${BINARY_NAME}"
+    rm -f "$tmp"
+
+    if command -v gh &>/dev/null; then
+      info "Downloading via gh CLI..."
+      if gh release download --repo "$GITHUB_REPO" --pattern "$BINARY_NAME" --dir /tmp 2>/dev/null; then
+        if [ -s "$tmp" ]; then
+          mv -f "$tmp" "$target"
+          chmod +x "$target"
+          ok "Downloaded binary via gh (${OS}/${ARCH})"
+          return 0
+        fi
+      fi
+      warn "gh download failed — falling back to curl"
+    fi
+
+    # Fallback: curl from GitHub API
+    info "Downloading via curl..."
+    local download_url
+    download_url=$(curl -fsSL "$GITHUB_API" 2>/dev/null | \
+      grep -o "\"browser_download_url\": *\"[^\"]*${BINARY_NAME}\"" | \
+      head -1 | \
+      grep -o 'https://[^"]*' || true)
+
+    if [ -n "$download_url" ]; then
+      curl -fSL --progress-bar -o "$tmp" "$download_url"
+      if [ -s "$tmp" ]; then
+        mv -f "$tmp" "$target"
+        chmod +x "$target"
+        ok "Downloaded binary via curl (${OS}/${ARCH})"
+      else
+        err "Download produced empty file"
+        return 1
+      fi
+    else
+      err "Could not find release asset: $BINARY_NAME"
+      warn "Ensure a release exists at https://github.com/${GITHUB_REPO}/releases"
+      return 1
+    fi
+  fi
+}
+
+if ! $DRY_RUN; then
+  install_binary || true
+
+  # macOS ad-hoc codesign
+  if [ "$OS" = "darwin" ] && [ -f "$BIN_DIR/bravros" ]; then
+    codesign -s - "$BIN_DIR/bravros" 2>/dev/null || true
+  fi
+
+  # Verify binary
+  if [ -x "$BIN_DIR/bravros" ]; then
+    _ver=$("$BIN_DIR/bravros" --version 2>/dev/null || echo "installed (version check unavailable)")
+    ok "Binary: $_ver"
+  else
+    warn "Binary installed but not executable"
+  fi
+
+  # Add to PATH
+  if [ -n "$SHELL_RC" ]; then
+    if ! grep -q '\.claude/bin' "$SHELL_RC" 2>/dev/null; then
+      printf '\n# Bravros\nexport PATH="$HOME/.claude/bin:$PATH"\n' >> "$SHELL_RC"
+      ok "Added ~/.claude/bin to PATH in $SHELL_RC"
+    fi
+  fi
+  export PATH="$HOME/.claude/bin:$PATH"
+else
+  info "Would install binary: $BINARY_NAME → $BIN_DIR/bravros"
+  info "Would add ~/.claude/bin to PATH in $SHELL_RC"
+fi
+
+# ============================================================================
+# PHASE 7: SKILLS DEPLOYMENT
+# ============================================================================
+
+step "Installing skills"
+
+if ! $DRY_RUN; then
+  if [ "$INSTALL_MODE" = "local" ] && [ -d "$SCRIPT_DIR/skills" ]; then
+    count=0
+    total=$(find "$SCRIPT_DIR/skills" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
+
+    for item in "$SCRIPT_DIR/skills/"*/; do
+      [ -d "$item" ] || continue
+      name=$(basename "$item")
+      count=$((count + 1))
+      printf "\r  Installing skill %d/%d: %-30s" "$count" "$total" "$name"
+      cp -rf "$item" "$SKILLS_DIR/"
+    done
+    printf "\r%80s\r" ""  # clear line
+
+    # Remove macOS-only skills on Linux
+    if [ "$OS" = "linux" ]; then
+      rm -rf "$SKILLS_DIR/obsidian-setup" 2>/dev/null || true
+      rm -rf "$SKILLS_DIR/ha-mac-unlock" 2>/dev/null || true
+      info "Skipped macOS-only skills on Linux"
+    fi
+
+    ok "Installed ${count} skills to $SKILLS_DIR"
+
+  elif [ "$INSTALL_MODE" = "remote" ]; then
+    info "Downloading skills tarball..."
+    local_tmp="/tmp/bravros-skills-$$.tar.gz"
+    rm -f "$local_tmp"
+
+    downloaded=false
+    if command -v gh &>/dev/null; then
+      if gh release download --repo "$GITHUB_REPO" --pattern "skills.tar.gz" --dir /tmp 2>/dev/null; then
+        mv -f /tmp/skills.tar.gz "$local_tmp" 2>/dev/null || true
+        downloaded=true
+      fi
+    fi
+
+    if ! $downloaded; then
+      skills_url=$(curl -fsSL "$GITHUB_API" 2>/dev/null | \
+        grep -o '"browser_download_url": *"[^"]*skills\.tar\.gz"' | \
+        head -1 | \
+        grep -o 'https://[^"]*' || true)
+      if [ -n "$skills_url" ]; then
+        curl -fSL --progress-bar -o "$local_tmp" "$skills_url"
+        downloaded=true
+      fi
+    fi
+
+    if $downloaded && [ -s "$local_tmp" ]; then
+      tmpdir="/tmp/bravros-skills-$$"
+      mkdir -p "$tmpdir"
+      tar -xzf "$local_tmp" -C "$tmpdir" 2>/dev/null
+      if [ -d "$tmpdir/skills" ]; then
+        cp -rf "$tmpdir/skills/"* "$SKILLS_DIR/" 2>/dev/null || true
+      else
+        cp -rf "$tmpdir/"* "$SKILLS_DIR/" 2>/dev/null || true
+      fi
+      rm -rf "$tmpdir" "$local_tmp"
+
+      # Remove macOS-only skills on Linux
+      if [ "$OS" = "linux" ]; then
+        rm -rf "$SKILLS_DIR/obsidian-setup" 2>/dev/null || true
+        rm -rf "$SKILLS_DIR/ha-mac-unlock" 2>/dev/null || true
+      fi
+
+      skill_count=$(find "$SKILLS_DIR" -maxdepth 2 -name 'SKILL.md' 2>/dev/null | wc -l | tr -d ' ')
+      ok "Installed ${skill_count} skills from release tarball"
+    else
+      warn "Could not download skills tarball — skills not installed"
+    fi
+  else
+    warn "No skills source found"
+  fi
+else
+  info "Would install skills from $INSTALL_MODE source"
+fi
+
+# ============================================================================
+# PHASE 8: TEMPLATES DEPLOYMENT
+# ============================================================================
+
+step "Installing templates"
+
+if ! $DRY_RUN; then
+  if [ "$INSTALL_MODE" = "local" ] && [ -d "$SCRIPT_DIR/templates" ]; then
+    cp -rf "$SCRIPT_DIR/templates/." "$TEMPLATES_DIR/"
+    chmod +x "$TEMPLATES_DIR/.githooks/commit-msg" 2>/dev/null || true
+    chmod +x "$TEMPLATES_DIR/.githooks/pre-push" 2>/dev/null || true
+    ok "Templates installed (git hooks, GitHub Actions, CLAUDE.md, scaffold)"
+  elif [ "$INSTALL_MODE" = "remote" ]; then
+    # Templates are bundled in the skills tarball or in the binary
+    info "Templates: included in release tarball (already extracted)"
+    chmod +x "$TEMPLATES_DIR/.githooks/commit-msg" 2>/dev/null || true
+    chmod +x "$TEMPLATES_DIR/.githooks/pre-push" 2>/dev/null || true
+  else
+    warn "No templates source found"
+  fi
+else
+  info "Would install templates to $TEMPLATES_DIR"
+fi
+
+# ============================================================================
+# PHASE 9: SETTINGS.JSON CONFIGURATION
+# ============================================================================
+
+step "Configuring settings.json"
+
+configure_settings() {
+  local settings="$INSTALL_DIR/settings.json"
+
+  if [ -f "$settings" ]; then
+    # Backup
+    cp "$settings" "${settings}.bak.${TS}"
+    info "Backed up settings.json"
+
+    # Granular merge using python3 (idempotent)
+    python3 -c "
+import json
+from pathlib import Path
+
+p = Path.home() / '.claude' / 'settings.json'
+cfg = json.loads(p.read_text())
+
+# Ensure env block
+cfg.setdefault('env', {})
+cfg['env'].setdefault('CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS', '1')
+
+# Ensure permissions block
+if 'permissions' not in cfg:
+    cfg['permissions'] = {
+        'allow': [
+            'Bash(git add:*)',
+            'Bash(git push:*)',
+            'mcp__sequential-thinking__sequentialthinking',
+            '/commit'
+        ],
+        'deny': [],
+        'ask': [],
+        'defaultMode': 'dontAsk'
+    }
+
+# Ensure hooks
+cfg.setdefault('hooks', {})
+
+# PreToolUse audit hook
+ptu = cfg['hooks'].get('PreToolUse', [])
+has_bravros_audit = any('bravros audit' in json.dumps(h) for h in ptu)
+has_blueprint_audit = any('blueprint audit' in json.dumps(h) for h in ptu)
+
+if has_blueprint_audit and not has_bravros_audit:
+    # Replace blueprint with bravros
+    for h in ptu:
+        s = json.dumps(h)
+        if 'blueprint audit' in s:
+            s = s.replace('blueprint audit', 'bravros audit')
+            idx = ptu.index(h)
+            ptu[idx] = json.loads(s)
+    cfg['hooks']['PreToolUse'] = ptu
+elif not has_bravros_audit:
+    ptu.append({
+        'matcher': '.*',
+        'hooks': [{
+            'type': 'command',
+            'command': '\$HOME/.claude/bin/bravros audit'
+        }]
+    })
+    cfg['hooks']['PreToolUse'] = ptu
+
+# SessionStart update hook
+ss = cfg['hooks'].get('SessionStart', [])
+has_bravros_update = any('bravros update' in json.dumps(h) for h in ss)
+if not has_bravros_update:
+    ss.append({
+        'hooks': [{
+            'type': 'command',
+            'command': '\$HOME/.claude/bin/bravros update'
+        }]
+    })
+    cfg['hooks']['SessionStart'] = ss
+
+# StatusLine — always set to bravros (replaces claude-cli and blueprint)
+sl = cfg.get('statusLine', {})
+if not isinstance(sl, dict) or 'bravros' not in sl.get('command', ''):
+    cfg['statusLine'] = {
+        'type': 'command',
+        'command': '\$HOME/.claude/bin/bravros statusline'
+    }
+
+# Replace claude-cli selfupdate with bravros update in existing SessionStart
+for entry in cfg['hooks'].get('SessionStart', []):
+    entry['hooks'] = [h for h in entry.get('hooks', []) if 'claude-cli selfupdate' not in h.get('command', '')]
+cfg['hooks']['SessionStart'] = [e for e in cfg['hooks'].get('SessionStart', []) if e.get('hooks')]
+
 p.write_text(json.dumps(cfg, indent=2) + '\n')
 " 2>/dev/null
-        echo "   Updated settings.json to use bash fallback"
-    fi
+    ok "Merged settings.json (idempotent)"
+
+  else
+    # Create fresh settings.json
+    cat > "$settings" <<'SETTINGS'
+{
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(git add:*)",
+      "Bash(git push:*)",
+      "mcp__sequential-thinking__sequentialthinking",
+      "/commit"
+    ],
+    "deny": [],
+    "ask": [],
+    "defaultMode": "dontAsk"
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/bravros audit"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/bravros update"
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "$HOME/.claude/bin/bravros statusline"
+  }
+}
+SETTINGS
+    ok "Created settings.json"
+  fi
+}
+
+if ! $DRY_RUN; then
+  configure_settings
+else
+  info "Would configure settings.json with audit hook and statusLine"
 fi
 
-# CLAUDE.md (global instructions)
-if [ -f "$SCRIPT_DIR/CLAUDE.md" ]; then
-    echo "📦 Copying global instructions..."
-    if [ -f ~/.claude/CLAUDE.md ]; then
-        if ! diff -q "$SCRIPT_DIR/CLAUDE.md" ~/.claude/CLAUDE.md > /dev/null 2>&1; then
-            echo "   Backing up existing CLAUDE.md to CLAUDE.md.bak.${TS}"
-            cp ~/.claude/CLAUDE.md ~/.claude/CLAUDE.md.bak."${TS}"
-        fi
-    fi
-    cp -f "$SCRIPT_DIR/CLAUDE.md" ~/.claude/CLAUDE.md
-fi
-
-
 # ============================================================================
-# 8. DETECT HERD NVM AND PATCH MCP.JSON NPX PATHS
+# PHASE 10: MCP SERVER REGISTRATION
 # ============================================================================
 
-HERD_NPX=""
+step "Registering MCP servers"
 
-echo "🔍 Detecting Node.js path..."
-HERD_NODE_DIR="$HOME/Library/Application Support/Herd/config/nvm/versions/node"
-if [ -d "$HERD_NODE_DIR" ]; then
-    export HERD_NODE_DIR
-    if command -v python3 &> /dev/null; then
-        HERD_NPX=$(python3 - <<'PY'
-import os
-import re
-from pathlib import Path
+register_mcp() {
+  local mcp_file="$INSTALL_DIR/mcp.json"
 
-root = Path(os.environ.get('HERD_NODE_DIR', ''))
-if not root.is_dir():
-    raise SystemExit(0)
-
-candidates = list(root.glob('*/bin/npx'))
-def key(p: Path):
-    # Parse version-like segments into a sortable tuple: v20.11.0 -> (20,11,0)
-    s = p.parts[-3]  # version dir name
-    nums = [int(x) for x in re.findall(r'\d+', s)]
-    return (nums + [0, 0, 0])[:3]
-
-if not candidates:
-    raise SystemExit(0)
-
-best = sorted(candidates, key=key)[-1]
-print(str(best))
-PY
-)
-    else
-        # Fallback: pick the last match (best-effort)
-        HERD_NPX=$(find "$HERD_NODE_DIR" -name "npx" -path "*/bin/npx" 2>/dev/null | tail -1)
+  # Check if already registered
+  if [ -f "$mcp_file" ]; then
+    has_context7=$(grep -c '"context7"' "$mcp_file" 2>/dev/null || echo "0")
+    has_seqthink=$(grep -c '"sequential-thinking"' "$mcp_file" 2>/dev/null || echo "0")
+    if [ "$has_context7" -gt 0 ] && [ "$has_seqthink" -gt 0 ]; then
+      ok "MCP servers already registered (Context7 + Sequential Thinking)"
+      return 0
     fi
-    if [ -n "$HERD_NPX" ]; then
-        echo "   Found Herd NVM npx: $HERD_NPX"
-        if command -v python3 &> /dev/null; then
-            HERD_NPX="$HERD_NPX" python3 - <<'PY'
+  fi
+
+  # Backup if exists
+  if [ -f "$mcp_file" ]; then
+    cp "$mcp_file" "${mcp_file}.bak.${TS}"
+  fi
+
+  # Try claude mcp add-json first
+  local used_claude=false
+  if command -v claude &>/dev/null; then
+    if ! grep -q '"context7"' "$mcp_file" 2>/dev/null; then
+      claude mcp add-json context7 '{"command":"npx","args":["-y","@upstash/context7-mcp"]}' 2>/dev/null && used_claude=true || true
+    fi
+    if ! grep -q '"sequential-thinking"' "$mcp_file" 2>/dev/null; then
+      claude mcp add-json sequential-thinking '{"command":"npx","args":["-y","@modelcontextprotocol/server-sequential-thinking"]}' 2>/dev/null || true
+    fi
+  fi
+
+  # Fallback: write mcp.json directly
+  if [ ! -f "$mcp_file" ] || { ! grep -q '"context7"' "$mcp_file" 2>/dev/null && ! grep -q '"sequential-thinking"' "$mcp_file" 2>/dev/null; }; then
+    if [ -f "$mcp_file" ] && python3 -c "import json" 2>/dev/null; then
+      # Merge into existing
+      python3 -c "
 import json
-import os
 from pathlib import Path
 
-cfg_path = Path.home() / '.claude' / 'mcp.json'
-if not cfg_path.exists():
-    raise SystemExit(0)
+p = Path.home() / '.claude' / 'mcp.json'
+if p.exists():
+    cfg = json.loads(p.read_text())
+else:
+    cfg = {}
 
-herd_npx = os.environ.get('HERD_NPX', '').strip()
-if not herd_npx:
-    raise SystemExit(0)
+servers = cfg.setdefault('mcpServers', {})
 
-config = json.loads(cfg_path.read_text())
-for _, server in (config.get('mcpServers') or {}).items():
-    if server.get('command') == 'npx':
-        server['command'] = herd_npx
-cfg_path.write_text(json.dumps(config, indent=4) + "\n")
-PY
-            echo "   Updated mcp.json npx paths to Herd NVM"
-        else
-            echo "   ⚠️  python3 not found — mcp.json uses generic 'npx' (update manually if needed)"
-        fi
-    fi
-elif command -v npx &> /dev/null; then
-    echo "   Using system npx: $(which npx)"
-else
-    echo "   ⚠️  npx not found — MCP servers that use npx won't work until Node.js is installed"
-fi
+if 'context7' not in servers:
+    servers['context7'] = {
+        'command': 'npx',
+        'args': ['-y', '@upstash/context7-mcp']
+    }
 
-# Sign in to 1Password (establishes session for all subsequent op calls)
-if command -v op &> /dev/null; then
-    if ! op whoami &>/dev/null; then
-        if $IS_MACOS; then
-          echo "🔐 Signing in to 1Password (Touch ID)..."
-        else
-          echo "🔐 Signing in to 1Password..."
-        fi
-        op signin 2>/dev/null || true
-    fi
-fi
+if 'sequential-thinking' not in servers:
+    servers['sequential-thinking'] = {
+        'command': 'npx',
+        'args': ['-y', '@modelcontextprotocol/server-sequential-thinking']
+    }
 
-# Inject Context7 API key from 1Password into mcp.json
-if command -v op &> /dev/null; then
-    C7_KEY=$(op read "op://HomeLab/Context7 Api Key/password" 2>/dev/null || true)
-    if [ -n "$C7_KEY" ] && command -v python3 &> /dev/null; then
-        C7_KEY="$C7_KEY" python3 - <<'PY'
-import json, os
-from pathlib import Path
-
-cfg_path = Path.home() / '.claude' / 'mcp.json'
-if not cfg_path.exists():
-    raise SystemExit(0)
-
-key = os.environ.get('C7_KEY', '').strip()
-if not key:
-    raise SystemExit(0)
-
-config = json.loads(cfg_path.read_text())
-c7 = (config.get('mcpServers') or {}).get('context7')
-if c7:
-    c7.setdefault('env', {})['CONTEXT7_API_KEY'] = key
-    cfg_path.write_text(json.dumps(config, indent=4) + "\n")
-PY
-        echo "   Injected Context7 API key from 1Password"
-    fi
-fi
-
-# ============================================================================
-# 9. INSTALL FIRECRAWL CLI (web scraping)
-# ============================================================================
-
-echo "📦 Checking Firecrawl CLI..."
-if command -v firecrawl &> /dev/null; then
-    echo "   Firecrawl already installed: $(firecrawl --version 2>/dev/null | head -1 || echo 'available')"
-else
-    if command -v npm &> /dev/null; then
-        echo "   Installing firecrawl-cli..."
-        npm install -g firecrawl-cli@1.8.0 2>/dev/null && echo "   Firecrawl CLI installed" || echo "   ⚠️  Install failed — run: npm install -g firecrawl-cli@1.8.0"
-    elif [ -n "$HERD_NPX" ]; then
-        NPM_BIN="$(dirname "$HERD_NPX")/npm"
-        if [ -f "$NPM_BIN" ]; then
-            echo "   Installing firecrawl-cli via Herd npm..."
-            "$NPM_BIN" install -g firecrawl-cli@1.8.0 2>/dev/null && echo "   Firecrawl CLI installed" || echo "   ⚠️  Install failed — run: npm install -g firecrawl-cli@1.8.0"
-        fi
+p.write_text(json.dumps(cfg, indent=4) + '\n')
+" 2>/dev/null
     else
-        echo "   ⚠️  npm not found — install Node.js first, then: npm install -g firecrawl-cli@1.8.0"
+      # Create fresh
+      cat > "$mcp_file" <<'MCP'
+{
+    "mcpServers": {
+        "context7": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "@upstash/context7-mcp"
+            ]
+        },
+        "sequential-thinking": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "@modelcontextprotocol/server-sequential-thinking"
+            ]
+        }
+    }
+}
+MCP
     fi
+  fi
+
+  chmod 600 "$mcp_file" 2>/dev/null || true
+  ok "MCP servers registered (Context7 + Sequential Thinking)"
+}
+
+if ! $DRY_RUN; then
+  register_mcp
+else
+  info "Would register MCP servers: Context7, Sequential Thinking"
 fi
 
 # ============================================================================
-# 10. INSTALL UV (Python package manager)
+# PHASE 11.5: POST-INSTALL VERIFICATION
 # ============================================================================
 
-echo "📦 Checking UV (Astral)..."
-if command -v uv &> /dev/null; then
-    echo "   UV already installed: $(uv --version)"
-else
-    echo "   Installing UV..."
-    curl -LsSf https://astral.sh/uv/install.sh | sh 2>/dev/null
-    if [ -f "$HOME/.local/bin/uv" ]; then
-        echo "   UV installed: $($HOME/.local/bin/uv --version)"
-        echo "   Add to PATH: export PATH=\"\$HOME/.local/bin:\$PATH\""
+if ! $DRY_RUN; then
+  step "Verifying installation"
+
+  _verify_ok=true
+
+  # Check binary
+  if [ -x "$BIN_DIR/bravros" ]; then
+    ok "Binary: $BIN_DIR/bravros"
+  else
+    warn "Binary missing or not executable"
+    _verify_ok=false
+  fi
+
+  # Check settings.json is valid JSON
+  if [ -f "$INSTALL_DIR/settings.json" ]; then
+    if python3 -c "import json; json.load(open('$INSTALL_DIR/settings.json'))" 2>/dev/null; then
+      ok "settings.json: valid JSON"
     else
-        echo "   ⚠️  UV install failed — hooks and scripts need UV. Install manually: https://docs.astral.sh/uv/"
+      warn "settings.json: invalid JSON — may need manual fix"
+      _verify_ok=false
     fi
-fi
+  else
+    warn "settings.json: missing"
+    _verify_ok=false
+  fi
 
-# ============================================================================
-# 11. PYTHON DEPENDENCIES
-# ============================================================================
-
-# Python dependencies are handled inline by each script via `uv run --script`.
-# No venv or pip install needed — uv caches dependencies automatically.
-# Scripts using this pattern: quick_validate.py (audit.py + sdlc.py removed — pure Go via claude-cli)
-echo "📦 Python dependencies: managed inline by uv (no pip install needed)"
-
-# ============================================================================
-# 11a. ENSURE PIPX IS AVAILABLE
-# ============================================================================
-
-echo "📦 Checking pipx..."
-if command -v pipx &> /dev/null; then
-    echo "   pipx already installed"
-else
-    echo "   pipx not found — installing..."
-    if [[ "$OSTYPE" == "linux"* ]] && command -v apt &> /dev/null; then
-        sudo apt install -y pipx 2>/dev/null && pipx ensurepath 2>/dev/null && echo "   pipx installed via apt" || echo "   ⚠️  pipx install failed — run: sudo apt install pipx"
-    elif command -v brew &> /dev/null; then
-        brew install pipx 2>/dev/null && pipx ensurepath 2>/dev/null && echo "   pipx installed via brew" || echo "   ⚠️  pipx install failed — run: brew install pipx"
+  # Check MCP config
+  if [ -f "$INSTALL_DIR/mcp.json" ]; then
+    if python3 -c "import json; json.load(open('$INSTALL_DIR/mcp.json'))" 2>/dev/null; then
+      ok "mcp.json: valid JSON"
     else
-        echo "   ⚠️  Cannot auto-install pipx — install manually: https://pipx.pypa.io/stable/installation/"
+      warn "mcp.json: invalid JSON — may need manual fix"
+      _verify_ok=false
     fi
-    # Refresh PATH so pipx is available for subsequent installs
-    export PATH="$HOME/.local/bin:$PATH"
+  fi
+
+  # Check key hooks are wired
+  if grep -q 'bravros audit' "$INSTALL_DIR/settings.json" 2>/dev/null; then
+    ok "Audit hook: wired"
+  else
+    warn "Audit hook: missing from settings.json"
+    _verify_ok=false
+  fi
+
+  if grep -q 'bravros update' "$INSTALL_DIR/settings.json" 2>/dev/null; then
+    ok "Auto-update hook: wired"
+  else
+    warn "Auto-update hook: missing from settings.json"
+    _verify_ok=false
+  fi
+
+  if grep -q 'bravros statusline' "$INSTALL_DIR/settings.json" 2>/dev/null; then
+    ok "Status line: wired"
+  else
+    warn "Status line: missing from settings.json"
+    _verify_ok=false
+  fi
+
+  # Check PATH
+  if echo "$PATH" | tr ':' '\n' | grep -q '.claude/bin'; then
+    ok "PATH: ~/.claude/bin is in PATH"
+  else
+    warn "PATH: ~/.claude/bin not in PATH — run: source ~/${_shell_name:-".zshrc"}"
+  fi
+
+  if $_verify_ok; then
+    ok "All checks passed"
+  fi
 fi
 
 # ============================================================================
-# 11b. INSTALL HASS-CLI (Home Assistant)
+# PHASE 12: POST-INSTALL SUMMARY & ACTIVATION PROMPT
 # ============================================================================
 
-echo "📦 Checking hass-cli..."
-if command -v hass-cli &> /dev/null; then
-    echo "   hass-cli already installed: $(hass-cli --version 2>/dev/null | head -1 || echo 'available')"
+step "Installation complete"
+
+if ! $DRY_RUN; then
+  _skill_count=$(find "$SKILLS_DIR" -maxdepth 2 -name 'SKILL.md' 2>/dev/null | wc -l | tr -d ' ')
+  _bin_version=$("$BIN_DIR/bravros" version 2>/dev/null || echo "installed (restart shell)")
 else
-    if command -v pipx &> /dev/null; then
-        echo "   Installing hass-cli via pipx..."
-        pipx install homeassistant-cli 2>/dev/null && echo "   hass-cli installed" || echo "   ⚠️  Install failed — run: pipx install homeassistant-cli"
-    else
-        echo "   ⚠️  pipx not found — install pipx first, then run: pipx install homeassistant-cli"
-    fi
+  _skill_count="(dry run)"
+  _bin_version="(dry run)"
 fi
 
-# ============================================================================
-# 11c. INSTALL NOTEBOOKLM-PY (Google NotebookLM)
-# ============================================================================
+_shell_name=$(basename "${SHELL_RC:-unknown}")
 
-echo "📦 Checking notebooklm-py..."
-if command -v notebooklm &> /dev/null; then
-    echo "   notebooklm already installed: $(notebooklm --version 2>/dev/null | head -1 || echo 'available')"
-    # Skip 'notebooklm skill install' — repo SKILL.md is the source of truth
-    # (the CLI's bundled version may be older than the repo's)
-    echo "   notebooklm skill: using repo version (source of truth)"
-else
-    if command -v pipx &> /dev/null; then
-        echo "   Installing notebooklm-py via pipx..."
-        pipx install notebooklm-py 2>/dev/null && echo "   notebooklm-py installed" || echo "   ⚠️  Install failed — run: pipx install notebooklm-py"
-        # Install Playwright chromium browser for notebooklm login
-        if command -v notebooklm &> /dev/null; then
-            echo "   Installing Playwright chromium for notebooklm login..."
-            pipx inject notebooklm-py playwright 2>/dev/null || true
-            pipx runpip notebooklm-py install playwright 2>/dev/null || true
-            # Install chromium browser using the venv's playwright
-            NOTEBOOKLM_VENV="$HOME/.local/share/pipx/venvs/notebooklm-py"
-            if [ -f "$NOTEBOOKLM_VENV/bin/playwright" ]; then
-                "$NOTEBOOKLM_VENV/bin/playwright" install chromium 2>/dev/null && echo "   Playwright chromium installed" || echo "   ⚠️  Playwright chromium install failed — run: playwright install chromium"
-            elif command -v playwright &> /dev/null; then
-                playwright install chromium 2>/dev/null && echo "   Playwright chromium installed" || true
-            fi
-            # Skip 'notebooklm skill install' on fresh install too — repo SKILL.md already copied above
-            echo "   notebooklm skill: using repo version (source of truth)"
-        fi
-    else
-        echo "   ⚠️  pipx not found — install pipx first, then run: pipx install notebooklm-py"
-    fi
-fi
+printf "\n"
+printf "  ${_BOLD}${_CYAN}┌──────────────────────────────────────────────┐${_RESET}\n"
+printf "  ${_BOLD}${_CYAN}│${_RESET}  ${_BOLD}Bravros${_RESET} installed successfully            ${_BOLD}${_CYAN}│${_RESET}\n"
+printf "  ${_BOLD}${_CYAN}├──────────────────────────────────────────────┤${_RESET}\n"
+printf "  ${_BOLD}${_CYAN}│${_RESET}  Version:  %-33s ${_BOLD}${_CYAN}│${_RESET}\n" "$_bin_version"
+printf "  ${_BOLD}${_CYAN}│${_RESET}  Skills:   %-33s ${_BOLD}${_CYAN}│${_RESET}\n" "$_skill_count"
+printf "  ${_BOLD}${_CYAN}│${_RESET}  Platform: %-33s ${_BOLD}${_CYAN}│${_RESET}\n" "${OS}/${ARCH}"
+printf "  ${_BOLD}${_CYAN}│${_RESET}  Mode:     %-33s ${_BOLD}${_CYAN}│${_RESET}\n" "$INSTALL_MODE"
+printf "  ${_BOLD}${_CYAN}└──────────────────────────────────────────────┘${_RESET}\n"
 
-# Inject Home Assistant token from 1Password into shell rc
-if command -v op &> /dev/null; then
-    HA_TOKEN=$(op item get "HomeAssistant Long Live Token" --vault "HomeLab" --fields label=password --reveal 2>/dev/null || true)
-    if [ -n "$HA_TOKEN" ] && [ -n "$SHELL_RC" ]; then
-        if ! grep -q 'HASS_SERVER' "$SHELL_RC" 2>/dev/null; then
-            cat >> "$SHELL_RC" <<HAEOF
-
-# -----------------------------------------------
-# Home Assistant API Configuration
-# -----------------------------------------------
-export HASS_SERVER="http://homeassistant.local:8123"
-export HASS_TOKEN="$HA_TOKEN"
-HAEOF
-            echo "   Home Assistant: HASS_SERVER, HASS_TOKEN added to $SHELL_RC"
-        else
-            echo "   Home Assistant: env vars already in $SHELL_RC"
-        fi
-    elif [ -z "$HA_TOKEN" ]; then
-        echo "   ⚠️  Could not read HA token from 1Password (HomeLab/HomeAssistant Long Live Token)"
-    fi
-fi
-
-# ============================================================================
-# 12. SETUP CHANNELS
-# ============================================================================
-
-echo "📦 Setting up channels..."
-mkdir -p ~/.claude/channels/telegram/approved
-
-if [ -f "$SCRIPT_DIR/channels/telegram/access.json" ]; then
-    cp -f "$SCRIPT_DIR/channels/telegram/access.json" ~/.claude/channels/telegram/access.json
-    echo "   Telegram channel: access.json copied"
-fi
-
-# Inject Telegram Bot Token from 1Password
-if command -v op &> /dev/null; then
-    TG_TOKEN=$(op read "op://HomeLab/Telegram Bot Token/password" 2>/dev/null || true)
-    if [ -n "$TG_TOKEN" ]; then
-        echo "TELEGRAM_BOT_TOKEN=$TG_TOKEN" > ~/.claude/channels/telegram/.env
-        chmod 600 ~/.claude/channels/telegram/.env
-        echo "   Telegram channel: bot token injected from 1Password"
-    else
-        echo "   ⚠️  Could not read Telegram Bot Token from 1Password"
-    fi
-else
-    echo "   ⚠️  1Password CLI not found — create ~/.claude/channels/telegram/.env manually"
-fi
-
-# Setup telegram relay proxy
-if [ -d "$SCRIPT_DIR/channels/telegram/relay" ]; then
-    mkdir -p ~/.claude/telegram
-    cp -f "$SCRIPT_DIR/channels/telegram/relay/"*.ts "$SCRIPT_DIR/channels/telegram/relay/package.json" "$SCRIPT_DIR/channels/telegram/relay/bun.lock" ~/.claude/telegram/ 2>/dev/null
-    echo "   Telegram relay: proxy files copied"
-fi
-
-# Copy telegram-patch hook
-if [ -f "$SCRIPT_DIR/hooks/telegram-patch.sh" ]; then
-    cp -f "$SCRIPT_DIR/hooks/telegram-patch.sh" ~/.claude/hooks/
-    chmod +x ~/.claude/hooks/telegram-patch.sh
-    echo "   Telegram hook: telegram-patch.sh copied"
-fi
-
-# Add clauddt alias to the appropriate shell rc file
-if $IS_MACOS; then
-    TELEGRAM_DIR="$HOME/Sites/claude-telegram"
-else
-    TELEGRAM_DIR="$HOME/claude-telegram"
-fi
-
+printf "\n"
+printf "  ${_BOLD}Next steps:${_RESET}\n"
 if [ -n "$SHELL_RC" ]; then
-    if ! grep -q 'alias clauddt=' "$SHELL_RC" 2>/dev/null; then
-        echo "" >> "$SHELL_RC"
-        echo '# Claude Code with Telegram channel' >> "$SHELL_RC"
-        echo "alias clauddt=\"cd $TELEGRAM_DIR && claude --dangerously-skip-permissions --channels plugin:telegram@claude-plugins-official\"" >> "$SHELL_RC"
-        echo "   Added 'clauddt' alias to $SHELL_RC"
-    else
-        echo "   'clauddt' alias already in $SHELL_RC"
-    fi
-else
-    echo "   ⚠️  No .zshrc or .bashrc found — add 'clauddt' alias manually"
+  printf "  ${_DIM}1.${_RESET} source ~/%s\n" "$_shell_name"
+fi
+printf "  ${_DIM}2.${_RESET} bravros --version\n"
+printf "  ${_DIM}3.${_RESET} ${_BOLD}${_MAGENTA}bravros activate${_RESET} — license and unlock features\n"
+printf "  ${_DIM}4.${_RESET} cd ~/your-project && /start\n"
+
+printf "\n"
+printf "  ${_BOLD}${_GREEN}▶ Run \`bravros activate\` to get started${_RESET}\n"
+
+# Star on GitHub (TTY only)
+if [ -t 0 ] && ! $DRY_RUN; then
+  printf "\n"
+  printf "  Star Bravros on GitHub? [Y/n] "
+  read -r star_answer </dev/tty 2>/dev/null || star_answer="n"
+  case "$star_answer" in
+    [nN]*) ;;
+    *)
+      if [ "$OS" = "darwin" ]; then
+        open "https://github.com/bravros/bravros" 2>/dev/null || true
+      else
+        xdg-open "https://github.com/bravros/bravros" 2>/dev/null || true
+      fi
+      ;;
+  esac
 fi
 
-# ============================================================================
-# 13. INSTALL PLUGINS
-# ============================================================================
-
-echo "📦 Installing plugins..."
-REQUIRED_PLUGINS=("ralph-loop" "telegram")
-for plugin in "${REQUIRED_PLUGINS[@]}"; do
-    if command -v claude &> /dev/null; then
-        if [ -f ~/.claude/plugins/installed_plugins.json ] && grep -q "\"$plugin@" ~/.claude/plugins/installed_plugins.json 2>/dev/null; then
-            echo "   $plugin: already installed"
-        else
-            echo "   Installing $plugin plugin..."
-            claude plugins install "$plugin" 2>/dev/null && echo "   $plugin: installed" || echo "   $plugin: install failed (run 'claude plugins install $plugin' manually)"
-        fi
-    else
-        echo "   Skipped (claude CLI not found). Run 'claude plugins install $plugin' after installing Claude Code."
-    fi
-done
-
-# Fix plugin script permissions (hooks/scripts may lack +x after install)
-if [ -d ~/.claude/plugins ]; then
-    if $IS_LINUX; then
-      fixed=$(find ~/.claude/plugins -name "*.sh" ! -perm /111 -exec chmod +x {} + 2>/dev/null && echo "done")
-    else
-      fixed=$(find ~/.claude/plugins -name "*.sh" ! -perm +111 -exec chmod +x {} + 2>/dev/null && echo "done")
-    fi
-    echo "   Fixed plugin script permissions"
-fi
-
-# ============================================================================
-# 14. VERIFICATION AND SUMMARY
-# ============================================================================
-
-echo ""
-echo "✅ Installation complete!"
-echo ""
-echo "Installed:"
-echo "  OS:           $(uname -s) ($(uname -m))"
-echo "  Skills:       $(find ~/.claude/skills -name 'SKILL.md' 2>/dev/null | wc -l | tr -d ' ') skills (references bundled inside)"
-echo "  CLI:          $(~/.claude/bin/claude-cli version 2>/dev/null || echo 'Not installed')"
-echo "  Hooks:        $(ls ~/.claude/hooks/*.py ~/.claude/hooks/*.sh 2>/dev/null | wc -l | tr -d ' ') files"
-echo "  Scripts:      $(ls ~/.claude/scripts/*.py ~/.claude/scripts/*.sh 2>/dev/null | wc -l | tr -d ' ') files (claude-cli + helpers)"
-echo "  Templates:    $([ -d ~/.claude/templates ] && echo 'Yes' || echo 'No')"
-echo "  Statusline:   $(~/.claude/bin/claude-cli statusline --help >/dev/null 2>&1 && echo 'Go binary' || ([ -f ~/.claude/statusline.sh ] && echo 'Bash fallback' || echo 'No'))"
-echo "  Settings:     $([ -f ~/.claude/settings.json ] && echo 'Yes' || echo 'No')"
-echo "  MCP Servers:  $([ -f ~/.claude/mcp.json ] && echo 'Yes' || echo 'No')"
-echo "  CLAUDE.md:    $([ -f ~/.claude/CLAUDE.md ] && echo 'Yes' || echo 'No')"
-echo "  UV:           $(command -v uv &>/dev/null && uv --version || echo 'Not installed')"
-echo "  Linear:       Via GitHub integration (no API key needed)"
-echo "  Plugins:      ralph-loop, telegram"
-echo "  Channels:     $([ -f ~/.claude/channels/telegram/.env ] && echo 'telegram ✅' || echo 'telegram ⚠️ (no .env)')"
-
-echo ""
-echo "🎯 Skill Workflow:"
-echo ""
-echo "  Quick tasks:   /quick <task>"
-echo "  Backlog:       /backlog add <idea> → /backlog promote N → /plan"
-echo "  Full workflow: /backlog → /plan → /plan-review → /plan-approved → /plan-check → /pr → /review → /address-pr → /finish → /complete"
-echo ""
-echo "  Core Skills:"
-echo "    /backlog        Capture feature ideas (pre-planning backlog)"
-echo "    /quick          Small fixes, 1-3 files, no plan overhead"
-echo "    /plan           Create branch + plan (default, no worktree)"
-echo "    /plan-wt        Create worktree + branch + plan (isolated)"
-echo "    /plan-review    Pre-flight: assign models, decide execution strategy"
-echo "    /plan-approved  Execute plan phase-by-phase with teams"
-echo "    /plan-check     Audit plan vs actual implementation"
-echo "    /pr             Create PR with comprehensive description"
-echo "    /review         Trigger @claude review on GitHub PR"
-echo "    /address-pr     Fetch PR review feedback and implement fixes"
-echo "    /finish         Merge PR to base branch"
-echo "    /complete       Cleanup worktree + branches"
-echo "    /ship           Commit + push in one go"
-echo "    /commit         Commit with emoji format"
-echo "    /test           Create Pest tests"
-echo "    /run-tests      Run targeted tests"
-echo "    /coverage       Analyze test coverage"
-echo "    /context        Generate CLAUDE.md files for project directories"
-echo "    /start          Init new project (GitHub Actions + hooks)"
-echo "    /sync           Sync ~/.claude changes to portable repo"
-echo "    /branch         Create feature branch"
-echo ""
-echo "  Design & Research:"
-echo "    /excalidraw-diagram  Generate Excalidraw diagrams (architecture, workflows)"
-echo "    /laravel-db-diagram  ER diagrams from Laravel migrations"
-echo "    /firecrawl           Web scraping router (scrape/search/crawl/map/browser)"
-echo "    /yt-search           Search YouTube with structured results (yt-dlp, no API key)"
-echo ""
-echo ""
-echo "  Content Generation:"
-echo "    /notebooklm          Google NotebookLM: notebooks, podcasts, videos, reports, quizzes"
-echo ""
-echo "  Automation:"
-echo "    /n8n                 Create, manage, and execute n8n workflows (hybrid mode)"
-echo ""
-echo "  Network & Home:"
-echo "    /unifi               Manage UniFi devices, clients, DHCP, firmware (local API + 1Password)"
-echo "    claude-cli ha say    TTS to Alexa Echo devices via Home Assistant (studio/sala/suite/banheiro/gourmet/todos)"
-echo ""
-echo "  Deployment:"
-echo "    /cf-pages-deploy     Deploy static sites to Cloudflare Pages (+ custom domains)"
-echo ""
-
-# ============================================================================
-# CHECK 1PASSWORD CLI
-# ============================================================================
-
-if command -v op &> /dev/null; then
-    if $IS_MACOS; then
-      echo "🔐 1Password CLI: available (secrets fetched at runtime via Touch ID)"
-    else
-      echo "🔐 1Password CLI: available (secrets fetched at runtime)"
-    fi
-    echo "   Skills using 1Password: /unifi (Unifi Claude Api), /n8n (n8n api key), /firecrawl (FireCrawl Api), Context7 MCP (Context7 Api Key), Telegram (Telegram Bot Token), Home Assistant (HA Long Live Token)"
-else
-    echo "⚠️  1Password CLI (op) not found — skills that use secrets will run in offline mode"
-    echo "   Install: https://developer.1password.com/docs/cli/get-started/"
-fi
-
-echo ""
-echo "⚠️  Notes:"
-echo "  - Herd MCP path is macOS-specific — edit ~/.claude/mcp.json if needed"
-echo "  - Run 'claude plugins install ralph-loop' if plugin install was skipped"
-echo "  - Skills replace the old commands system — all commands are now skills"
-if $IS_LINUX; then
-    echo "  - Skipped macOS-only items: obsidian-setup skill, ha-mac-unlock scripts"
-fi
-echo ""
-echo "Happy coding! 🎯"
+printf "\n"
+printf "  Happy shipping! 🚀\n"
+printf "\n"
