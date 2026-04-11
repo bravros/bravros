@@ -451,12 +451,25 @@ func downloadTarball() (string, error) {
 	// Try gh CLI first (handles private repo auth automatically)
 	ghPath, ghErr := exec.LookPath("gh")
 	if ghErr == nil {
+		// Use --output only (--dir and --output are mutually exclusive in gh)
 		cmd := exec.Command(ghPath, "release", "download", "--repo", "bravros/bravros",
-			"--pattern", "skills.tar.gz", "--dir", filepath.Dir(tmp.Name()),
-			"--output", tmp.Name(), "--clobber")
-		if err := cmd.Run(); err == nil {
+			"--pattern", "skills.tar.gz", "--output", tmp.Name(), "--clobber")
+		if out, err := cmd.CombinedOutput(); err == nil {
 			info, _ := os.Stat(tmp.Name())
 			if info != nil && info.Size() > 0 {
+				return tmp.Name(), nil
+			}
+		} else {
+			// skills.tar.gz asset may not exist in the release — try repo archive fallback
+			_ = out
+		}
+
+		// Fallback: download source archive via gh api and use skills/ from the repo tree
+		cmd = exec.Command(ghPath, "api", "repos/bravros/bravros/tarball",
+			"--header", "Accept: application/vnd.github+json")
+		archiveData, err := cmd.Output()
+		if err == nil && len(archiveData) > 0 {
+			if writeErr := os.WriteFile(tmp.Name(), archiveData, 0644); writeErr == nil {
 				return tmp.Name(), nil
 			}
 		}
@@ -489,7 +502,9 @@ func downloadTarball() (string, error) {
 }
 
 // extractSkillFromTarball extracts a single skill directory from a tarball.
-// It looks for entries under skills/<name>/ in the tar archive.
+// It handles two tarball formats:
+//   - Release asset: entries under skills/<name>/
+//   - Repo archive:  entries under <repo-prefix>/skills/<name>/ (strip first component)
 func extractSkillFromTarball(tarballPath, skillName string) error {
 	f, err := os.Open(tarballPath)
 	if err != nil {
@@ -504,7 +519,7 @@ func extractSkillFromTarball(tarballPath, skillName string) error {
 	defer gz.Close()
 
 	tr := tar.NewReader(gz)
-	prefix := "skills/" + skillName + "/"
+	suffix := "skills/" + skillName + "/"
 	destDir := paths.SkillsDir()
 	found := false
 
@@ -517,13 +532,17 @@ func extractSkillFromTarball(tarballPath, skillName string) error {
 			return fmt.Errorf("tar error: %w", err)
 		}
 
-		// Match entries under skills/<name>/
-		if !strings.HasPrefix(header.Name, prefix) {
+		// Find the skills/<name>/ portion in the path.
+		// Release tarballs: "skills/<name>/..."
+		// Repo archives:    "<prefix>/skills/<name>/..."
+		idx := strings.Index(header.Name, suffix)
+		if idx < 0 {
 			continue
 		}
 
 		found = true
-		relPath := strings.TrimPrefix(header.Name, "skills/")
+		// relPath is "<name>/..." (relative to the skills dir)
+		relPath := header.Name[idx+len("skills/"):]
 		targetPath := filepath.Join(destDir, relPath)
 
 		// Prevent path traversal
@@ -550,7 +569,7 @@ func extractSkillFromTarball(tarballPath, skillName string) error {
 	}
 
 	if !found {
-		return fmt.Errorf("skill '%s' not found in release tarball", skillName)
+		return fmt.Errorf("skill '%s' not found in tarball", skillName)
 	}
 	return nil
 }
