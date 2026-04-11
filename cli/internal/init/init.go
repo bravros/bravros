@@ -7,7 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/bravros/private/internal/stack"
+	"github.com/bravros/bravros/internal/stack"
 )
 
 // InitOpts configures the init behavior.

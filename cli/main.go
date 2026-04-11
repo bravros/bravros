@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/bravros/private/cmd"
+	"github.com/bravros/bravros/cmd"
 )
 
 func main() {

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bravros/private/internal/config"
+	"github.com/bravros/bravros/internal/config"
 	"gopkg.in/yaml.v3"
 )
 

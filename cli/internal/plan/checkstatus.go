@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	gitpkg "github.com/bravros/private/internal/git"
+	gitpkg "github.com/bravros/bravros/internal/git"
 )
 
 // CheckStatusResult holds the result of a plan-check-status query.

@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bravros/private/internal/unifi"
+	"github.com/bravros/bravros/internal/unifi"
 	"github.com/spf13/cobra"
 )
 

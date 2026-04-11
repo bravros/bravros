@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bravros/private/internal/config"
-	gitpkg "github.com/bravros/private/internal/git"
-	"github.com/bravros/private/internal/plan"
+	"github.com/bravros/bravros/internal/config"
+	gitpkg "github.com/bravros/bravros/internal/git"
+	"github.com/bravros/bravros/internal/plan"
 	"github.com/spf13/cobra"
 )
 

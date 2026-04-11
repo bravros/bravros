@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bravros/private/internal/i18n"
+	"github.com/bravros/bravros/internal/i18n"
 )
 
 // Payload represents the tool call payload from the agent runner.

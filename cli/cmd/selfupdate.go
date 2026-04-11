@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/bravros/private/internal/paths"
+	"github.com/bravros/bravros/internal/paths"
 	"github.com/spf13/cobra"
 )
 

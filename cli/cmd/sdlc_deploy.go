@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/bravros/private/internal/deploy"
+	"github.com/bravros/bravros/internal/deploy"
 	"github.com/spf13/cobra"
 )
 

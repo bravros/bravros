@@ -9,7 +9,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/bravros/private/internal/ha"
+	"github.com/bravros/bravros/internal/ha"
 	"github.com/spf13/cobra"
 )
 

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	projectinit "github.com/bravros/private/internal/init"
+	projectinit "github.com/bravros/bravros/internal/init"
 	"github.com/spf13/cobra"
 )
 

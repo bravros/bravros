@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/bravros/private/internal/config"
+	"github.com/bravros/bravros/internal/config"
 )
 
 // MergePROpts configures the merge-pr operation.

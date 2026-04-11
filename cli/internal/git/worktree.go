@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/bravros/private/internal/config"
+	"github.com/bravros/bravros/internal/config"
 )
 
 // WorktreeOpts configures the worktree setup operation.

@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/bravros/private/internal/plan"
+	"github.com/bravros/bravros/internal/plan"
 	"github.com/spf13/cobra"
 )
 

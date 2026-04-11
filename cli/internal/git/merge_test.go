@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bravros/private/internal/config"
+	"github.com/bravros/bravros/internal/config"
 )
 
 // initTestRepo creates a temporary git repo with an initial commit.

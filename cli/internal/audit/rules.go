@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/bravros/private/internal/i18n"
+	"github.com/bravros/bravros/internal/i18n"
 )
 
 // Pre-compiled regex patterns for performance (hot path).

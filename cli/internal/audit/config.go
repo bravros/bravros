@@ -1,6 +1,6 @@
 package audit
 
-import "github.com/bravros/private/internal/config"
+import "github.com/bravros/bravros/internal/config"
 
 // Re-export for use within the audit package.
 // All new code should import internal/config directly.

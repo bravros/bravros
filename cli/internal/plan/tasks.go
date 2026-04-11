@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/bravros/private/internal/git"
+	"github.com/bravros/bravros/internal/git"
 )
 
 // TaskLine represents a single task line from a plan file.

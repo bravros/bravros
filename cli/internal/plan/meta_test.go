@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bravros/private/internal/config"
+	"github.com/bravros/bravros/internal/config"
 )
 
 func TestMetaResult_WithBravrosConfig(t *testing.T) {

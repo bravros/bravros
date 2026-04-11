@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/bravros/private/cmd"
+	"github.com/bravros/bravros/cmd"
 )
 
 func TestVersionIsSet(t *testing.T) {

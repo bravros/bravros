@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bravros/private/internal/config"
+	"github.com/bravros/bravros/internal/config"
 )
 
 // GetNextNumAtomic scans dir for the highest numbered file, picks next number,

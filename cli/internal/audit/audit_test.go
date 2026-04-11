@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bravros/private/internal/i18n"
+	"github.com/bravros/bravros/internal/i18n"
 )
 
 func TestMain(m *testing.M) {

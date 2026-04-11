@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/bravros/private/internal/ci"
+	"github.com/bravros/bravros/internal/ci"
 	"github.com/spf13/cobra"
 )
 

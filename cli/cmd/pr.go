@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/bravros/private/internal/github"
+	"github.com/bravros/bravros/internal/github"
 	"github.com/spf13/cobra"
 )
 

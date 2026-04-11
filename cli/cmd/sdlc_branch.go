@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	gitpkg "github.com/bravros/private/internal/git"
+	gitpkg "github.com/bravros/bravros/internal/git"
 	"github.com/spf13/cobra"
 )
 

@@ -3,7 +3,7 @@ package cmd
 import (
 	"os"
 
-	"github.com/bravros/private/internal/audit"
+	"github.com/bravros/bravros/internal/audit"
 	"github.com/spf13/cobra"
 )
 
