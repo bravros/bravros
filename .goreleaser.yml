@@ -1,0 +1,50 @@
+version: 2
+
+project_name: bravros
+
+builds:
+  - id: bravros
+    dir: cli
+    main: .
+    binary: bravros
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: linux
+        goarch: arm64
+    ldflags:
+      - -s -w -X main.Version={{.Version}}
+
+archives:
+  - id: bravros
+    format: tar.gz
+    name_template: "bravros-{{ .Os }}-{{ .Arch }}"
+
+checksum:
+  name_template: 'checksums.txt'
+
+release:
+  github:
+    owner: bravros
+    name: bravros
+
+brews:
+  - name: bravros
+    repository:
+      owner: bravros
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    homepage: "https://bravros.dev"
+    description: "Bravros — SDLC pipeline for Claude Code"
+    license: "Proprietary"
+    install: |
+      bin.install "bravros"
+    test: |
+      system "#{bin}/bravros", "version"

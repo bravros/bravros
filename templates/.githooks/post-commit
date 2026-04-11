@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# post-commit: placeholder for project-specific post-commit hooks.
+# Add custom logic here if needed.
+exit 0

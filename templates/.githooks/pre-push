@@ -1,0 +1,44 @@
+#!/bin/bash
+#
+# Git pre-push hook to prevent direct pushes to protected branches
+#
+# Protected branches:
+#   main — production only. Must go through homolog → main PR.
+#
+# Allowed direct pushes:
+#   homolog  — staging. Can push directly (plan commits, hotfixes, etc.)
+#   feature/* — always pushable directly
+#
+# Workflow: feature/* → homolog (direct or PR) → main (PR only)
+#
+
+BRANCH=$(git branch --show-current)
+
+# Colors for output
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+GREEN='\033[0;32m'
+NC='\033[0m' # No Color
+
+PROTECTED_BRANCHES=("main")
+
+for protected in "${PROTECTED_BRANCHES[@]}"; do
+    if [ "$BRANCH" = "$protected" ]; then
+        echo ""
+        echo -e "${RED}ERROR: Direct push to '${protected}' is not allowed!${NC}"
+        echo ""
+        echo -e "${YELLOW}Correct workflow:${NC}"
+        echo "  feature/* ──→ homolog (direct or PR) ──→ main (PR only)"
+        echo ""
+        echo "To deploy to production:"
+        echo "  1. Merge your feature to homolog (directly or via PR)"
+        echo "  2. Create a PR from homolog → main"
+        echo "  3. Merge that PR"
+        echo ""
+        echo -e "Use ${GREEN}/pr${NC} to create a pull request from homolog → main."
+        echo ""
+        exit 1
+    fi
+done
+
+exit 0
