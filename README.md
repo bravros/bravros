@@ -6,11 +6,13 @@ Bravros is a commercial CLI tool and Claude Code plugin that provides a complete
 
 ## Installation
 
+Requires [GitHub CLI](https://cli.github.com/) (`gh`) and repo access.
+
 ```bash
-curl -fsSL https://raw.githubusercontent.com/bravros/bravros/main/install.sh | bash
+gh release download --repo bravros/bravros --pattern 'install.sh' --dir /tmp && bash /tmp/install.sh
 ```
 
-> Requires repo access. Contact your admin for an invitation.
+> Don't have access? Contact your admin for a beta invitation.
 
 ## What you get
 
@@ -25,7 +27,7 @@ curl -fsSL https://raw.githubusercontent.com/bravros/bravros/main/install.sh | b
 
 ```bash
 # Install
-curl -fsSL https://raw.githubusercontent.com/bravros/bravros/main/install.sh | bash
+gh release download --repo bravros/bravros --pattern 'install.sh' --dir /tmp && bash /tmp/install.sh
 
 # Verify
 bravros version
@@ -47,7 +49,13 @@ bravros update --force
 ## Uninstall
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/bravros/bravros/main/install.sh | bash -s -- --uninstall
+bash install.sh --uninstall
+```
+
+Or download and run:
+
+```bash
+gh release download --repo bravros/bravros --pattern 'install.sh' --dir /tmp && bash /tmp/install.sh --uninstall
 ```
 
 ## License
