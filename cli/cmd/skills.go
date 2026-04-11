@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -439,24 +440,48 @@ func downloadAndExtractSkill(name string) error {
 }
 
 // downloadTarball fetches the skills tarball to a temporary file and returns its path.
+// It tries gh CLI first (handles private repo auth), then falls back to direct HTTP.
 func downloadTarball() (string, error) {
+	tmp, err := os.CreateTemp("", "bravros-skills-*.tar.gz")
+	if err != nil {
+		return "", err
+	}
+	tmp.Close()
+
+	// Try gh CLI first (handles private repo auth automatically)
+	ghPath, ghErr := exec.LookPath("gh")
+	if ghErr == nil {
+		cmd := exec.Command(ghPath, "release", "download", "--repo", "bravros/bravros",
+			"--pattern", "skills.tar.gz", "--dir", filepath.Dir(tmp.Name()),
+			"--output", tmp.Name(), "--clobber")
+		if err := cmd.Run(); err == nil {
+			info, _ := os.Stat(tmp.Name())
+			if info != nil && info.Size() > 0 {
+				return tmp.Name(), nil
+			}
+		}
+	}
+
+	// Fallback: direct HTTP (works for public repos or with GITHUB_TOKEN)
 	resp, err := http.Get(skillsTarballURL)
 	if err != nil {
+		os.Remove(tmp.Name())
 		return "", fmt.Errorf("download failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		os.Remove(tmp.Name())
 		return "", fmt.Errorf("download returned status %d", resp.StatusCode)
 	}
 
-	tmp, err := os.CreateTemp("", "bravros-skills-*.tar.gz")
+	f, err := os.Create(tmp.Name())
 	if err != nil {
 		return "", err
 	}
-	defer tmp.Close()
+	defer f.Close()
 
-	if _, err := io.Copy(tmp, resp.Body); err != nil {
+	if _, err := io.Copy(f, resp.Body); err != nil {
 		os.Remove(tmp.Name())
 		return "", err
 	}
