@@ -2,61 +2,63 @@
 
 **SDLC pipeline for Claude Code** — plan, build, test, deploy with confidence.
 
-Bravros is a commercial CLI tool and Claude Code plugin that provides a complete software development lifecycle pipeline. It includes 50+ slash commands (skills), a Go CLI binary for audit enforcement, and pre-configured templates for GitHub Actions, git hooks, and project setup.
+> **This is the distribution repository.** It contains the installer script, pre-built binaries, and release assets only. There is no source code here to clone or build — if you're looking for that, it lives in a private repo.
 
-## Installation
-
-Requires [GitHub CLI](https://cli.github.com/) (`gh`) and repo access.
+## Install
 
 ```bash
-gh release download --repo bravros/bravros --pattern 'install.sh' --dir /tmp && bash /tmp/install.sh
+curl -fsSL https://install.bravros.dev | sh
 ```
 
-> Don't have access? Contact your admin for a beta invitation.
-
-## What you get
-
-- **`bravros` CLI** — audit hooks, auto-update, status line, plan management
-- **50+ skills** — `/plan`, `/auto-pr`, `/finish`, `/debug`, `/test`, and more
-- **Git hooks** — commit message enforcement, pre-push checks
-- **GitHub Actions** — CI/CD, automated PR review via @claude
-- **MCP servers** — Context7 + Sequential Thinking auto-registered
-- **Auto-update** — checks for new versions on every session start
-
-## Quick start
+Or via Homebrew:
 
 ```bash
-# Install
-gh release download --repo bravros/bravros --pattern 'install.sh' --dir /tmp && bash /tmp/install.sh
-
-# Verify
-bravros version
-bravros skills list
-
-# Start a project
-cd ~/your-project
-/start
+brew install bravros/tap/bravros
 ```
 
-## Updating
+No `git clone` required. The installer downloads the correct binary for your platform, places it in your PATH, and sets up Claude Code integration.
 
-The CLI auto-checks for updates on every Claude Code session. To update manually:
+## Activation
+
+After installing, activate with your license key:
 
 ```bash
-bravros update --force
+bravros activate <your-license-key>
 ```
 
-## Uninstall
+Don't have a license key? Purchase or manage your subscription at **[bravros.dev](https://bravros.dev)**.
 
-```bash
-bash install.sh --uninstall
-```
+## How skills work
 
-Or download and run:
+Skills (slash commands like `/plan`, `/auto-pr`, `/commit`) are **not bundled in this repo**. They are fetched by the CLI from `app.bravros.dev` at activation time and kept up to date automatically on each Claude Code session start.
 
-```bash
-gh release download --repo bravros/bravros --pattern 'install.sh' --dir /tmp && bash /tmp/install.sh --uninstall
-```
+This means:
+
+- No skill files in this repo — nothing to leak or reverse-engineer from a clone.
+- Skills update silently when you're online, without re-running the installer.
+- Your license key controls which skills you have access to.
+
+## What this repo contains
+
+| File / Dir | Purpose |
+|---|---|
+| `install.sh` | Installer script (synced from private on each release) |
+| `config/` | MCP server configuration (`mcp.json`) and Claude Code settings |
+| `.goreleaser.yml` | GoReleaser stub (build runs in private, releases publish here) |
+| `LICENSE` | License terms |
+| `README.md` | This file |
+
+Releases on this repo contain signed binary tarballs and checksums. The installer verifies signatures before placing any binary on your system.
+
+## Verify an install
+
+The installer checks signatures automatically. For manual verification, see the signature files attached to each release and the public key published at [bravros.dev/security](https://bravros.dev/security).
+
+## Bug reports & support
+
+> **Issue tracker:** TBD — please contact support@bravros.dev in the meantime.
+
+This repo does not track development issues. For bugs in the CLI or skills, reach the team via the contact above.
 
 ## License
 
