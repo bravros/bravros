@@ -29,6 +29,23 @@ archives:
 checksum:
   name_template: 'checksums.txt'
 
+signs:
+  - artifacts: checksum
+    cmd: sh
+    args:
+      - "-c"
+      - |
+        set -e
+        trap 'rm -f /tmp/bravros.key' EXIT
+        # MINISIGN_SECRET_KEY is stored in GH Secrets as raw minisign format
+        # (untrusted comment: ... \n <base64-payload>). Write it straight — no outer base64.
+        printf '%s\n' "${MINISIGN_SECRET_KEY}" > /tmp/bravros.key
+        # minisign -W: no password (the key was generated with -W to skip the password prompt)
+        minisign -S -W -m "${artifact}" -s /tmp/bravros.key -t "bravros release"
+    signature: "${artifact}.minisig"
+    env:
+      - MINISIGN_SECRET_KEY
+
 release:
   github:
     owner: bravros
@@ -46,5 +63,18 @@ brews:
     license: "Proprietary"
     install: |
       bin.install "bravros"
+    custom_block: |
+      verify do
+        pubkey = <<~EOS
+          RWQqHlahq4RjNnCasO/8yMsgtLGfdHejILKMxxpsulIs1rII6IgMO26G
+        EOS
+        system Formula["minisign"].opt_bin/"minisign", "-Vm",
+               "#{HOMEBREW_PREFIX}/opt/bravros/checksums.txt",
+               "-P", pubkey.strip
+      end
+    caveats: |
+      Run `bravros activate <license-key>` to install skills, hooks, and configure Claude Code.
+      Visit https://app.bravros.dev for your license key.
     test: |
       system "#{bin}/bravros", "version"
+      assert_match "Bravros", shell_output("#{bin}/bravros version")
