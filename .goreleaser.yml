@@ -19,7 +19,10 @@ builds:
       - goos: linux
         goarch: arm64
     ldflags:
-      - -s -w -X main.Version={{.Version}}
+      # Version var lives in cmd package (see cli/cmd/root.go `var Version`).
+      # Prepend `v` so the print path (`strings.TrimPrefix(Version, "v")`)
+      # yields the right string and matches git tag conventions.
+      - -s -w -X github.com/bravros/private/cmd.Version=v{{.Version}}
 
 archives:
   - id: bravros
@@ -63,15 +66,10 @@ brews:
     license: "Proprietary"
     install: |
       bin.install "bravros"
-    custom_block: |
-      verify do
-        pubkey = <<~EOS
-          RWQqHlahq4RjNnCasO/8yMsgtLGfdHejILKMxxpsulIs1rII6IgMO26G
-        EOS
-        system Formula["minisign"].opt_bin/"minisign", "-Vm",
-               "#{HOMEBREW_PREFIX}/opt/bravros/checksums.txt",
-               "-P", pubkey.strip
-      end
+    # Note: no `custom_block: verify do ... end` — that stanza is not valid
+    # Homebrew DSL and broke `brew install` in v2.0.0. Signature verification
+    # lives in the `curl | sh` installer path (checksums.txt.minisig against
+    # the pinned minisign pubkey). Homebrew has no native minisign hook.
     caveats: |
       Run `bravros activate <license-key>` to install skills, hooks, and configure Claude Code.
       Visit https://app.bravros.dev for your license key.
