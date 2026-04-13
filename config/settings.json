@@ -1,0 +1,57 @@
+{
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(git add:*)",
+      "Bash(git push:*)",
+      "mcp__sequential-thinking__sequentialthinking",
+      "/commit"
+    ],
+    "deny": [],
+    "ask": [],
+    "defaultMode": "dontAsk"
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/bravros audit"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/telegram-patch.sh",
+            "async": true
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/bravros update --silent --skip-if-recent=6h"
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "$HOME/.claude/bin/bravros statusline"
+  },
+  "enabledPlugins": {
+    "ralph-loop@claude-plugins-official": true,
+    "skill-creator@claude-plugins-official": true,
+    "playground@claude-plugins-official": true,
+    "telegram@claude-plugins-official": true
+  },
+  "autoUpdatesChannel": "latest",
+  "voiceEnabled": true,
+  "skipDangerousModePermissionPrompt": true
+}

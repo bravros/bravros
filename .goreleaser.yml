@@ -1,0 +1,78 @@
+version: 2
+
+project_name: bravros
+
+builds:
+  - id: bravros
+    dir: cli
+    main: .
+    binary: bravros
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: linux
+        goarch: arm64
+    ldflags:
+      # Version var lives in cmd package (see cli/cmd/root.go `var Version`).
+      # Prepend `v` so the print path (`strings.TrimPrefix(Version, "v")`)
+      # yields the right string and matches git tag conventions.
+      - -s -w -X github.com/bravros/private/cmd.Version=v{{.Version}}
+
+archives:
+  - id: bravros
+    format: tar.gz
+    name_template: "bravros-{{ .Os }}-{{ .Arch }}"
+
+checksum:
+  name_template: 'checksums.txt'
+
+signs:
+  - artifacts: checksum
+    cmd: sh
+    args:
+      - "-c"
+      - |
+        set -e
+        trap 'rm -f /tmp/bravros.key' EXIT
+        # MINISIGN_SECRET_KEY is stored in GH Secrets as raw minisign format
+        # (untrusted comment: ... \n <base64-payload>). Write it straight — no outer base64.
+        printf '%s\n' "${MINISIGN_SECRET_KEY}" > /tmp/bravros.key
+        # minisign -W: no password (the key was generated with -W to skip the password prompt)
+        minisign -S -W -m "${artifact}" -s /tmp/bravros.key -t "bravros release"
+    signature: "${artifact}.minisig"
+    env:
+      - MINISIGN_SECRET_KEY
+
+release:
+  github:
+    owner: bravros
+    name: bravros
+
+brews:
+  - name: bravros
+    repository:
+      owner: bravros
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    homepage: "https://bravros.dev"
+    description: "Bravros — SDLC pipeline for Claude Code"
+    license: "Proprietary"
+    install: |
+      bin.install "bravros"
+    # Note: no `custom_block: verify do ... end` — that stanza is not valid
+    # Homebrew DSL and broke `brew install` in v2.0.0. Signature verification
+    # lives in the `curl | sh` installer path (checksums.txt.minisig against
+    # the pinned minisign pubkey). Homebrew has no native minisign hook.
+    caveats: |
+      Run `bravros activate <license-key>` to install skills, hooks, and configure Claude Code.
+      Visit https://app.bravros.dev for your license key.
+    test: |
+      system "#{bin}/bravros", "version"
+      assert_match "Bravros", shell_output("#{bin}/bravros version")
