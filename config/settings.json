@@ -6,6 +6,9 @@
     "allow": [
       "Bash(git add:*)",
       "Bash(git push:*)",
+      "Bash(php artisan:*)",
+      "Bash(vendor/bin/pint:*)",
+      "mcp__laravel-boost__tinker",
       "mcp__sequential-thinking__sequentialthinking",
       "/commit"
     ],
@@ -20,7 +23,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.claude/bin/bravros audit"
+            "command": "$HOME/.claude/bin/claude-cli audit"
           }
         ]
       }
@@ -35,7 +38,7 @@
           },
           {
             "type": "command",
-            "command": "$HOME/.claude/bin/bravros update --silent --skip-if-recent=6h"
+            "command": "$HOME/.claude/bin/claude-cli selfupdate"
           }
         ]
       }
@@ -43,12 +46,16 @@
   },
   "statusLine": {
     "type": "command",
-    "command": "$HOME/.claude/bin/bravros statusline"
+    "command": "$HOME/.claude/bin/claude-cli statusline"
   },
   "enabledPlugins": {
+    "swift-lsp@claude-plugins-official": true,
     "ralph-loop@claude-plugins-official": true,
     "skill-creator@claude-plugins-official": true,
     "playground@claude-plugins-official": true,
+    "expo-app-design@expo-plugins": true,
+    "upgrading-expo@expo-plugins": true,
+    "expo-deployment@expo-plugins": true,
     "telegram@claude-plugins-official": true
   },
   "autoUpdatesChannel": "latest",

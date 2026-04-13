@@ -75,4 +75,6 @@ brews:
       Visit https://app.bravros.dev for your license key.
     test: |
       system "#{bin}/bravros", "version"
-      assert_match "Bravros", shell_output("#{bin}/bravros version")
+      # Match the actual lowercase "bravros vX.Y.Z" emitted by `bravros version`.
+      # The previous "Bravros" (capital B) was case-sensitive and broke `brew test`.
+      assert_match(/^bravros v\d+\.\d+\.\d+/, shell_output("#{bin}/bravros version"))

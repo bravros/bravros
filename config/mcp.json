@@ -17,6 +17,12 @@
                 "CONTEXT7_API_KEY": "__OP_INJECT__"
             }
         },
+        "herd": {
+            "command": "php",
+            "args": [
+                "/Applications/Herd.app/Contents/Resources/herd-mcp.phar"
+            ]
+        },
         "sequential-thinking": {
             "command": "npx",
             "args": [
