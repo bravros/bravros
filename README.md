@@ -103,25 +103,15 @@ Or skip the steps and run the whole thing autonomously:
 
 ## 🏗️ How it works
 
-```
-┌──────────────┐   activate <license>   ┌────────────────────┐
-│  bravros CLI │  ─────────────────────►│  app.bravros.dev   │
-│  (~/.claude) │  ◄──── ES256 JWT ──────│  (license + R2)    │
-└──────┬───────┘                        └────────────────────┘
-       │
-       │ on every Claude Code session start
-       ▼
-┌──────────────┐  presigned URL  ┌────────────┐
-│ skills sync  │ ◄────────────── │  R2 bucket │
-└──────────────┘  (skill tarball)│ (signed +  │
-                                  │  cached)   │
-                                  └────────────┘
-```
+Bravros is a single Go binary that lives at `~/.claude/bin/bravros`. No Node, no Python, no runtime to manage — it just runs.
 
-- **CLI binary** is a single-file Go executable at `~/.claude/bin/bravros` — no runtime dependencies, no Node, no Python.
-- **Skills** live in R2, mediated by signed URLs from the license server. Updates happen silently in the background.
-- **License** is cached as an ES256 JWT at `~/.claude/.bravros-auth` (mode `0600`) — works offline for 30 days.
-- **Source code** of the CLI is in a private repo. Only signed binaries are published here.
+When you activate, it talks to `app.bravros.dev` once to verify your license and pull down the skills you have access to. After that, almost everything happens **on your machine**:
+
+- The CLI runs an **on-device audit** every time Claude Code is about to do something touchy — committing, pushing, calling a hook, executing a slash command. The audit lives entirely on your laptop. It enforces SDLC discipline (no AI-generated commit signatures, no unwanted writes to deployed config, plans staying on-path) and acts as a guardrail against the kind of hallucinations that creep in when an agent starts improvising.
+- **License + updates** are the only things that go over the network — a quick refresh of your cached license token and a check for newer skill versions (capped at once every 6 hours).
+- **Skills** download from Cloudflare R2 via short-lived signed URLs the moment you have new ones queued, then sit in `~/.claude/skills/` until you remove them.
+- **License token** is cached at `~/.claude/.bravros-auth` (mode `0600`) and is good for 30 days offline. Lose your network for a week — bravros keeps working.
+- **Source code** of the CLI lives in a private repo. Only signed binaries are published here, and the installer verifies the signature before placing anything on your system.
 
 ---
 
