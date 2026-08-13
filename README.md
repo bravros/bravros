@@ -103,6 +103,44 @@ idea you are not ready to act on.
 
 ---
 
+## 🧰 What you can do with it
+
+**Ship a change end to end**
+
+| | |
+|---|---|
+| `/recon` | Turn a bug report, screenshot, or feature idea into a reviewed dossier with phases and acceptance criteria |
+| `/scout` | Find the culprit and certify it with runtime proof — never edits code |
+| `/orchestrate` | Execute a dossier phase by phase, verifying each one before moving on |
+| `/quick` | Small contained fix, no ceremony |
+| `/commit` `/ship` `/push` | Formatted commits, enforced by hook rather than hope |
+| `/pr` `/pr-review` `/address-pr` `/local-review` | Open, review, and answer review feedback |
+| `/finish` `/promote` `/after-merge` | Merge, release to production behind a human gate, and run the post-deploy checklist |
+
+**Keep a repo healthy**
+
+| | |
+|---|---|
+| `/backlog` | Park ideas with enough structure to judge later |
+| `/triage-sweep` | Drain a stale issue and backlog queue, verifying every close against live code |
+| `/batch-merge-prs` `/prune-merged` | Land a queue of PRs, then clean up the branches |
+| `/doctor-plus` `/verify-install` | Health-check the toolkit and the workspace |
+| `/context` | Generate or audit `CLAUDE.md` / `AGENTS.md` from the actual code |
+| `/worktree` | Isolated worktrees with real provisioning |
+
+**Understand a codebase**
+
+| | |
+|---|---|
+| `/graphify-this-project` | Build a queryable knowledge graph of the code, committed and refreshed on merge |
+| `/graphify-status` | Report label coverage across every graph on the machine |
+| `/interview-me` | Stress-test a plan round by round until nothing is silently assumed |
+| `/advise-project-approach` | Stack and architecture advice grounded in real comparables |
+
+Add the category plugins for the rest, or ignore them. `bravros --help` lists the kernel verbs.
+
+---
+
 ## 🛠️ Why there is a CLI at all
 
 Most of the toolkit is prose, because a 2026 model sequences work better than a step list does.
@@ -194,17 +232,6 @@ source is public, you can also just build it yourself: `cd cli && go build .`
 
 Skills are authored **host-neutral**: no harness-specific tool names, no absolute paths. CI fails
 the build if one slips in, which is the only reason the same skill runs unchanged on four hosts.
-
----
-
-## ⬆️ Upgrading from v2.x
-
-Bravros used to be a paid product with licence keys, a dashboard, and a hosted API. That is gone —
-the licensing service, auth, database, and billing have all been decommissioned.
-
-**v2.x binaries and `bravros activate` no longer work.** There is no migration path and no upgrade
-in place: uninstall the old binary and install v0.1.0 above. Nothing carries over, and nothing is
-charged for any more.
 
 ---
 
