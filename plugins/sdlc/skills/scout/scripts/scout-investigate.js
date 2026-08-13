@@ -1,6 +1,6 @@
-// Reusable named workflow — the parallel-investigate + adversarial-certify engine of /root-cause.
-//   Workflow({ name: 'root-cause-investigate', args: {
-//     debug_dir: '.planning/debug/D-0007-orders-total-open',  // REQUIRED — the reserved D-NNNN dir (Step 2)
+// Reusable named workflow — the parallel-investigate + adversarial-certify engine of /scout.
+//   Workflow({ name: 'scout-investigate', args: {
+//     scout_dir: '.planning/debug/S-0007-orders-total-open',  // REQUIRED — the reserved S-NNNN dir (Step 2)
 //     bug: 'OrderService::total() returns the pre-discount total',  // the symptom under investigation
 //     category: 'unexpected-behavior',      // test-failure | runtime-error | unexpected-behavior | performance | integration
 //     stack: 'laravel',                     // framework / language string (detected from repo manifests)
@@ -10,7 +10,7 @@
 //     max_rounds: 3,                         // certify round cap (default 3)
 //   } })
 //
-// READ-ONLY end to end. Owns /root-cause Steps 4-6 ONLY: Step 4 (parallel verification agents),
+// READ-ONLY end to end. Owns /scout Steps 4-6 ONLY: Step 4 (parallel verification agents),
 // Step 5 (synthesize one falsifiable hypothesis), Step 6 (adversarially certify it with runtime
 // evidence, looping back to a fresh investigation round on refutation, capped at max_rounds).
 // The skill keeps Steps 1-3 (gate + reserve dir + leads) and Steps 7-8 (report + handoff) as prose.
@@ -18,21 +18,21 @@
 // Returns { rounds, certified, root_cause, confidence, hypothesis, certification, findings_files, notes }.
 // The caller writes diagnosis.md / report.md from this payload and drives the mandatory handoff.
 //
-// Each verification agent WRITES its findings file ($DEBUG_DIR/agent-N-findings.md) AND returns the
+// Each verification agent WRITES its findings file ($SCOUT_DIR/agent-N-findings.md) AND returns the
 // structured FINDINGS object — the file is the durable artifact, the object is what the workflow
 // synthesizes on. code-tracer -> agent-1, blast-radius-mapper -> agent-2, repro-verifier -> agent-3.
 
 export const meta = {
-  name: 'root-cause-investigate',
+  name: 'scout-investigate',
   description: 'Parallel verify of a bug lead list (code-tracer + blast-radius-mapper, +repro-verifier when a repro path exists) then adversarial runtime certify of one hypothesis, looping <=3 rounds. Read-only.',
-  whenToUse: 'Inside /root-cause Steps 4-6: verify leads against real source in parallel, synthesize one falsifiable root-cause hypothesis, and certify it with runtime evidence before any diagnosis is written — refuted hypotheses loop into a fresh round.',
+  whenToUse: 'Inside /scout Steps 4-6: verify leads against real source in parallel, synthesize one falsifiable scout hypothesis, and certify it with runtime evidence before any diagnosis is written — refuted hypotheses loop into a fresh round.',
   phases: [
     { title: 'Investigate', detail: 'code-tracer + blast-radius-mapper (always) + repro-verifier (when repro path exists), parallel, read-only; each writes agent-N-findings.md.' },
     { title: 'Certify', detail: 'one repro-verifier adversarially proves/refutes the synthesized hypothesis with runtime evidence; refutation carries into the next round (<=3).' },
   ],
 }
 
-const DEBUG_DIR = (args && args.debug_dir) || ''
+const SCOUT_DIR = (args && args.scout_dir) || ''
 const BUG = (args && args.bug) || ''
 const CATEGORY = (args && args.category) || 'unexpected-behavior'
 const STACK = (args && args.stack) || 'unknown'
@@ -41,9 +41,9 @@ const LEADS = (args && args.leads) || []
 const BOOST = !!(args && args.boost)
 const MAX_ROUNDS = (args && args.max_rounds) || 3
 
-if (!DEBUG_DIR || !BUG) {
-  log('root-cause-investigate: needs args:{debug_dir, bug, category, stack, repro?, leads:[{source,ref,note}], boost?, max_rounds?}')
-  return { rounds: 0, certified: false, root_cause: '', confidence: 'low', hypothesis: '', certification: '', findings_files: [], notes: 'missing debug_dir or bug' }
+if (!SCOUT_DIR || !BUG) {
+  log('scout-investigate: needs args:{scout_dir, bug, category, stack, repro?, leads:[{source,ref,note}], boost?, max_rounds?}')
+  return { rounds: 0, certified: false, root_cause: '', confidence: 'low', hypothesis: '', certification: '', findings_files: [], notes: 'missing scout_dir or bug' }
 }
 
 const leadBlock = LEADS.length
@@ -96,8 +96,8 @@ const ONE_SHOT_FINDINGS = `Return ONLY JSON. Example: {"agent":"code-tracer","an
 
 const ONE_SHOT_CERTIFY = `Return ONLY JSON. Example: {"certified":false,"proof_kind":"none","proof_transcript":"OrderTest::total passes after cache clear — hypothesis value never observed","refutation":"runtime state contradicts the predicted mechanism","residual_doubt":"","notes":""}`
 
-const readOnly = `HARD CONSTRAINTS (read-only investigation — the parent /root-cause skill is read-only by audit Rule 22):
-- NEVER modify, create, or delete application files. The ONLY files you may write are inside ${DEBUG_DIR}.
+const readOnly = `HARD CONSTRAINTS (read-only investigation — the parent /scout skill is read-only by audit Rule 22):
+- NEVER modify, create, or delete application files. The ONLY files you may write are inside ${SCOUT_DIR}.
 - Run only READ-ONLY commands: grep/find/ripgrep, git log/diff/blame, the test runner with a filter (to reproduce), a REPL/tinker/query (to inspect). NEVER run mutating commands — migrations, shared-cache clears, data writes, side-effecting job dispatch.
 - ${boostNote}
 - Do NOT spawn sub-agents. Do all the work yourself.`
@@ -105,7 +105,7 @@ const readOnly = `HARD CONSTRAINTS (read-only investigation — the parent /root
 const tracePrompt = (round, refutation) => `You are code-tracer (Agent A — Code Trace) verifying a bug in a ${STACK} project. Working dir is the repo root. Bug category: ${CATEGORY}.
 
 BUG: ${BUG}
-INVESTIGATION DIR: ${DEBUG_DIR}
+INVESTIGATION DIR: ${SCOUT_DIR}
 ${round > 1 ? '\nThis is investigation ROUND ' + round + '. A prior hypothesis was REFUTED by runtime evidence — do NOT re-tread it:\n' + refutation + '\nFind a DIFFERENT failure site.\n' : ''}
 LEAD LIST (candidates to verify against REAL source — never conclusions, each tagged by source):
 ${leadBlock}
@@ -114,12 +114,12 @@ Open the actual source for each lead and trace the real execution path entry poi
 
 ${readOnly}
 
-WRITE your findings to ${DEBUG_DIR}/agent-1-findings.md (leading with the ordered entry->fault call chain, then Leads Verified, then a single falsifiable Hypothesis with file:line + mechanism, then Suggested Fix Direction). THEN return the structured object: set findings_file='${DEBUG_DIR}/agent-1-findings.md', agent='code-tracer'. Code reading yields a hypothesis, not proof — fill would_certify with the runtime check that would PROVE it. Put the full call chain in notes.`
+WRITE your findings to ${SCOUT_DIR}/agent-1-findings.md (leading with the ordered entry->fault call chain, then Leads Verified, then a single falsifiable Hypothesis with file:line + mechanism, then Suggested Fix Direction). THEN return the structured object: set findings_file='${SCOUT_DIR}/agent-1-findings.md', agent='code-tracer'. Code reading yields a hypothesis, not proof — fill would_certify with the runtime check that would PROVE it. Put the full call chain in notes.`
 
 const blastPrompt = (round, refutation) => `You are blast-radius-mapper (Agent B — Call-Site & Blast Radius) for a bug in a ${STACK} project. Working dir is the repo root. Bug category: ${CATEGORY}.
 
 BUG: ${BUG}
-INVESTIGATION DIR: ${DEBUG_DIR}
+INVESTIGATION DIR: ${SCOUT_DIR}
 ${round > 1 ? '\nThis is investigation ROUND ' + round + '. A prior hypothesis was REFUTED:\n' + refutation + '\nWiden the search to call paths the refuted hypothesis ignored.\n' : ''}
 LEAD LIST (candidates to verify against REAL source — each tagged by source):
 ${leadBlock}
@@ -128,12 +128,12 @@ For each suspect symbol/function/file, find EVERY place that depends on it from 
 
 ${readOnly}
 
-WRITE your findings to ${DEBUG_DIR}/agent-2-findings.md (Direct Callers, Transitive Dependents, Shared State Touched, Risk Assessment, one falsifiable Hypothesis with file:line, Suggested Fix Direction). THEN return the structured object: set findings_file='${DEBUG_DIR}/agent-2-findings.md', agent='blast-radius-mapper'. Put the risk assessment + stale-graph notes in notes.`
+WRITE your findings to ${SCOUT_DIR}/agent-2-findings.md (Direct Callers, Transitive Dependents, Shared State Touched, Risk Assessment, one falsifiable Hypothesis with file:line, Suggested Fix Direction). THEN return the structured object: set findings_file='${SCOUT_DIR}/agent-2-findings.md', agent='blast-radius-mapper'. Put the risk assessment + stale-graph notes in notes.`
 
 const reproFindPrompt = (round, refutation) => `You are repro-verifier (Agent C — Reproduce & Runtime Evidence) for a bug in a ${STACK} project. Working dir is the repo root. Bug category: ${CATEGORY}.
 
 BUG: ${BUG}
-INVESTIGATION DIR: ${DEBUG_DIR}
+INVESTIGATION DIR: ${SCOUT_DIR}
 REPRODUCTION PATH: ${REPRO}
 ${round > 1 ? '\nThis is investigation ROUND ' + round + '. A prior hypothesis was REFUTED:\n' + refutation + '\nCapture the runtime values that distinguish the new candidate cause.\n' : ''}
 LEAD LIST (each tagged by source):
@@ -143,9 +143,9 @@ Make the bug ACTUALLY HAPPEN and capture concrete runtime values. Identify the s
 
 ${readOnly}
 
-WRITE your findings to ${DEBUG_DIR}/agent-3-findings.md (Repro Steps, Observed vs Expected, verbatim Runtime Evidence, confirmed true/false, one falsifiable Hypothesis with file:line, Suggested Fix Direction). THEN return the structured object: set findings_file='${DEBUG_DIR}/agent-3-findings.md', agent='repro-verifier'. Put the verbatim runtime transcript in evidence.`
+WRITE your findings to ${SCOUT_DIR}/agent-3-findings.md (Repro Steps, Observed vs Expected, verbatim Runtime Evidence, confirmed true/false, one falsifiable Hypothesis with file:line, Suggested Fix Direction). THEN return the structured object: set findings_file='${SCOUT_DIR}/agent-3-findings.md', agent='repro-verifier'. Put the verbatim runtime transcript in evidence.`
 
-const certifyPrompt = (round, hypothesis, findingsSummary) => `You are an ADVERSARIAL certification agent (repro-verifier role) for /root-cause Step 6, ${STACK} project. Working dir is the repo root. This is round ${round} of at most ${MAX_ROUNDS}.
+const certifyPrompt = (round, hypothesis, findingsSummary) => `You are an ADVERSARIAL certification agent (repro-verifier role) for /scout Step 6, ${STACK} project. Working dir is the repo root. This is round ${round} of at most ${MAX_ROUNDS}.
 
 A code-reading hypothesis fits the source. Your job is to decide whether it is what ACTUALLY HAPPENS AT RUNTIME — default to REFUTING it. A guess dressed up as a diagnosis is worse than none.
 

@@ -1702,7 +1702,7 @@ func TestReservePlaceholder_WritesToCallingCheckout(t *testing.T) {
 // (P-0170 Phase 4) contract: bravros meta --field plan_file from inside a linked
 // git worktree returns a path under the CALLING WORKTREE's .planning/, not the
 // primary clone's. This is the inverse of the deleted B-0208 contract — see
-// .planning/debug/D-0004-bravros-meta-plan-file-worktree-path-open/diagnosis.md
+// .planning/scout/S-0004-bravros-meta-plan-file-worktree-path-open/diagnosis.md
 // for the runtime evidence that motivated reversing it.
 //
 // The test exercises the exact pair of helpers metaCmd now uses:

@@ -9,9 +9,16 @@ translation, reviewed in the same run. No second skill, no second session. Folde
 ## 1 — Reserve identity
 
 `uv run scripts/planning-events/fold.py` prints the live status table; a subject already covering
-this territory → surface it and ask before writing a near-duplicate. Then
-`PLAN_ID=$(bravros nextid reserve plan)` (atomic across worktrees; abort before the folder exists
-→ `bravros nextid release $PLAN_ID`) and `mkdir -p .planning/P-NNNN-<slug>/`.
+this territory → surface it and ask before writing a near-duplicate.
+
+To prevent ID collisions across worktrees and concurrent branches, the plan identity is always reserved and pushed to the `homolog` branch first:
+1. Fetch latest: `git fetch origin homolog`
+2. Temporarily switch to `homolog` locally.
+3. Reserve identity and create directory: `PLAN_ID=$(bravros nextid reserve plan --slug "$SLUG")` (creates `.planning/P-NNNN-<slug>/PLAN.md`).
+4. Commit and push the placeholder directly to homolog:
+   `bravros commit "📋 plan: reserve $PLAN_ID $SLUG" .planning/P-*`
+   `git push origin homolog`
+5. Switch back to the feature branch (or worktree branch) and merge: `git merge origin/homolog`.
 
 ## 2 — Interview only where readings diverge
 

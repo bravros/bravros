@@ -8,7 +8,7 @@ import "path/filepath"
 //     user_report). The CLI writes a <id>.placeholder sentinel on reserve and
 //     renames it to the final filename on commit.
 //   - "directory" — each ID is a directory whose name encodes the lifecycle
-//     stage as a suffix (e.g. D-NNNN-<slug>-open/ → …-complete/).
+//     stage as a suffix (e.g. S-NNNN-<slug>-open/ → …-complete/).
 type EntityKind string
 
 const (
@@ -74,10 +74,10 @@ var AllEntities = []EntityDef{
 	{Name: "backlog", Prefix: "B", Dir: "backlog", Kind: EntityKindFile},
 	{Name: "report", Prefix: "R", Dir: "reports", Kind: EntityKindFile},
 	{Name: "user_report", Prefix: "U", Dir: "user-reports", Kind: EntityKindFile},
-	// debug is a directory-kind entity: each investigation lives in its own
-	// .planning/debug/D-NNNN-<slug>-<stage>/ directory. Stage transitions rename
-	// the directory via the CLI (never a raw mv call) so Rule 16 is always satisfied.
-	{Name: "debug", Prefix: "D", Dir: "debug", Kind: EntityKindDirectory},
+	// scout is a directory-kind entity: each scout investigation lives in its own
+	// .planning/scout/S-NNNN-<slug>-<stage>/ directory. Stage transitions rename
+	// the directory via the CLI (never a raw mv call).
+	{Name: "scout", Prefix: "S", Dir: "scout", Kind: EntityKindDirectory},
 }
 
 // EntityByName returns the EntityDef whose Name matches n (case-insensitive).

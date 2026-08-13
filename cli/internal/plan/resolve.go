@@ -119,7 +119,7 @@ const planDirSeedTemplate = "---\nid: %q\ntitle: %q\n---\n\n# %s\n"
 
 // ReservePlanDir atomically reserves the next available P-NNNN ID inside dir
 // and creates the folder-plan directory P-NNNN-<slug>/ with a seeded PLAN.md
-// placeholder, directly — mirroring ReserveDebugDir's directory-creation path
+// placeholder, directly — mirroring ReserveScoutDir's directory-creation path
 // (P-0180 locked decision #1). When slug is empty, "plan" is used as the
 // default slug.
 //

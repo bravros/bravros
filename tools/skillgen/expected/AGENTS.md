@@ -498,7 +498,14 @@ INTENT: Produce ONE reviewed folder `.workflow/P-NNNN-<slug>/` for zero-translat
 
 ## Core Steps
 
-1. **Reserve identity**: Check status table via `fold.py`, reserve `PLAN_ID=$(bravros nextid reserve plan)` (or release on abort), create `.workflow/P-NNNN-<slug>/`.
+1. **Reserve identity**:
+   - Fetch latest homolog: `git fetch origin homolog`
+   - Switch to `homolog` branch locally (or use worktree).
+   - Reserve ID and create folder-plan: `PLAN_ID=$(bravros nextid reserve plan --slug "$SLUG")` (which creates `.workflow/P-NNNN-<slug>/` and seeds `PLAN.md`).
+   - Commit and push reservation directly to homolog first to lock the ID:
+     `bravros commit "📋 plan: reserve $PLAN_ID $SLUG" .workflow/P-*`
+     `git push origin homolog`
+   - Switch back to the feature/worktree branch and merge: `git merge origin/homolog`.
 2. **Interview**: Ask only diverging questions. Save closed decisions & canonical constraints in `README.md`.
 3. **Write & Review**:
    - Write `README.md` following [`dossier-template.md`](references/dossier-template.md).
@@ -674,32 +681,30 @@ Quick task execution without a full plan — just do it and commit.
 
 ---
 
-## Skill: bravros-root-cause
-Investigate bugs with parallel subagents, then certify the root cause with runtime proof before handing off. Use on `/root-cause` for read-only diagnosis that routes to /quick, backlog, or /plan.
+## Skill: bravros-scout
+Scout and pinpoint issues using graphify and code references without code modifications. Suggestions are passed to the orchestrator.
 
-# Root Cause — investigate, verify, certify
+# Scout — investigate and pinpoint issues
 
 Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
-INTENT: prove a root cause with runtime evidence, then hand the fix elsewhere. Investigation produces a hypothesis; only certification makes it a diagnosis. Nothing certifiable → say so plainly (`UNCERTIFIED`), never ship a guess.
+INTENT: Scout codebase with graphify and trace references to pinpoint the bug. It produces a detailed findings dossier folder `.workflow/scout/S-NNNN-<slug>/` but does not write code fixes. Suggestions and diagnostics are passed directly to the orchestrator.
 
 HARD CONSTRAINTS:
-- **NEVER modifies application code.** Writes only inside reserved `$DEBUG_DIR`; fix happens via `/quick`, backlog, or `/plan`.
-- **Certification is the gate.** Needs reproduction + state match, counterfactual, or unbroken evidence chain (cookbook: `references/certification.md`). Cap: 3 rounds / 3 parallel agents per round.
-- **Laravel probes via `php artisan` one-shots** (`tinker --execute`, `db:table`, `route:list`, `storage/logs/laravel.log`). Boost MCP is optional.
-- **graphify is a lead source, never a verdict.** Source code always wins.
+- **NEVER modifies application code.** Writes findings and reports only inside reserved `$SCOUT_DIR`; implementation is handled by the orchestrator.
+- **Trace references.** Uses graphify and grep to map and pinpoint the issue.
 - **The hand-off is the operator's decision** — always `ask_question`.
 
 ## Flow
 
-1. Materialize engine: `mkdir -p .agent_config/workflows && cp -f ~/.agent_config/skills/root-cause/scripts/root-cause-investigate.js .agent_config/workflows/root-cause-investigate.js`
-2. Reserve dir: `DEBUG_DIR=$(bravros nextid reserve debug --slug "$SLUG"); DEBUG_ID=$(basename "$DEBUG_DIR" | grep -oE 'D-[0-9]+')`. Scan `.workflow/` for prior work.
-3. Build candidate lead list (`graphify`/`grep`/`git`/`error`). Categorize bug.
+1. Materialize engine: `mkdir -p .bravros/workflows && cp -f ~/.bravros/skills/scout/scripts/scout-investigate.js .bravros/workflows/scout-investigate.js`
+2. Reserve dir: `SCOUT_DIR=$(bravros nextid reserve scout --slug "$SLUG"); SCOUT_ID=$(basename "$SCOUT_DIR" | grep -oE 'S-[0-9]+')`.
+3. Build candidate lead list (`graphify`/`grep`/`git`/`error`).
 4. Run parallel engine:
    ```
-   Workflow({ name: 'root-cause-investigate', args: { debug_dir: DEBUG_DIR, bug: ARGUMENTS, category, stack, repro?, leads, boost, max_rounds: 3 } })
+   Workflow({ name: 'scout-investigate', args: { scout_dir: SCOUT_DIR, bug: ARGUMENTS, category, stack, repro?, leads, boost, max_rounds: 3 } })
    ```
-5. Write `diagnosis.md` + `report.md` in `$DEBUG_DIR` (schemas: `references/report-template.md`). Commit: `bravros commit "🔍 debug: $DEBUG_ID investigation for $SLUG" <files>`.
+5. Write `diagnosis.md` + `report.md` in `$SCOUT_DIR` (schemas: `references/report-template.md`). Commit: `bravros commit "🔍 scout: $SCOUT_ID investigation for $SLUG" <files>`.
 6. Route via `ask_question` (decision matrix: `references/investigation-guide.md`). Backlog route = write `B-NNNN` per `.workflow/CONVENTIONS.md` (`bravros nextid` for ID).
 
 Close investigation by appending `completed`/`cancelled` event to `.workflow/events.jsonl`. Use `$ARGUMENTS` as bug description.

@@ -8,79 +8,79 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// TestDebugEntity_RegistryEntry — entity.go
+// TestScoutEntity_RegistryEntry — entity.go
 // ---------------------------------------------------------------------------
 
-// TestDebugEntity_RegistryEntry verifies the debug entity is registered with
-// the correct fields (prefix=D, dir=debug, kind=directory).
-func TestDebugEntity_RegistryEntry(t *testing.T) {
-	e, ok := EntityByName("debug")
+// TestScoutEntity_RegistryEntry verifies the scout entity is registered with
+// the correct fields (prefix=D, dir=scout, kind=directory).
+func TestScoutEntity_RegistryEntry(t *testing.T) {
+	e, ok := EntityByName("scout")
 	if !ok {
-		t.Fatal("EntityByName(\"debug\") not found — entity not registered")
+		t.Fatal("EntityByName(\"scout\") not found — entity not registered")
 	}
-	if e.Prefix != "D" {
-		t.Errorf("Prefix = %q, want %q", e.Prefix, "D")
+	if e.Prefix != "S" {
+		t.Errorf("Prefix = %q, want %q", e.Prefix, "S")
 	}
-	if e.Dir != "debug" {
-		t.Errorf("Dir = %q, want %q", e.Dir, "debug")
+	if e.Dir != "scout" {
+		t.Errorf("Dir = %q, want %q", e.Dir, "scout")
 	}
 	if e.Kind != EntityKindDirectory {
 		t.Errorf("Kind = %q, want %q", e.Kind, EntityKindDirectory)
 	}
 
 	// EntityByPrefix lookup
-	ep, ok := EntityByPrefix("D")
+	ep, ok := EntityByPrefix("S")
 	if !ok {
 		t.Fatal("EntityByPrefix(\"D\") not found")
 	}
-	if ep.Name != "debug" {
-		t.Errorf("EntityByPrefix(\"D\").Name = %q, want %q", ep.Name, "debug")
+	if ep.Name != "scout" {
+		t.Errorf("EntityByPrefix(\"D\").Name = %q, want %q", ep.Name, "scout")
 	}
 
-	// AllPrefixes includes D-
+	// AllPrefixes includes S-
 	prefixes := AllPrefixes()
 	found := false
 	for _, p := range prefixes {
-		if p == "D-" {
+		if p == "S-" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("AllPrefixes() does not contain \"D-\"; got %v", prefixes)
+		t.Errorf("AllPrefixes() does not contain \"S-\"; got %v", prefixes)
 	}
 }
 
 // ---------------------------------------------------------------------------
-// TestDebugEntity_AbsDir — entity.go
+// TestScoutEntity_AbsDir — entity.go
 // ---------------------------------------------------------------------------
 
-func TestDebugEntity_AbsDir(t *testing.T) {
+func TestScoutEntity_AbsDir(t *testing.T) {
 	root := "/repo/.planning"
-	e, _ := EntityByName("debug")
+	e, _ := EntityByName("scout")
 	got := e.AbsDir(root)
-	want := filepath.Join(root, "debug")
+	want := filepath.Join(root, "scout")
 	if got != want {
 		t.Errorf("AbsDir(%q) = %q, want %q", root, got, want)
 	}
 }
 
 // ---------------------------------------------------------------------------
-// TestReserveDebugDir — meta.go: directory creation
+// TestReserveScoutDir — meta.go: directory creation
 // ---------------------------------------------------------------------------
 
-func TestReserveDebugDir_CreatesDirectory(t *testing.T) {
+func TestReserveScoutDir_CreatesDirectory(t *testing.T) {
 	dir := t.TempDir()
 	// Pass "" scanMode: auto mode falls through gracefully when outside a git repo.
-	id, dirPath, err := ReserveDebugDir(dir, "my-bug", "")
+	id, dirPath, err := ReserveScoutDir(dir, "my-bug", "")
 	if err != nil {
-		t.Fatalf("ReserveDebugDir: %v", err)
+		t.Fatalf("ReserveScoutDir: %v", err)
 	}
 	if id == "" {
 		t.Error("id is empty")
 	}
-	if !strings.HasPrefix(id, "D-") {
-		t.Errorf("id = %q, want D- prefix", id)
+	if !strings.HasPrefix(id, "S-") {
+		t.Errorf("id = %q, want S- prefix", id)
 	}
 	// The directory name should encode the slug and the -open stage.
 	base := filepath.Base(dirPath)
@@ -100,12 +100,12 @@ func TestReserveDebugDir_CreatesDirectory(t *testing.T) {
 	}
 }
 
-func TestReserveDebugDir_DefaultSlug(t *testing.T) {
+func TestReserveScoutDir_DefaultSlug(t *testing.T) {
 	dir := t.TempDir()
 	// Pass "" scanMode: auto mode falls through gracefully when outside a git repo.
-	_, dirPath, err := ReserveDebugDir(dir, "", "")
+	_, dirPath, err := ReserveScoutDir(dir, "", "")
 	if err != nil {
-		t.Fatalf("ReserveDebugDir (empty slug): %v", err)
+		t.Fatalf("ReserveScoutDir (empty slug): %v", err)
 	}
 	base := filepath.Base(dirPath)
 	if !strings.Contains(base, "investigation") {
@@ -113,17 +113,17 @@ func TestReserveDebugDir_DefaultSlug(t *testing.T) {
 	}
 }
 
-// TestReserveDebugDir_SequentialIDs verifies that two sequential reservations in
+// TestReserveScoutDir_SequentialIDs verifies that two sequential reservations in
 // the same dir return distinct sequential IDs.
 // Uses single-tree mode to isolate from any cross-worktree state. P-0170.
-func TestReserveDebugDir_SequentialIDs(t *testing.T) {
+func TestReserveScoutDir_SequentialIDs(t *testing.T) {
 	dir := t.TempDir()
 	// Pass "single-tree" via scanMode parameter to isolate from cross-worktree state.
-	id1, _, err := ReserveDebugDir(dir, "first", "single-tree")
+	id1, _, err := ReserveScoutDir(dir, "first", "single-tree")
 	if err != nil {
 		t.Fatalf("first reserve: %v", err)
 	}
-	id2, _, err := ReserveDebugDir(dir, "second", "single-tree")
+	id2, _, err := ReserveScoutDir(dir, "second", "single-tree")
 	if err != nil {
 		t.Fatalf("second reserve: %v", err)
 	}
@@ -133,13 +133,13 @@ func TestReserveDebugDir_SequentialIDs(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// TestReleaseDebugDir — meta.go: directory removal
+// TestReleaseScoutDir — meta.go: directory removal
 // ---------------------------------------------------------------------------
 
-func TestReleaseDebugDir_RemovesDirectory(t *testing.T) {
+func TestReleaseScoutDir_RemovesDirectory(t *testing.T) {
 	dir := t.TempDir()
 	// Pass "" scanMode: auto mode falls through gracefully when outside a git repo.
-	id, dirPath, err := ReserveDebugDir(dir, "release-test", "")
+	id, dirPath, err := ReserveScoutDir(dir, "release-test", "")
 	if err != nil {
 		t.Fatalf("reserve: %v", err)
 	}
@@ -147,8 +147,8 @@ func TestReleaseDebugDir_RemovesDirectory(t *testing.T) {
 	if _, err := os.Stat(dirPath); err != nil {
 		t.Fatalf("dir should exist before release: %v", err)
 	}
-	if err := ReleaseDebugDir(dir, id); err != nil {
-		t.Fatalf("ReleaseDebugDir: %v", err)
+	if err := ReleaseScoutDir(dir, id); err != nil {
+		t.Fatalf("ReleaseScoutDir: %v", err)
 	}
 	// Directory should be gone.
 	if _, err := os.Stat(dirPath); !os.IsNotExist(err) {
@@ -156,11 +156,11 @@ func TestReleaseDebugDir_RemovesDirectory(t *testing.T) {
 	}
 }
 
-func TestReleaseDebugDir_Idempotent(t *testing.T) {
+func TestReleaseScoutDir_Idempotent(t *testing.T) {
 	dir := t.TempDir()
 	// Release a non-existent ID — must return nil (idempotent).
-	if err := ReleaseDebugDir(dir, "D-9999"); err != nil {
-		t.Errorf("ReleaseDebugDir on non-existent ID should be nil, got: %v", err)
+	if err := ReleaseScoutDir(dir, "S-9999"); err != nil {
+		t.Errorf("ReleaseScoutDir on non-existent ID should be nil, got: %v", err)
 	}
 }
 
@@ -170,12 +170,12 @@ func TestReleaseDebugDir_Idempotent(t *testing.T) {
 
 func TestFindEntityDirByID_HappyPath(t *testing.T) {
 	dir := t.TempDir()
-	// Create a debug investigation directory manually.
-	target := filepath.Join(dir, "D-0001-my-bug-open")
+	// Create a scout investigation directory manually.
+	target := filepath.Join(dir, "S-0001-my-bug-open")
 	if err := os.Mkdir(target, 0755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	got, err := FindEntityDirByID(dir, "D-0001")
+	got, err := FindEntityDirByID(dir, "S-0001")
 	if err != nil {
 		t.Fatalf("FindEntityDirByID: %v", err)
 	}
@@ -187,11 +187,11 @@ func TestFindEntityDirByID_HappyPath(t *testing.T) {
 func TestFindEntityDirByID_StageAgnostic(t *testing.T) {
 	dir := t.TempDir()
 	// Same ID but at -complete stage.
-	target := filepath.Join(dir, "D-0002-foo-complete")
+	target := filepath.Join(dir, "S-0002-foo-complete")
 	if err := os.Mkdir(target, 0755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	got, err := FindEntityDirByID(dir, "D-0002")
+	got, err := FindEntityDirByID(dir, "S-0002")
 	if err != nil {
 		t.Fatalf("FindEntityDirByID: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestFindEntityDirByID_StageAgnostic(t *testing.T) {
 
 func TestFindEntityDirByID_NotFound(t *testing.T) {
 	dir := t.TempDir()
-	_, err := FindEntityDirByID(dir, "D-9999")
+	_, err := FindEntityDirByID(dir, "S-9999")
 	if err == nil {
 		t.Error("expected error for missing ID, got nil")
 	}
@@ -212,9 +212,9 @@ func TestFindEntityDirByID_Ambiguous(t *testing.T) {
 	dir := t.TempDir()
 	// Create two directories with the same numeric ID (should not happen in practice
 	// but the resolver must handle it gracefully).
-	os.Mkdir(filepath.Join(dir, "D-0003-foo-open"), 0755)
-	os.Mkdir(filepath.Join(dir, "D-0003-foo-complete"), 0755)
-	_, err := FindEntityDirByID(dir, "D-0003")
+	os.Mkdir(filepath.Join(dir, "S-0003-foo-open"), 0755)
+	os.Mkdir(filepath.Join(dir, "S-0003-foo-complete"), 0755)
+	_, err := FindEntityDirByID(dir, "S-0003")
 	if err == nil {
 		t.Error("expected error for ambiguous ID, got nil")
 	}

@@ -111,7 +111,7 @@ var nextidReserveVerbose bool
 // to avoid ID collisions in parallel flows. B-0116 / P-0116.
 //
 // For directory-kind entities (debug), the command creates the investigation
-// directory D-NNNN-<slug>-open/ directly — no placeholder file, no consumer-side mv.
+// directory S-NNNN-<slug>-open/ directly — no placeholder file, no consumer-side mv.
 var nextidReserveCmd = &cobra.Command{
 	Use:   "reserve <entity>",
 	Short: "Reserve a single ID (plan|backlog|report|user_report|debug) and write a placeholder or create a directory",
@@ -123,7 +123,7 @@ File-kind entities (plan, backlog, report, user_report):
   'bravros nextid release <ID>' to delete the placeholder.
 
 Directory-kind entities (debug):
-  Creates the investigation directory D-NNNN-<slug>-open/ directly. The slug
+  Creates the investigation directory S-NNNN-<slug>-open/ directly. The slug
   is provided via --slug (falls back to "investigation" when omitted).
 
 Entity → location mapping:
@@ -131,7 +131,7 @@ Entity → location mapping:
   backlog     → .planning/backlog/      (prefix B, file)
   report      → .planning/reports/     (prefix R, file)
   user_report → .planning/user-reports/ (prefix U, file)
-  debug       → .planning/debug/       (prefix D, directory)
+  scout       → .planning/scout/       (prefix S, directory)
 
 Scan modes (--scan-mode):
   auto        — default; scans all local branches and active worktrees to
@@ -141,7 +141,7 @@ Scan modes (--scan-mode):
                 in the current checkout's .planning/ tree. Use as an escape
                 hatch when git commands are unavailable or slow.
 
-Output: just the reserved ID (e.g. "P-0119", "D-0001") unless --json is passed.`,
+Output: just the reserved ID (e.g. "P-0119", "S-0001") unless --json is passed.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		entity := strings.ToLower(strings.TrimSpace(args[0]))
@@ -265,66 +265,29 @@ Output: just the reserved ID (e.g. "P-0119", "D-0001") unless --json is passed.`
 			}
 		}
 
-		// Directory-kind entities (debug): create the investigation directory directly.
-		if eDef.Kind == plan.EntityKindDirectory {
-			id, dirPath, err := plan.ReserveDebugDir(entityDir, nextidReserveSlug, scanMode)
-			if err != nil {
-				return fmt.Errorf("reserve failed: %w", err)
+		var id, phPath string
+		var err error
+
+		switch {
+		case eDef.Kind == plan.EntityKindDirectory:
+			var dirPath string
+			id, dirPath, err = plan.ReserveScoutDir(entityDir, nextidReserveSlug, scanMode)
+			phPath = dirPath
+
+		case eDef.IsDualKind():
+			slug := nextidReserveSlug
+			if slug == "" {
+				slug = "plan"
 			}
-			if nextidReserveJSON {
-				result := map[string]interface{}{
-					"id":   id,
-					"path": dirPath,
-				}
-				if scanMode == "auto" {
-					result["scan"] = map[string]interface{}{
-						"mode":              scanMode,
-						"branches_scanned":  branchesScanned,
-						"worktrees_scanned": worktreesScanned,
-						"highest_source":    highestSource,
-					}
-				}
-				b, _ := json.MarshalIndent(result, "", "  ")
-				fmt.Println(string(b))
-			} else {
-				fmt.Println(id)
-			}
-			return nil
+			var dirPath string
+			id, dirPath, err = plan.ReservePlanDir(entityDir, slug, scanMode)
+			phPath = dirPath
+
+		default:
+			// File-kind entities: write a placeholder file.
+			id, phPath, err = plan.ReservePlaceholder(entityDir, eDef.Prefix, scanMode)
 		}
 
-		// Dual-kind plan entity WITH --slug: create a folder-plan directly
-		// (P-0180), mirroring the directory-kind (debug) branch above. Without
-		// --slug, plan falls through to the file-kind placeholder path below —
-		// unchanged, so `/plan` (which reserves with no slug) still gets a
-		// single-file placeholder.
-		if eDef.IsDualKind() && nextidReserveSlug != "" {
-			id, dirPath, err := plan.ReservePlanDir(entityDir, nextidReserveSlug, scanMode)
-			if err != nil {
-				return fmt.Errorf("reserve failed: %w", err)
-			}
-			if nextidReserveJSON {
-				result := map[string]interface{}{
-					"id":   id,
-					"path": dirPath,
-				}
-				if scanMode == "auto" {
-					result["scan"] = map[string]interface{}{
-						"mode":              scanMode,
-						"branches_scanned":  branchesScanned,
-						"worktrees_scanned": worktreesScanned,
-						"highest_source":    highestSource,
-					}
-				}
-				b, _ := json.MarshalIndent(result, "", "  ")
-				fmt.Println(string(b))
-			} else {
-				fmt.Println(id)
-			}
-			return nil
-		}
-
-		// File-kind entities: write a placeholder file.
-		id, phPath, err := plan.ReservePlaceholder(entityDir, eDef.Prefix, scanMode)
 		if err != nil {
 			return fmt.Errorf("reserve failed: %w", err)
 		}
@@ -378,10 +341,10 @@ Output: just the reserved ID (e.g. "P-0119", "D-0001") unless --json is passed.`
 var nextidReleaseCmd = &cobra.Command{
 	Use:   "release <ID>",
 	Short: "Delete a placeholder or debug directory created by 'nextid reserve' (idempotent)",
-	Long: `Delete the reservation for the given ID (e.g. P-0119, B-0042, D-0001).
+	Long: `Delete the reservation for the given ID (e.g. P-0119, B-0042, S-0001).
 
 For file-kind entities (P/B/R/U): deletes the <id>.placeholder file.
-For directory-kind entities (D): removes the D-NNNN-<slug>-open/ directory.
+For directory-kind entities (D): removes the S-NNNN-<slug>-open/ directory.
 
 The entity type is derived from the ID prefix:
   P → .planning/              (file)
@@ -395,7 +358,7 @@ Idempotent: exits 0 when the reservation is already gone.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		id := strings.TrimSpace(args[0])
 		if len(id) < 2 {
-			return fmt.Errorf("invalid ID %q — expected P-NNNN / B-NNNN / R-NNNN / U-NNNN / D-NNNN", id)
+			return fmt.Errorf("invalid ID %q — expected P-NNNN / B-NNNN / R-NNNN / U-NNNN / S-NNNN", id)
 		}
 		// P-0170: release (delete) targets the calling checkout's .planning/.
 		// ResolveWriteRoot returns the current worktree's git toplevel — now the
@@ -412,9 +375,9 @@ Idempotent: exits 0 when the reservation is already gone.`,
 			}
 			return fmt.Errorf("unknown ID prefix %q in %q — expected %s", prefix, id, strings.Join(prefixes, ", "))
 		}
-		// Directory-kind entities use ReleaseDebugDir (removes the D-NNNN-*-open/ dir).
+		// Directory-kind entities use ReleaseScoutDir (removes the S-NNNN-*-open/ dir).
 		if eDef.Kind == plan.EntityKindDirectory {
-			return plan.ReleaseDebugDir(eDef.AbsDir(planningRoot), id)
+			return plan.ReleaseScoutDir(eDef.AbsDir(planningRoot), id)
 		}
 		// File-kind entities use ReleasePlaceholder.
 		if err := plan.ReleasePlaceholder(eDef.AbsDir(planningRoot), id); err != nil {
@@ -647,7 +610,7 @@ func init() {
 
 	rootCmd.AddCommand(commitCmd)
 	nextidReserveCmd.Flags().BoolVar(&nextidReserveJSON, "json", false, "Output JSON {id, path} instead of bare ID")
-	nextidReserveCmd.Flags().StringVar(&nextidReserveSlug, "slug", "", "Slug for directory/folder entities: debug (D-NNNN-<slug>-open/) always; plan (P-NNNN-<slug>/ folder-plan) when --slug is given. Defaults to 'investigation' for debug when omitted")
+	nextidReserveCmd.Flags().StringVar(&nextidReserveSlug, "slug", "", "Slug for directory/folder entities: debug (S-NNNN-<slug>-open/) always; plan (P-NNNN-<slug>/ folder-plan) when --slug is given. Defaults to 'investigation' for debug when omitted")
 	nextidReserveCmd.Flags().StringVar(&nextidReserveScanMode, "scan-mode", "auto", "Scan mode: auto (cross-worktree, default) or single-tree (old behaviour, B-0208 escape hatch)")
 	nextidReserveCmd.Flags().BoolVar(&nextidReserveVerbose, "verbose", false, "Print scan diagnostics to stderr: branches + worktrees scanned and highest source")
 	nextidAuditCmd.Flags().StringVar(&nextidAuditFormat, "format", "table", "Output format: table (default, human-readable) or json")

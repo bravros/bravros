@@ -1,0 +1,32 @@
+category: sdlc
+icon: search
+metadata:
+  en:
+    name: scout
+    description: Scout and pinpoint issues using graphify and code references without code modifications. Suggestions are passed to the orchestrator.
+  br:
+    name: scout
+    description: Escanear e identificar problemas usando graphify e referências de código sem modificar arquivos. As sugestões são passadas para o orquestrador.
+  es:
+    name: scout
+    description: Escanear e identificar problemas usando graphify y referencias de código sin modificar archivos. Las sugerencias se pasan al orquestador.
+body: |
+  Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
+
+  INTENT: Scout codebase with graphify and grep, trace references to pinpoint the bug, and create a findings folder under `.planning/scout/S-NNNN-<slug>/` without modifying codebase.
+
+  HARD CONSTRAINTS:
+  - **NEVER modifies application code.** Writes findings and logs only inside reserved `$SCOUT_DIR`.
+  - **Pinpoints references.** Uses graphify MCP and grep to map out affected code paths.
+  - **The hand-off is the operator's decision** — always `ask_question`.
+
+  ## Flow
+
+  1. Materialize engine: `mkdir -p .bravros/workflows && cp -f ~/.bravros/skills/scout/scripts/scout-investigate.js .bravros/workflows/scout-investigate.js`
+  2. Reserve dir: `SCOUT_DIR=$(bravros nextid reserve scout --slug "$SLUG"); SCOUT_ID=$(basename "$SCOUT_DIR" | grep -oE 'S-[0-9]+')`
+  3. Build lead list & run parallel engine:
+     ```
+     Workflow({ name: 'scout-investigate', args: { scout_dir: SCOUT_DIR, bug: ARGUMENTS, category, stack, repro?, leads, boost, max_rounds: 3 } })
+     ```
+  4. Write `diagnosis.md` + `report.md` in `$SCOUT_DIR`. Commit: `bravros commit "🔍 scout: $SCOUT_ID investigation for $SLUG" <files>`.
+  5. Route via `ask_question` (decision matrix: `references/investigation-guide.md`). Backlog route: ID via `bravros nextid`.

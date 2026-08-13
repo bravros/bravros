@@ -12,7 +12,14 @@ INTENT: Produce ONE reviewed folder `.planning/P-NNNN-<slug>/` for zero-translat
 
 ## Core Steps
 
-1. **Reserve identity**: Check status table via `fold.py`, reserve `PLAN_ID=$(bravros nextid reserve plan)` (or release on abort), create `.planning/P-NNNN-<slug>/`.
+1. **Reserve identity**:
+   - Fetch latest homolog: `git fetch origin homolog`
+   - Switch to `homolog` branch locally (or use worktree).
+   - Reserve ID and create folder-plan: `PLAN_ID=$(bravros nextid reserve plan --slug "$SLUG")` (which creates `.planning/P-NNNN-<slug>/` and seeds `PLAN.md`).
+   - Commit and push reservation directly to homolog first to lock the ID:
+     `bravros commit "📋 plan: reserve $PLAN_ID $SLUG" .planning/P-*`
+     `git push origin homolog`
+   - Switch back to the feature/worktree branch and merge: `git merge origin/homolog`.
 2. **Interview**: Ask only diverging questions. Save closed decisions & canonical constraints in `README.md`.
 3. **Write & Review**:
    - Write `README.md` following [`dossier-template.md`](references/dossier-template.md).

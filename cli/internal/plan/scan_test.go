@@ -205,7 +205,7 @@ func TestScanAllSources_AllFiveEntities(t *testing.T) {
 		"B": filepath.Join(primary, ".planning", "backlog", "B-0002-backlog.md"),
 		"R": filepath.Join(primary, ".planning", "reports", "R-0003-report.md"),
 		"U": filepath.Join(primary, ".planning", "user-reports", "U-0004-user.md"),
-		"D": "", // debug is directory-kind; create the dir itself
+		"S": "", // scout is directory-kind; create the dir itself
 	}
 	for _, path := range seeds {
 		if path == "" {
@@ -213,10 +213,10 @@ func TestScanAllSources_AllFiveEntities(t *testing.T) {
 		}
 		writeFile(t, path, "# entity\n")
 	}
-	// Debug dir: create D-0005-slug-open/ directory.
-	debugDir := filepath.Join(primary, ".planning", "debug", "D-0005-slug-open")
-	if err := os.MkdirAll(debugDir, 0o755); err != nil {
-		t.Fatalf("MkdirAll debug: %v", err)
+	// Scout dir: create S-0005-slug-open/ directory.
+	scoutDir := filepath.Join(primary, ".planning", "scout", "S-0005-slug-open")
+	if err := os.MkdirAll(scoutDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll scout: %v", err)
 	}
 
 	runIn(t, primary, "git", "add", ".")
@@ -228,10 +228,10 @@ func TestScanAllSources_AllFiveEntities(t *testing.T) {
 		"B": 2,
 		"R": 3,
 		"U": 4,
-		"D": 5,
+		"S": 5,
 	}
 
-	for _, prefix := range []string{"P", "B", "R", "U", "D"} {
+	for _, prefix := range []string{"P", "B", "R", "U", "S"} {
 		prefix := prefix
 		t.Run(prefix, func(t *testing.T) {
 			highest, sources, err := runScanInDir(t, primary, prefix)

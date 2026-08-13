@@ -264,27 +264,27 @@ func ReleasePlaceholder(dir, id string) error {
 
 // planDirIDRe matches a P-NNNN-<slug>/ folder-plan directory name (optionally
 // suffixed "-complete" on completion) and captures the numeric ID — the
-// directory precedent mirrored from debugDirRe below (P-0180 locked decision
+// directory precedent mirrored from scoutDirRe below (P-0180 locked decision
 // #1/#2). Kept distinct from resolve.go's planFolderIDRe (no capture group,
 // used only for the id-prefixed-*.md fallback inside ResolvePlanEntryFile).
 var planDirIDRe = regexp.MustCompile(`^P-(\d{4})-`)
 
-// debugDirRe matches a D-NNNN-<slug>-<stage>/ directory name and extracts the
+// scoutDirRe matches a S-NNNN-<slug>-<stage>/ directory name and extracts the
 // four-digit number. Used by directory-kind ID resolution and GetNextNumAtomic
 // scanning (directories are now legal entries in the debug subdirectory).
-var debugDirRe = regexp.MustCompile(`^D-(\d{4})-`)
+var scoutDirRe = regexp.MustCompile(`^S-(\d{4})-`)
 
-// ReserveDebugDir atomically reserves the next available D-NNNN ID inside dir
-// and creates the investigation directory D-NNNN-<slug>-open/ directly.
+// ReserveScoutDir atomically reserves the next available S-NNNN ID inside dir
+// and creates the investigation directory S-NNNN-<slug>-open/ directly.
 // When slug is empty, "investigation" is used as the default slug.
 //
 // scanMode is passed through to GetNextNumAtomic ("single-tree" for legacy
 // single-dir, "" or "auto" for the default cross-worktree scan, P-0170).
 //
 // Unlike file-kind entities there is no placeholder file — the directory itself
-// is the reservation. The caller receives the full ID (e.g. "D-0001") and the
+// is the reservation. The caller receives the full ID (e.g. "S-0001") and the
 // absolute path of the created directory.
-func ReserveDebugDir(dir, slug, scanMode string) (id, dirPath string, err error) {
+func ReserveScoutDir(dir, slug, scanMode string) (id, dirPath string, err error) {
 	if slug == "" {
 		slug = "investigation"
 	}
@@ -299,7 +299,7 @@ func ReserveDebugDir(dir, slug, scanMode string) (id, dirPath string, err error)
 		if scanErr != nil {
 			return "", "", scanErr
 		}
-		fullID := fmt.Sprintf("D-%s", num)
+		fullID := fmt.Sprintf("S-%s", num)
 		targetDir := filepath.Join(dir, fullID+"-"+slug+"-open")
 		// Use Mkdir (not MkdirAll) so O_EXCL semantics: fails if already exists.
 		if mkErr := os.Mkdir(targetDir, 0o755); mkErr != nil {
@@ -311,7 +311,7 @@ func ReserveDebugDir(dir, slug, scanMode string) (id, dirPath string, err error)
 		}
 		return fullID, targetDir, nil
 	}
-	return "", "", fmt.Errorf("ReserveDebugDir: exhausted retries in %s — possible concurrent storm", dir)
+	return "", "", fmt.Errorf("ReserveScoutDir: exhausted retries in %s — possible concurrent storm", dir)
 }
 
 // sanitizeSlug converts an arbitrary string to a slug: lowercase, replace
@@ -332,24 +332,24 @@ func sanitizeSlug(s string) string {
 	return strings.Trim(b.String(), "-")
 }
 
-// ReleaseDebugDir removes a debug investigation directory created by
-// ReserveDebugDir. The directory is identified by the full ID (e.g. "D-0001");
-// the function scans dir for any entry matching D-NNNN-* and removes it.
+// ReleaseScoutDir removes a debug investigation directory created by
+// ReserveScoutDir. The directory is identified by the full ID (e.g. "S-0001");
+// the function scans dir for any entry matching S-NNNN-* and removes it.
 // Idempotent: returns nil when no matching directory is found.
-func ReleaseDebugDir(dir, id string) error {
+func ReleaseScoutDir(dir, id string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
 		}
-		return fmt.Errorf("ReleaseDebugDir: cannot read %s: %w", dir, err)
+		return fmt.Errorf("ReleaseScoutDir: cannot read %s: %w", dir, err)
 	}
 	prefix := id + "-"
 	for _, e := range entries {
 		if e.IsDir() && strings.HasPrefix(e.Name(), prefix) {
 			target := filepath.Join(dir, e.Name())
 			if err := os.RemoveAll(target); err != nil {
-				return fmt.Errorf("ReleaseDebugDir: cannot remove %s: %w", target, err)
+				return fmt.Errorf("ReleaseScoutDir: cannot remove %s: %w", target, err)
 			}
 			return nil
 		}
@@ -357,7 +357,7 @@ func ReleaseDebugDir(dir, id string) error {
 	return nil // idempotent: not found is OK
 }
 
-// FindEntityDirByID resolves a directory-kind entity ID (e.g. "D-0001") to its
+// FindEntityDirByID resolves a directory-kind entity ID (e.g. "S-0001") to its
 // on-disk directory inside dir. The lookup scans for any subdirectory whose name
 // starts with "<id>-", regardless of the stage suffix (e.g. -open, -complete).
 // Returns the absolute path and nil error on success; returns an error when zero

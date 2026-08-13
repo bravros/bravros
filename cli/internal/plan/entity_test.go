@@ -194,7 +194,7 @@ func TestPlanEntity_IsDualKind(t *testing.T) {
 		t.Error("plan.IsDualKind() = false, want true")
 	}
 
-	for _, name := range []string{"backlog", "report", "user_report", "debug"} {
+	for _, name := range []string{"backlog", "report", "user_report", "scout"} {
 		e, ok := plan.EntityByName(name)
 		if !ok {
 			t.Fatalf("EntityByName(%q) not found", name)
@@ -339,7 +339,7 @@ func TestResolvePlanEntryFile_EmptyFolder(t *testing.T) {
 }
 
 // TestReservePlanDir_CreatesFolderAndSeed verifies ReservePlanDir creates a
-// P-NNNN-<slug>/ directory (mirroring ReserveDebugDir's directory-creation
+// P-NNNN-<slug>/ directory (mirroring ReserveScoutDir's directory-creation
 // path) seeded with a PLAN.md that ResolvePlanEntryFile can immediately
 // resolve.
 func TestReservePlanDir_CreatesFolderAndSeed(t *testing.T) {

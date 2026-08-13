@@ -389,7 +389,7 @@ func ScanAllSources(prefix string) (highest int, sources []ScanSource, err error
 
 // scanWorktreeFS walks the entity's planning subdirectory under worktreeRoot and
 // returns the highest ID number found. It counts real files (matching
-// numberedFileRe / placeholderRe), debug directories (matching debugDirRe),
+// numberedFileRe / placeholderRe), debug directories (matching scoutDirRe),
 // and — for the dual-kind plan entity (P-0180) — folder-plan directories
 // (matching planDirIDRe) via extractIDFromName.
 // Returns 0 when the directory does not exist (no IDs allocated yet).
@@ -536,13 +536,13 @@ func ScanBranchTreeForDiag(branch string, entity EntityDef) (int, error) {
 //   - "<Prefix>-NNNN-*" real file (P-0042-foo-todo.md)  → 42
 //   - "NNNN-*" bare legacy file (0001-old.md)            → 1
 //   - "<Prefix>-NNNN.placeholder"                        → 119
-//   - "D-NNNN-<slug>-<stage>" directory                  → 7
+//   - "S-NNNN-<slug>-<stage>" directory                  → 7
 //   - "P-NNNN-<slug>" folder-plan directory (optionally
 //     "-complete" suffixed), dual-kind plan entity only  → 180
 func extractIDFromName(name string, entity EntityDef) int {
 	if entity.Kind == EntityKindDirectory {
-		// Directory-kind entity: match D-NNNN- pattern, prefix must match.
-		if m := debugDirRe.FindStringSubmatch(name); m != nil {
+		// Directory-kind entity: match S-NNNN- pattern, prefix must match.
+		if m := scoutDirRe.FindStringSubmatch(name); m != nil {
 			n, _ := strconv.Atoi(m[1])
 			return n
 		}
@@ -551,7 +551,7 @@ func extractIDFromName(name string, entity EntityDef) int {
 
 	// Dual-kind plan entity (P-0180 locked decision #2): explicitly recognize
 	// a P-NNNN-<slug>/ folder-plan directory name (with an optional
-	// "-complete" stage suffix, mirroring the D-NNNN-<slug>-<stage> directory
+	// "-complete" stage suffix, mirroring the S-NNNN-<slug>-<stage> directory
 	// branch above) so folder-plan IDs are counted the same way debug
 	// directory IDs are.
 	if entity.IsDualKind() {
