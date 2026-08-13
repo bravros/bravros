@@ -16,7 +16,7 @@ import (
 // ---------------------------------------------------------------------------
 
 // setupHooksTestEnv creates a temp dir with:
-//   - A canonical commit-msg hook (with kaisser marker v1)
+//   - A canonical commit-msg hook (with bravros marker v1)
 //   - A fake git repo structure (.git/hooks/)
 //
 // Returns (repoDir, canonicalPath).
@@ -37,7 +37,7 @@ func setupHooksTestEnv(t *testing.T) (repoDir, canonicalPath string) {
 	// Create a fake canonical hook with the current marker version
 	canonicalDir := t.TempDir()
 	canonicalPath = filepath.Join(canonicalDir, "commit-msg")
-	canonicalContent := "#!/bin/sh\n# kaisser-managed-commit-msg-hook v1\nexec kaisser commit-msg-check \"$1\"\n"
+	canonicalContent := "#!/bin/sh\n# bravros-managed-commit-msg-hook v1\nexec bravros commit-msg-check \"$1\"\n"
 	if err := os.WriteFile(canonicalPath, []byte(canonicalContent), 0755); err != nil {
 		t.Fatalf("create canonical: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestHooksUpdate_OldCanonicalRefreshed(t *testing.T) {
 	repoDir, canonical := setupHooksTestEnv(t)
 
 	// Write a hook with marker v0 (old) → StatusOldCanonical
-	oldContent := "#!/bin/sh\n# kaisser-managed-commit-msg-hook v0\nexec kaisser commit-msg-check \"$1\"\n"
+	oldContent := "#!/bin/sh\n# bravros-managed-commit-msg-hook v0\nexec bravros commit-msg-check \"$1\"\n"
 	target := filepath.Join(repoDir, ".githooks", "commit-msg")
 	if err := os.WriteFile(target, []byte(oldContent), 0755); err != nil {
 		t.Fatalf("write target: %v", err)
@@ -189,7 +189,7 @@ func TestHooksUpdate_CustomizedSkippedByDefault(t *testing.T) {
 	repoDir, canonical := setupHooksTestEnv(t)
 
 	// Write a hook with current marker v1 (different content) → StatusCurrent
-	customContent := "#!/bin/sh\n# kaisser-managed-commit-msg-hook v1\n# user customization\nexec kaisser commit-msg-check \"$1\"\n"
+	customContent := "#!/bin/sh\n# bravros-managed-commit-msg-hook v1\n# user customization\nexec bravros commit-msg-check \"$1\"\n"
 	target := filepath.Join(repoDir, ".githooks", "commit-msg")
 	if err := os.WriteFile(target, []byte(customContent), 0755); err != nil {
 		t.Fatalf("write target: %v", err)
@@ -231,7 +231,7 @@ func TestHooksUpdate_CustomizedOverwrittenWithForce(t *testing.T) {
 	repoDir, canonical := setupHooksTestEnv(t)
 
 	// Write a hook with current marker v1 (different content) → StatusCurrent
-	customContent := "#!/bin/sh\n# kaisser-managed-commit-msg-hook v1\n# user customization\nexec kaisser commit-msg-check \"$1\"\n"
+	customContent := "#!/bin/sh\n# bravros-managed-commit-msg-hook v1\n# user customization\nexec bravros commit-msg-check \"$1\"\n"
 	target := filepath.Join(repoDir, ".githooks", "commit-msg")
 	if err := os.WriteFile(target, []byte(customContent), 0755); err != nil {
 		t.Fatalf("write target: %v", err)
@@ -258,7 +258,7 @@ func TestHooksUpdate_DryRunDoesNotWrite(t *testing.T) {
 	repoDir, canonical := setupHooksTestEnv(t)
 
 	// Write a hook with old marker → would be refreshed normally
-	oldContent := "#!/bin/sh\n# kaisser-managed-commit-msg-hook v0\nexec kaisser commit-msg-check \"$1\"\n"
+	oldContent := "#!/bin/sh\n# bravros-managed-commit-msg-hook v0\nexec bravros commit-msg-check \"$1\"\n"
 	target := filepath.Join(repoDir, ".githooks", "commit-msg")
 	if err := os.WriteFile(target, []byte(oldContent), 0755); err != nil {
 		t.Fatalf("write target: %v", err)
@@ -302,14 +302,14 @@ func TestHooksUpdate_JSONOutputShape(t *testing.T) {
 	repoDir, canonical := setupHooksTestEnv(t)
 
 	// Set up one path to refresh (old canonical) and one customized
-	oldContent := "#!/bin/sh\n# kaisser-managed-commit-msg-hook v0\nexec kaisser commit-msg-check \"$1\"\n"
+	oldContent := "#!/bin/sh\n# bravros-managed-commit-msg-hook v0\nexec bravros commit-msg-check \"$1\"\n"
 	githooksTarget := filepath.Join(repoDir, ".githooks", "commit-msg")
 	if err := os.WriteFile(githooksTarget, []byte(oldContent), 0755); err != nil {
 		t.Fatalf("write .githooks target: %v", err)
 	}
 
 	// Put a customized hook in .git/hooks/
-	customContent := "#!/bin/sh\n# kaisser-managed-commit-msg-hook v1\n# custom\nexit 0\n"
+	customContent := "#!/bin/sh\n# bravros-managed-commit-msg-hook v1\n# custom\nexit 0\n"
 	gitHooksTarget := filepath.Join(repoDir, ".git", "hooks", "commit-msg")
 	if err := os.WriteFile(gitHooksTarget, []byte(customContent), 0755); err != nil {
 		t.Fatalf("write .git/hooks target: %v", err)

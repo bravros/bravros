@@ -77,8 +77,8 @@ func TestMergeLock_Acquire(t *testing.T) {
 	if !filepath.IsAbs(lock.Path()) {
 		t.Errorf("expected absolute lock path, got: %s", lock.Path())
 	}
-	if filepath.Base(lock.Path()) != "kaisser-merge.lock" {
-		t.Errorf("expected lock file named kaisser-merge.lock, got: %s", filepath.Base(lock.Path()))
+	if filepath.Base(lock.Path()) != "bravros-merge.lock" {
+		t.Errorf("expected lock file named bravros-merge.lock, got: %s", filepath.Base(lock.Path()))
 	}
 }
 

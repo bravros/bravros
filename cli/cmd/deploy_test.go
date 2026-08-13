@@ -139,7 +139,7 @@ func TestDeploy_AllowlistSet_OnlyListedAndCoreDeploy(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Test: --filter flag overrides .kaisser.yml allowlist
+// Test: --filter flag overrides .bravros.yml allowlist
 // ---------------------------------------------------------------------------
 
 func TestDeploy_FilterFlag_OverridesAllowlist(t *testing.T) {
@@ -154,7 +154,7 @@ func TestDeploy_FilterFlag_OverridesAllowlist(t *testing.T) {
 	})
 	target := filepath.Join(t.TempDir(), ".claude")
 
-	// Simulate --filter "airbrush" — this would override any .kaisser.yml allowlist.
+	// Simulate --filter "airbrush" — this would override any .bravros.yml allowlist.
 	// The deploy package honors whatever EnabledSkills is set to.
 	_, err := deploy.Deploy(deploy.DeployOpts{
 		SourceDir:     src,

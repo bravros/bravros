@@ -47,9 +47,9 @@ Use --dry-run to see what would be downloaded and updated without modifying anyt
 Use --verbose to see the full trace (fetching, applying overlay, running install.sh, etc.).
 
 The check itself is cached: after every completed check the marker
-~/.claude/state/.kaisser-last-check is stamped, and 'kaisser selfupdate' within the TTL
-(default 6h, override via KAISSER_SELFUPDATE_TTL, "0" disables) returns immediately —
-this keeps SessionStart hooks under 1s instead of ~9s. 'kaisser update' and --force
+~/.claude/state/.bravros-last-check is stamped, and 'bravros selfupdate' within the TTL
+(default 6h, override via BRAVROS_SELFUPDATE_TTL, "0" disables) returns immediately —
+this keeps SessionStart hooks under 1s instead of ~9s. 'bravros update' and --force
 always bypass the cache and run the real check.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		home, err := os.UserHomeDir()
@@ -59,19 +59,19 @@ always bypass the cache and run the real check.`,
 
 		repo := selfupdateRepoOverride
 		if repo == "" {
-			// Use config.PortableRepo() so KAISSER_PORTABLE_REPO env var wins
+			// Use config.PortableRepo() so BRAVROS_PORTABLE_REPO env var wins
 			// over the auto-detection fallback in paths.PortableRepoDir().
 			repo = config.PortableRepo()
 		}
-		cli := filepath.Join(home, ".claude", "bin", "kaisser")
+		cli := filepath.Join(home, ".claude", "bin", "bravros")
 
 		// B-0345: TTL cache for the SessionStart check. A full check costs ~9s
 		// (the network fetch dominates); a cache-hit session skips it entirely.
 		// The marker is touched after every COMPLETED check — drift found or not —
 		// so unlike --skip-if-recent (whose marker moves only on real installs)
 		// the TTL bounds how often the fetch runs, not how often installs happen.
-		// Bypassed by --force and by the explicit `kaisser update` alias (a manual
-		// run must always really check). KAISSER_SELFUPDATE_TTL overrides the 6h
+		// Bypassed by --force and by the explicit `bravros update` alias (a manual
+		// run must always really check). BRAVROS_SELFUPDATE_TTL overrides the 6h
 		// default; "0" disables caching entirely.
 		checkTTL := selfupdateCheckTTL()
 		forceCheck := selfupdateForce || cmd.CalledAs() == "update"
@@ -92,7 +92,7 @@ always bypass the cache and run the real check.`,
 			dur, err := time.ParseDuration(selfupdateSkipIfRecent)
 			if err == nil {
 				stateDir := filepath.Join(home, ".claude", "state")
-				markerFile := filepath.Join(stateDir, ".kaisser-last-update")
+				markerFile := filepath.Join(stateDir, ".bravros-last-update")
 				if info, err := os.Stat(markerFile); err == nil {
 					elapsed := time.Since(info.ModTime())
 					if elapsed < dur {
@@ -297,12 +297,12 @@ always bypass the cache and run the real check.`,
 
 		// Always emit exactly one upgrade line on real upgrade (default and verbose).
 		if oldVer != "" && oldVer != newVer {
-			fmt.Fprintf(os.Stderr, "🔄 kaisser %s → %s\n", oldVer, newVer)
+			fmt.Fprintf(os.Stderr, "🔄 bravros %s → %s\n", oldVer, newVer)
 			// Audio notice on real version bump (100% PT-BR — script gates on Mac-unlock + HA reachability).
 			// Strip a leading "v" so Alexa reads "três quarenta e quatro ponto zero" not "vê três…".
 			announceVer := strings.TrimPrefix(newVer, "v")
 			announce := exec.Command(os.Args[0], "ha", "say", "--force",
-				"Nova versão Kaisser instalada. Versão "+announceVer+".", "studio")
+				"Nova versão Bravros instalada. Versão "+announceVer+".", "studio")
 			announce.Stdout = nil
 			announce.Stderr = nil
 			if err := announce.Start(); err == nil {
@@ -316,7 +316,7 @@ always bypass the cache and run the real check.`,
 				names = names[:3]
 				suffix = fmt.Sprintf(" (+%d more)", len(updatedSkills)-3)
 			}
-			fmt.Fprintf(os.Stderr, "✨ kaisser deployed %d skill update(s) from main: %s%s\n",
+			fmt.Fprintf(os.Stderr, "✨ bravros deployed %d skill update(s) from main: %s%s\n",
 				len(updatedSkills), strings.Join(names, ", "), suffix)
 		} else if selfupdateVerbose {
 			fmt.Fprintf(os.Stderr, "✓ SDLC updated to %s\n", newVer)
@@ -335,7 +335,7 @@ func writeSelfupdateMarkers(home, version string) {
 	// Write last-update marker for --skip-if-recent. Keep this in the legacy
 	// Claude state directory so existing installs preserve their behavior.
 	if err := os.MkdirAll(legacyClaudeStateDir(home), 0755); err == nil {
-		_ = os.WriteFile(filepath.Join(legacyClaudeStateDir(home), ".kaisser-last-update"), []byte{}, 0644)
+		_ = os.WriteFile(filepath.Join(legacyClaudeStateDir(home), ".bravros-last-update"), []byte{}, 0644)
 	}
 
 	// A successful install is also a completed check — stamp the check cache.
@@ -352,14 +352,14 @@ func writeSelfupdateMarkers(home, version string) {
 // selfupdateCheckMarker is touched in the legacy Claude state dir after every
 // completed drift check (drift found or not). Its mtime drives the TTL cache
 // that lets cache-hit session starts skip the ~9s fetch+check entirely (B-0345).
-const selfupdateCheckMarker = ".kaisser-last-check"
+const selfupdateCheckMarker = ".bravros-last-check"
 
 // selfupdateCheckTTL returns the TTL for the session-start check cache.
-// Reads KAISSER_SELFUPDATE_TTL (Go duration, e.g. "6h", "30m"); "0" or a
+// Reads BRAVROS_SELFUPDATE_TTL (Go duration, e.g. "6h", "30m"); "0" or a
 // negative value disables caching; unset or unparsable falls back to 6h.
 func selfupdateCheckTTL() time.Duration {
 	const defaultTTL = 6 * time.Hour
-	raw := strings.TrimSpace(os.Getenv("KAISSER_SELFUPDATE_TTL"))
+	raw := strings.TrimSpace(os.Getenv("BRAVROS_SELFUPDATE_TTL"))
 	if raw == "" {
 		return defaultTTL
 	}
@@ -400,7 +400,7 @@ func init() {
 	selfupdateCmd.Flags().StringVar(&selfupdateSkipIfRecent, "skip-if-recent", "", "skip update if last one was within this duration (e.g., '6h', '30m')")
 	selfupdateCmd.Flags().BoolVar(&selfupdateDryRun, "dry-run", false, "show what would be updated without modifying anything on disk")
 	selfupdateCmd.Flags().BoolVar(&selfupdateDeep, "deep", false, "also run the expensive per-skill SHA + scripts drift detectors (default off: only git HEAD, CLI version, and hooks are checked)")
-	selfupdateCmd.Flags().BoolVar(&selfupdateForce, "force", false, "bypass the check-TTL cache and run the full drift check now (the `kaisser update` alias always does this)")
+	selfupdateCmd.Flags().BoolVar(&selfupdateForce, "force", false, "bypass the check-TTL cache and run the full drift check now (the `bravros update` alias always does this)")
 }
 
 // detectSkillsDrift returns true when deployed skills/ differs from source in any
@@ -531,7 +531,7 @@ func skillIsEnabled(name, skillDir string, enabledList []string) bool {
 	return deploy.IsSkillCore(filepath.Join(skillDir, "SKILL.md"))
 }
 
-// detectCliStale compares installed kaisser version with the latest release tag in the portable repo.
+// detectCliStale compares installed bravros version with the latest release tag in the portable repo.
 // Uses `git -C <repo> describe --tags --abbrev=0 origin/main` — no network call beyond the
 // already-performed fetch.
 // Fail-safe: returns false if either version probe fails (don't trigger unnecessary install).
@@ -544,7 +544,7 @@ func detectCliStale(cli, repo string) bool {
 	if err != nil {
 		return false
 	}
-	// `kaisser version` prints "kaisser v3.0.1" — extract the "v3.0.1" portion
+	// `bravros version` prints "bravros v3.0.1" — extract the "v3.0.1" portion
 	installed := strings.TrimSpace(string(installedOut))
 	parts := strings.Fields(installed)
 	installedVer := ""
@@ -561,8 +561,8 @@ func detectCliStale(cli, repo string) bool {
 // HookDriftReport summarises the state of commit-msg hooks found in the project.
 //
 // NeedsRefresh is true when one or more hooks are old-canonical (they have the
-// kaisser marker but an older version number) — these are silently refreshed.
-// CustomizedPaths lists hooks that have the kaisser marker at the current version
+// bravros marker but an older version number) — these are silently refreshed.
+// CustomizedPaths lists hooks that have the bravros marker at the current version
 // but differ from the canonical MD5 — user-edited, do NOT auto-refresh.
 // RefreshedPaths lists the absolute paths that will be (or were) refreshed.
 type HookDriftReport struct {

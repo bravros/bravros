@@ -1,13 +1,13 @@
 package cmd
 
-// merge_lock.go — `kaisser merge-lock` verb (B-0259 Phase 1).
+// merge_lock.go — `bravros merge-lock` verb (B-0259 Phase 1).
 //
 // Surfaces the merge-lock primitive in cli/internal/git/mergelock.go through a
 // stable CLI shape so skills can:
 //
-//	kaisser merge-lock acquire [--timeout 60s] [--ttl 10m] [--meta k=v ...] [--hold]
-//	kaisser merge-lock release
-//	kaisser merge-lock status [--json]
+//	bravros merge-lock acquire [--timeout 60s] [--ttl 10m] [--meta k=v ...] [--hold]
+//	bravros merge-lock release
+//	bravros merge-lock status [--json]
 //
 // The actual flock mechanism lives in mergelock.go (untouched). The TTL +
 // metadata + stale-clear + JSON state semantics are layered on top via the
@@ -50,7 +50,7 @@ var mergeLockCmd = &cobra.Command{
   release   remove the lockfile (idempotent)
   status    report whether a non-stale lock state is on disk
 
-The lockfile lives at <gitRoot>/.git/kaisser-merge.lock and is held by virtue
+The lockfile lives at <gitRoot>/.git/bravros-merge.lock and is held by virtue
 of the JSON state's TTL + holder PID being alive. flock atomizes the acquire
 write window against concurrent acquirers.`,
 	Run: func(cmd *cobra.Command, args []string) {

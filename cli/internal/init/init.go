@@ -65,7 +65,7 @@ func Init(opts InitOpts) (*InitResult, error) {
 		result.Stack = detectResult.Stack.Language
 	}
 
-	// 4. Write .kaisser.yml
+	// 4. Write .bravros.yml
 	if err := stack.WriteConfig(opts.Root, detectResult); err != nil {
 		return nil, fmt.Errorf("failed to write %s: %w", config.ConfigFilename, err)
 	}
@@ -135,7 +135,7 @@ func hooksSourceDir() string {
 //   - Pristine    → refreshed via hooks.Refresh (adds sentinel marker)
 //   - OldCanonical → refreshed via hooks.Refresh (bumps version)
 //   - Customized  → skipped (user-managed hook — no overwrite)
-//   - Foreign     → skipped (no kaisser origin — no overwrite)
+//   - Foreign     → skipped (no bravros origin — no overwrite)
 //
 // Non-hook files (e.g. README.md) are copied via copyFile only when missing.
 // After installing hooks, `git config core.hooksPath=.githooks` is set idempotently

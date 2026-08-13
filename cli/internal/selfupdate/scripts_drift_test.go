@@ -169,19 +169,19 @@ func TestDetectScriptsDrift_MissingManifestField(t *testing.T) {
 }
 
 // TestDetectScriptsDrift_MacStudioGate_AnnounceSkippedOffMac verifies that when
-// KAISSER_TTS is not set (non-MacStudio), announce.sh is excluded from drift even
+// BRAVROS_TTS is not set (non-MacStudio), announce.sh is excluded from drift even
 // if it differs from the manifest.
 func TestDetectScriptsDrift_MacStudioGate_AnnounceSkippedOffMac(t *testing.T) {
-	// Ensure KAISSER_TTS is unset so IsMacStudio() returns false (unless hostname
+	// Ensure BRAVROS_TTS is unset so IsMacStudio() returns false (unless hostname
 	// matches Mac-Studio pattern — if running on the Mac Studio itself this test
 	// is vacuously true, so we skip in that case).
-	origVal, wasSet := os.LookupEnv("KAISSER_TTS")
+	origVal, wasSet := os.LookupEnv("BRAVROS_TTS")
 	if wasSet {
-		defer os.Setenv("KAISSER_TTS", origVal)
+		defer os.Setenv("BRAVROS_TTS", origVal)
 	} else {
-		defer os.Unsetenv("KAISSER_TTS")
+		defer os.Unsetenv("BRAVROS_TTS")
 	}
-	os.Unsetenv("KAISSER_TTS")
+	os.Unsetenv("BRAVROS_TTS")
 
 	repo := t.TempDir()
 	scriptsDir := filepath.Join(repo, "scripts")
@@ -194,7 +194,7 @@ func TestDetectScriptsDrift_MacStudioGate_AnnounceSkippedOffMac(t *testing.T) {
 	mustWriteScript(t, scriptsDir, "announce.sh", "#!/bin/sh\necho announce-v2\n")
 
 	// On non-Mac: announce.sh should be excluded from detection. If the current
-	// hostname is a Mac Studio, IsMacStudio() returns true regardless of KAISSER_TTS,
+	// hostname is a Mac Studio, IsMacStudio() returns true regardless of BRAVROS_TTS,
 	// so we detect drift correctly but cannot test the exclusion path — skip.
 	drifted, err := selfupdate.DetectScriptsDrift(repo, manifestBefore)
 	if err != nil {
@@ -205,26 +205,26 @@ func TestDetectScriptsDrift_MacStudioGate_AnnounceSkippedOffMac(t *testing.T) {
 	// (If running on a Mac Studio host, this assertion is relaxed to "no panic".)
 	for _, d := range drifted {
 		if d == "announce.sh" {
-			// Only fail if KAISSER_TTS is definitely unset AND hostname is not Mac Studio.
+			// Only fail if BRAVROS_TTS is definitely unset AND hostname is not Mac Studio.
 			// We check by re-running IsMacStudio indirectly: if none of the scripts appear
 			// as drifted on a non-Mac and announce is among them, that's the bug.
-			t.Logf("announce.sh appeared in drift list — acceptable on Mac Studio host (IsMacStudio=true); check KAISSER_TTS env if unexpected on other platforms")
+			t.Logf("announce.sh appeared in drift list — acceptable on Mac Studio host (IsMacStudio=true); check BRAVROS_TTS env if unexpected on other platforms")
 			return
 		}
 	}
 }
 
 // TestDetectScriptsDrift_MacStudioGate_AnnounceDetectedOnMac verifies that when
-// KAISSER_TTS=1 (simulating Mac Studio), announce.sh IS included in drift detection.
+// BRAVROS_TTS=1 (simulating Mac Studio), announce.sh IS included in drift detection.
 func TestDetectScriptsDrift_MacStudioGate_AnnounceDetectedOnMac(t *testing.T) {
-	// Set KAISSER_TTS=1 to simulate MacStudio.
-	origVal, wasSet := os.LookupEnv("KAISSER_TTS")
+	// Set BRAVROS_TTS=1 to simulate MacStudio.
+	origVal, wasSet := os.LookupEnv("BRAVROS_TTS")
 	if wasSet {
-		defer os.Setenv("KAISSER_TTS", origVal)
+		defer os.Setenv("BRAVROS_TTS", origVal)
 	} else {
-		defer os.Unsetenv("KAISSER_TTS")
+		defer os.Unsetenv("BRAVROS_TTS")
 	}
-	t.Setenv("KAISSER_TTS", "1")
+	t.Setenv("BRAVROS_TTS", "1")
 
 	repo := t.TempDir()
 	scriptsDir := filepath.Join(repo, "scripts")
@@ -248,7 +248,7 @@ func TestDetectScriptsDrift_MacStudioGate_AnnounceDetectedOnMac(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("expected announce.sh in drifted list on MacStudio (KAISSER_TTS=1), got: %v", drifted)
+		t.Errorf("expected announce.sh in drifted list on MacStudio (BRAVROS_TTS=1), got: %v", drifted)
 	}
 }
 

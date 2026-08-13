@@ -122,11 +122,11 @@ var (
 	deployForce     bool
 	deployNoPrune   bool
 	deployJSON      bool   // emit the full DeployResult JSON object instead of the human summary
-	deployFilter    string // comma-separated skill names; overrides .kaisser.yml:skills.enabled
+	deployFilter    string // comma-separated skill names; overrides .bravros.yml:skills.enabled
 )
 
 // printDeploySummary writes a concise, human-readable deploy summary to w.
-// This is the default `kaisser deploy` output — the full DeployResult JSON
+// This is the default `bravros deploy` output — the full DeployResult JSON
 // object is available via --json (and a single field via --field).
 func printDeploySummary(r *deploy.DeployResult, w io.Writer) {
 	verb, pruneVerb := "Deployed", "Pruned"
@@ -158,7 +158,7 @@ Behavior:
     default (--no-prune disables this).
   - Incremental copy: files already up to date (mtime + size match) are
     skipped unless --force is set.
-  - Skill allowlist: when .kaisser.yml contains skills.enabled: [name1, name2],
+  - Skill allowlist: when .bravros.yml contains skills.enabled: [name1, name2],
     only the listed skills and any skill with "core: true" in SKILL.md frontmatter
     are deployed. Use --filter to override per-invocation without editing config.
 
@@ -166,7 +166,7 @@ Output: prints a concise human-readable summary by default. Use --json for the
 full DeployResult object (deployed files, skipped, pruned, skill lists) or
 --field <name> to extract a single value.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		// Resolve enabled-skills allowlist: --filter flag overrides .kaisser.yml:skills.enabled.
+		// Resolve enabled-skills allowlist: --filter flag overrides .bravros.yml:skills.enabled.
 		enabledSkills := config.EnabledSkills()
 		filterMode := false
 		if deployFilter != "" {
@@ -235,7 +235,7 @@ full DeployResult object (deployed files, skipped, pruned, skill lists) or
 // downstream tooling (notably skills/verify-install/scripts/verify.sh) can shell
 // out to the Go implementation instead of re-deriving the algorithm in another
 // language. The Python re-implementation in verify.sh is kept only as a fallback
-// for hosts where the kaisser binary is absent.
+// for hosts where the bravros binary is absent.
 //
 // The argument is a path to a skill directory (e.g. ~/.claude/skills/plan).
 // On success it prints the lower-case hex digest followed by a newline.
@@ -248,7 +248,7 @@ identical to the value deploy writes into ~/.claude/skills/.deploy-manifest.json
 This is the single source of truth for skill-SHA computation. Pass the path to a
 skill directory (source or deployed):
 
-  kaisser deploy skill-sha ~/.claude/skills/plan
+  bravros deploy skill-sha ~/.claude/skills/plan
 
 Output: lower-case hex digest on stdout (no trailing noise). Exit 0 on success,
 non-zero with a stderr error on a broken symlink or unreadable file.`,
@@ -279,7 +279,7 @@ func init() {
 	deployCmd.Flags().BoolVar(&deployJSON, "json", false, "Emit the full DeployResult JSON object instead of the human summary")
 	deployCmd.Flags().BoolVar(&deployForce, "force", false, "Force overwrite every source file at destination, skipping any mtime/hash skip-unchanged comparison; also downgrades the pre-deploy bash-hygiene lint (skill word-split refusal) to a warning")
 	deployCmd.Flags().BoolVar(&deployNoPrune, "no-prune", false, "Preserve orphan skills/templates/hooks at the destination instead of removing them (default: prune orphans)")
-	deployCmd.Flags().StringVar(&deployFilter, "filter", "", "Comma-separated skill names to deploy; overrides .kaisser.yml:skills.enabled (core skills always deploy)")
+	deployCmd.Flags().StringVar(&deployFilter, "filter", "", "Comma-separated skill names to deploy; overrides .bravros.yml:skills.enabled (core skills always deploy)")
 	deployCmd.MarkFlagsMutuallyExclusive("json", "field", "count-only")
 	rootCmd.AddCommand(deployCmd)
 }

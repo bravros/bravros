@@ -7,7 +7,7 @@ import (
 )
 
 // isMacStudioFromHostname is the pure, testable version of the hostname-match
-// logic from IsMacStudio (without the KAISSER_TTS env check).
+// logic from IsMacStudio (without the BRAVROS_TTS env check).
 func isMacStudioFromHostname(hostname string) bool {
 	lower := strings.ToLower(hostname)
 	return strings.Contains(lower, "mac-studio") || strings.Contains(lower, "macstudio")
@@ -38,19 +38,19 @@ func TestIsMacStudioFromHostname(t *testing.T) {
 	}
 }
 
-func TestIsMacStudio_KaisserTTSEnvTrue(t *testing.T) {
-	// KAISSER_TTS=1 must make IsMacStudio() return true regardless of hostname.
-	t.Setenv("KAISSER_TTS", "1")
+func TestIsMacStudio_BravrosTTSEnvTrue(t *testing.T) {
+	// BRAVROS_TTS=1 must make IsMacStudio() return true regardless of hostname.
+	t.Setenv("BRAVROS_TTS", "1")
 	if !IsMacStudio() {
-		t.Error("IsMacStudio() = false with KAISSER_TTS=1, want true")
+		t.Error("IsMacStudio() = false with BRAVROS_TTS=1, want true")
 	}
 }
 
-func TestIsMacStudio_KaisserTTSEnvFalse(t *testing.T) {
-	// KAISSER_TTS=0 must NOT trigger the env gate.
+func TestIsMacStudio_BravrosTTSEnvFalse(t *testing.T) {
+	// BRAVROS_TTS=0 must NOT trigger the env gate.
 	// The function may still return true on a real MacStudio — we only verify
-	// it does not panic and does not force-true purely from KAISSER_TTS=0.
-	os.Setenv("KAISSER_TTS", "0")
-	defer os.Unsetenv("KAISSER_TTS")
+	// it does not panic and does not force-true purely from BRAVROS_TTS=0.
+	os.Setenv("BRAVROS_TTS", "0")
+	defer os.Unsetenv("BRAVROS_TTS")
 	_ = IsMacStudio() // must not panic
 }

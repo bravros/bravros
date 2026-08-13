@@ -100,7 +100,7 @@ func TestNextidCmd_ReturnsFirstAvailableID(t *testing.T) {
 }
 
 // TestNextidCmd_ResolvesRelativeToGitRoot is the regression test for backlog 0051:
-// `kaisser nextid` must resolve .planning/ relative to the git repo root, NOT cwd.
+// `bravros nextid` must resolve .planning/ relative to the git repo root, NOT cwd.
 //
 // Scenario: git repo at tmp/, cwd at tmp/subdir/. The placeholder must land in
 // tmp/.planning/, not in tmp/subdir/.planning/.
@@ -170,7 +170,7 @@ func TestNextidCmd_ResolvesRelativeToGitRoot(t *testing.T) {
 // files, and that the second ID is exactly one greater than the first.
 //
 // This test exercises the plan.ReservePlaceholder function directly (same
-// internal path as `kaisser nextid reserve`) without requiring the kaisser
+// internal path as `bravros nextid reserve`) without requiring the bravros
 // binary to be in PATH, making it CI-safe.
 func TestNextidReserveCmd_TwoDistinctIDs(t *testing.T) {
 	dir := t.TempDir()
@@ -243,8 +243,8 @@ func TestNextidReserveCmd_TwoDistinctIDs(t *testing.T) {
 	}
 }
 
-// TestNextidReleaseCmd_DeletesPlaceholder verifies that `kaisser nextid release`
-// deletes the placeholder created by `kaisser nextid reserve`.
+// TestNextidReleaseCmd_DeletesPlaceholder verifies that `bravros nextid release`
+// deletes the placeholder created by `bravros nextid reserve`.
 func TestNextidReleaseCmd_DeletesPlaceholder(t *testing.T) {
 	// This test exercises the internal ReleasePlaceholder function which is
 	// already tested in TestReserveThenRelease in the internal/plan package.
@@ -253,7 +253,7 @@ func TestNextidReleaseCmd_DeletesPlaceholder(t *testing.T) {
 }
 
 // TestNextidReserveCmd_UserReportWritesHyphenDir is the P-0122 Phase 2
-// regression guard: `kaisser nextid reserve user_report` MUST write its
+// regression guard: `bravros nextid reserve user_report` MUST write its
 // placeholder under `.planning/user-reports/` (hyphen) — not the legacy
 // `.planning/user_reports/` (underscore) path.
 //
@@ -307,7 +307,7 @@ func TestNextidReserveCmd_UserReportWritesHyphenDir(t *testing.T) {
 }
 
 // TestNextidReleaseCmd_UserReportPrefixUsesHyphenDir verifies the symmetric
-// path on the release side: `kaisser nextid release U-0001` must look in
+// path on the release side: `bravros nextid release U-0001` must look in
 // `.planning/user-reports/` (hyphen), matching the reserve path. P-0122 Phase 2.
 func TestNextidReleaseCmd_UserReportPrefixUsesHyphenDir(t *testing.T) {
 	repoDir := t.TempDir()
@@ -412,7 +412,7 @@ func setupWorktreeFixture(t *testing.T) (primaryDir, wt1Dir string, cleanup func
 
 // TestNextidReserve_CrossWorktree_NoCollision is the P-0170 bug repro:
 // two worktrees on different branches each hold plan files at known IDs.
-// When kaisser nextid reserve plan is called from one worktree in auto mode,
+// When bravros nextid reserve plan is called from one worktree in auto mode,
 // it must return a higher ID than the plan file on the OTHER worktree's branch
 // (P-0099), not collide with it by returning P-0051 which is what single-tree
 // mode would return from the primary.
@@ -430,7 +430,7 @@ func TestNextidReserve_CrossWorktree_NoCollision(t *testing.T) {
 	defer os.Chdir(orig)
 
 	// Ensure auto mode is active.
-	os.Unsetenv("KAISSER_NEXTID_SCAN_MODE")
+	os.Unsetenv("BRAVROS_NEXTID_SCAN_MODE")
 	nextidReserveScanMode = "auto"
 	nextidReserveVerbose = false
 	nextidReserveJSON = false
@@ -438,7 +438,7 @@ func TestNextidReserve_CrossWorktree_NoCollision(t *testing.T) {
 		nextidReserveScanMode = "auto"
 		nextidReserveVerbose = false
 		nextidReserveJSON = false
-		os.Unsetenv("KAISSER_NEXTID_SCAN_MODE")
+		os.Unsetenv("BRAVROS_NEXTID_SCAN_MODE")
 	}()
 
 	out := captureStdout(t, func() {
@@ -495,7 +495,7 @@ func TestNextidReserve_ScanModeSingleTree_RestoresOldBehavior(t *testing.T) {
 		nextidReserveScanMode = "auto"
 		nextidReserveVerbose = false
 		nextidReserveJSON = false
-		os.Unsetenv("KAISSER_NEXTID_SCAN_MODE")
+		os.Unsetenv("BRAVROS_NEXTID_SCAN_MODE")
 	}()
 
 	out := captureStdout(t, func() {
@@ -548,7 +548,7 @@ func TestNextidReserve_Verbose_StderrDiagnostics(t *testing.T) {
 	}
 	defer os.Chdir(orig)
 
-	os.Unsetenv("KAISSER_NEXTID_SCAN_MODE")
+	os.Unsetenv("BRAVROS_NEXTID_SCAN_MODE")
 	nextidReserveScanMode = "auto"
 	nextidReserveVerbose = true
 	nextidReserveJSON = false
@@ -556,7 +556,7 @@ func TestNextidReserve_Verbose_StderrDiagnostics(t *testing.T) {
 		nextidReserveScanMode = "auto"
 		nextidReserveVerbose = false
 		nextidReserveJSON = false
-		os.Unsetenv("KAISSER_NEXTID_SCAN_MODE")
+		os.Unsetenv("BRAVROS_NEXTID_SCAN_MODE")
 	}()
 
 	var stderrOut, stdoutOut string
@@ -609,7 +609,7 @@ func TestNextidReserve_Verbose_Stdout_CleanID(t *testing.T) {
 	}
 	defer os.Chdir(orig)
 
-	os.Unsetenv("KAISSER_NEXTID_SCAN_MODE")
+	os.Unsetenv("BRAVROS_NEXTID_SCAN_MODE")
 	nextidReserveScanMode = "auto"
 	nextidReserveVerbose = true
 	nextidReserveJSON = false
@@ -617,7 +617,7 @@ func TestNextidReserve_Verbose_Stdout_CleanID(t *testing.T) {
 		nextidReserveScanMode = "auto"
 		nextidReserveVerbose = false
 		nextidReserveJSON = false
-		os.Unsetenv("KAISSER_NEXTID_SCAN_MODE")
+		os.Unsetenv("BRAVROS_NEXTID_SCAN_MODE")
 	}()
 
 	// Silence stderr so test output is clean; we only care about stdout here.
@@ -701,7 +701,7 @@ func TestNextidReserve_WarnThreshold_Delta_Above100(t *testing.T) {
 	}
 	defer os.Chdir(orig)
 
-	os.Unsetenv("KAISSER_NEXTID_SCAN_MODE")
+	os.Unsetenv("BRAVROS_NEXTID_SCAN_MODE")
 	nextidReserveScanMode = "auto"
 	nextidReserveVerbose = false // warn is always-on, verbose is not needed
 	nextidReserveJSON = false
@@ -709,7 +709,7 @@ func TestNextidReserve_WarnThreshold_Delta_Above100(t *testing.T) {
 		nextidReserveScanMode = "auto"
 		nextidReserveVerbose = false
 		nextidReserveJSON = false
-		os.Unsetenv("KAISSER_NEXTID_SCAN_MODE")
+		os.Unsetenv("BRAVROS_NEXTID_SCAN_MODE")
 	}()
 
 	var stderrOut string
@@ -747,7 +747,7 @@ func TestNextidReserve_WarnThreshold_Delta_Below100_NoWarn(t *testing.T) {
 	}
 	defer os.Chdir(orig)
 
-	os.Unsetenv("KAISSER_NEXTID_SCAN_MODE")
+	os.Unsetenv("BRAVROS_NEXTID_SCAN_MODE")
 	nextidReserveScanMode = "auto"
 	nextidReserveVerbose = false
 	nextidReserveJSON = false
@@ -755,7 +755,7 @@ func TestNextidReserve_WarnThreshold_Delta_Below100_NoWarn(t *testing.T) {
 		nextidReserveScanMode = "auto"
 		nextidReserveVerbose = false
 		nextidReserveJSON = false
-		os.Unsetenv("KAISSER_NEXTID_SCAN_MODE")
+		os.Unsetenv("BRAVROS_NEXTID_SCAN_MODE")
 	}()
 
 	var stderrOut string
@@ -773,7 +773,7 @@ func TestNextidReserve_WarnThreshold_Delta_Below100_NoWarn(t *testing.T) {
 	}
 }
 
-// TestNextidReserve_ScanError_ExitsNonZero verifies that when KAISSER_NEXTID_SCAN_MODE
+// TestNextidReserve_ScanError_ExitsNonZero verifies that when BRAVROS_NEXTID_SCAN_MODE
 // is set to a value that would trigger a scan error (by pointing to a non-existent
 // git repo via a temp dir), the command returns a non-zero error when auto scan
 // encounters a git failure. We simulate this by calling plan.ScanAllSources in a

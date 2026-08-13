@@ -53,7 +53,7 @@ func TestReadMarker_MalformedVersion(t *testing.T) {
 	// Create a temp file with a marker but a non-numeric version
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "malformed.sh")
-	content := "#!/bin/bash\n# kaisser-managed-commit-msg-hook vXYZ\nexit 0\n"
+	content := "#!/bin/bash\n# bravros-managed-commit-msg-hook vXYZ\nexit 0\n"
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatalf("write temp: %v", err)
 	}

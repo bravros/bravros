@@ -56,13 +56,13 @@ type Gate struct {
 	// It should NOT include the TTL/path/expiry lines — Mint callers print those.
 	SuccessMsg string
 	// RefuseMsg is the headline printed to stderr when minting is refused inside
-	// Claude Code (e.g. "✋ kaisser promote unlock REFUSED: running inside Claude Code.").
+	// Claude Code (e.g. "✋ bravros promote unlock REFUSED: running inside Claude Code.").
 	RefuseMsg string
 }
 
 // Path returns the canonical on-disk path for this gate's token, or "" when the
 // home directory cannot be determined. The token lives in user-scope state
-// (~/.claude/state/<Name>-token) so kaisser can read it from any project
+// (~/.claude/state/<Name>-token) so bravros can read it from any project
 // without per-repo bookkeeping.
 func (g Gate) Path() string {
 	home, err := os.UserHomeDir()

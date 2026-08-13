@@ -11,7 +11,7 @@ import (
 
 var secretsCmd = &cobra.Command{
 	Use:   "secrets",
-	Short: "Manage kaisser secrets (op / env / none backends)",
+	Short: "Manage bravros secrets (op / env / none backends)",
 	Run: func(cmd *cobra.Command, args []string) {
 		cmd.Help()
 	},
@@ -24,16 +24,16 @@ var (
 	secretsBootstrapBackend   string
 )
 
-// secretsBootstrapCmd implements `kaisser secrets bootstrap`.
+// secretsBootstrapCmd implements `bravros secrets bootstrap`.
 var secretsBootstrapCmd = &cobra.Command{
 	Use:   "bootstrap",
-	Short: "Write the kaisser secrets v2 block into your shell RC file",
-	Long: `Rewrite the managed kaisser secrets block (a fenced v2 region) in your shell
+	Short: "Write the bravros secrets v2 block into your shell RC file",
+	Long: `Rewrite the managed bravros secrets block (a fenced v2 region) in your shell
 RC file (default: ~/.zshrc) for the selected backend.
 
 Backends:
   op        resolve from 1Password (op-whoami-gated; never prompts at shell startup)
-  env       resolve from $KAISSER_ENV_FILE (KEY=value lines)
+  env       resolve from $BRAVROS_ENV_FILE (KEY=value lines)
   keychain  resolve from the macOS login keychain (darwin-only, opt-in; ZERO op refs)
   none      no secret hydration; ZERO 1Password references written
 
@@ -41,7 +41,7 @@ When --backend is omitted, the backend is auto-detected: op is chosen only when
 the 1Password CLI is installed AND a live session exists; otherwise env. keychain
 is never auto-selected — it is opt-in only (like none).
 
-The block always defines a kaisser_secret() shell helper FIRST, then per-backend
+The block always defines a bravros_secret() shell helper FIRST, then per-backend
 gate lines. Rewriting is atomic (temp file + rename) and idempotent — running
 twice with the same backend yields a byte-identical RC with exactly one block.
 Legacy v1 blocks and eager 'export FIRECRAWL_API_KEY=$(op read …)' / HASS_TOKEN
@@ -82,12 +82,12 @@ var (
 	secretsTemplatePrintOnly bool
 )
 
-// secretsExportTemplateCmd implements `kaisser secrets export-template`.
+// secretsExportTemplateCmd implements `bravros secrets export-template`.
 var secretsExportTemplateCmd = &cobra.Command{
 	Use:   "export-template",
 	Short: "Write a template env file with blank placeholders for all known secrets",
-	Long: `Write ~/.config/kaisser/secrets-template.env with one blank export line per
-known kaisser secret.  Non-1Password users can fill in values manually and
+	Long: `Write ~/.config/bravros/secrets-template.env with one blank export line per
+known bravros secret.  Non-1Password users can fill in values manually and
 source the file in their shell RC.
 
 Flags:
@@ -111,7 +111,7 @@ Flags:
 
 var secretsBackendShellRC string
 
-// secretsBackendCmd implements `kaisser secrets backend <op|env|none>`.
+// secretsBackendCmd implements `bravros secrets backend <op|env|none>`.
 var secretsBackendCmd = &cobra.Command{
 	Use:   "backend <op|env|keychain|none>",
 	Short: "Switch the secrets backend and rewrite the shell RC block",
@@ -120,7 +120,7 @@ managed v2 block in your shell RC file. Switching away from op strips every
 1Password reference from the block (the new backend writes ZERO op refs unless
 it is op).
 
-The chosen backend is encoded in the block as 'export KAISSER_SECRETS_BACKEND=…',
+The chosen backend is encoded in the block as 'export BRAVROS_SECRETS_BACKEND=…',
 so it persists for new shells without an external state file.
 
 Flags:
@@ -149,21 +149,21 @@ Flags:
 
 var secretsSetBackend string
 
-// secretsSetCmd implements `kaisser secrets set KEY=VALUE`.
+// secretsSetCmd implements `bravros secrets set KEY=VALUE`.
 var secretsSetCmd = &cobra.Command{
 	Use:   "set KEY=VALUE",
 	Short: "Write or update a secret in the env file or macOS keychain",
 	Long: `Write or update KEY=VALUE in the active backend's store.
 
 Backends:
-  env       write KEY=VALUE into $KAISSER_ENV_FILE (default ~/.config/kaisser/
+  env       write KEY=VALUE into $BRAVROS_ENV_FILE (default ~/.config/bravros/
             secrets.env, 0600). This is the env-backend equivalent of storing a
             value in 1Password.
   keychain  write the value into the macOS login keychain under the registry's
-            service/account mapping (default service "kaisser-secrets",
+            service/account mapping (default service "bravros-secrets",
             account=KEY) via security add-generic-password -A -U.
 
-Without --backend, the active backend is auto-detected (KAISSER_SECRETS_BACKEND).
+Without --backend, the active backend is auto-detected (BRAVROS_SECRETS_BACKEND).
 The op backend has no writable store here — store op secrets in 1Password directly.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -202,7 +202,7 @@ The op backend has no writable store here — store op secrets in 1Password dire
 
 var secretsStatusJSON bool
 
-// secretsStatusCmd implements `kaisser secrets status`.
+// secretsStatusCmd implements `bravros secrets status`.
 var secretsStatusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Show the active backend, env-file path, and op availability",
@@ -222,12 +222,12 @@ var secretsStatusCmd = &cobra.Command{
 	},
 }
 
-// secretsResolveCmd implements `kaisser secrets resolve ENVVAR OP_ITEM OP_FIELD`.
-// This is the binary side of the kaisser_secret() shell helper. It prints the
+// secretsResolveCmd implements `bravros secrets resolve ENVVAR OP_ITEM OP_FIELD`.
+// This is the binary side of the bravros_secret() shell helper. It prints the
 // resolved value to stdout (empty on miss) and is intentionally quiet.
 var secretsResolveCmd = &cobra.Command{
 	Use:    "resolve ENVVAR OP_ITEM OP_FIELD",
-	Short:  "Resolve a single managed secret (used by the kaisser_secret shell helper)",
+	Short:  "Resolve a single managed secret (used by the bravros_secret shell helper)",
 	Args:   cobra.RangeArgs(1, 3),
 	Hidden: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -269,7 +269,7 @@ func init() {
 	secretsBootstrapCmd.Flags().BoolVar(&secretsBootstrapDryRun, "dry-run", false, "Print the rendered block without modifying the file")
 	secretsBootstrapCmd.Flags().BoolVar(&secretsBootstrapPrintOnly, "print-only", false, "Print the rendered block to stdout (alias of --dry-run)")
 
-	secretsExportTemplateCmd.Flags().StringVar(&secretsTemplateOutput, "output", "", "Output file path (default: ~/.config/kaisser/secrets-template.env)")
+	secretsExportTemplateCmd.Flags().StringVar(&secretsTemplateOutput, "output", "", "Output file path (default: ~/.config/bravros/secrets-template.env)")
 	secretsExportTemplateCmd.Flags().BoolVar(&secretsTemplatePrintOnly, "print-only", false, "Print template to stdout instead of writing to file")
 
 	secretsBackendCmd.Flags().StringVar(&secretsBackendShellRC, "shell-rc", "", "Target shell RC file (default: ~/.zshrc)")

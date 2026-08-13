@@ -102,7 +102,7 @@ func TestDeploy_DoesNotClobberPersonalCLAUDEmd(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	personal := "Fale comigo em portugues.\n\n# >>> kaisser-managed-global >>>\n...\n# <<< kaisser-managed-global <<<\n"
+	personal := "Fale comigo em portugues.\n\n# >>> bravros-managed-global >>>\n...\n# <<< bravros-managed-global <<<\n"
 	dst := filepath.Join(target, "CLAUDE.md")
 	if err := os.WriteFile(dst, []byte(personal), 0o644); err != nil {
 		t.Fatal(err)

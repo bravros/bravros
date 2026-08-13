@@ -309,13 +309,13 @@ Use --all to remove all .planning/.auto-*-lock files in one command.`,
 				case len(others) == 1:
 					fmt.Printf("ℹ️ lock was not present (no-op) — but another lock file found:\n")
 					fmt.Printf("  %s  %s\n", others[0], lockInfoString(others[0]))
-					fmt.Printf("  Clear with: kaisser autopr clear-lock --lock %s\n", lockBaseName(others[0]))
+					fmt.Printf("  Clear with: bravros autopr clear-lock --lock %s\n", lockBaseName(others[0]))
 				case len(others) > 1:
 					fmt.Printf("ℹ️ lock was not present (no-op) — but other lock file(s) found:\n")
 					for _, o := range others {
 						fmt.Printf("  %s  %s\n", o, lockInfoString(o))
 					}
-					fmt.Println("  Clear all with: kaisser autopr clear-lock --all")
+					fmt.Println("  Clear all with: bravros autopr clear-lock --all")
 				default:
 					fmt.Println("ℹ️ lock was not present (no-op)")
 				}
@@ -617,7 +617,7 @@ var autoprModeCmd = &cobra.Command{
 	},
 }
 
-// autoprModeIsAutonomousCmd implements `kaisser autopr mode --is-autonomous`.
+// autoprModeIsAutonomousCmd implements `bravros autopr mode --is-autonomous`.
 // It glob-checks .planning/.auto-*-lock (not just .auto-pr-lock) to detect
 // ANY active autonomous lock. This fixes B-0081: /auto-pr-wt previously only
 // checked .auto-pr-lock, missing .auto-merge-lock and any future .auto-*-lock.
@@ -653,7 +653,7 @@ Use --print-lock to emit the matched filename(s) to stdout for diagnostics.`,
 var autoprPreflightSkill string
 var autoprPreflightStaleAfter int
 
-// autoprPreflightCmd implements `kaisser autopr preflight --skill <name>`.
+// autoprPreflightCmd implements `bravros autopr preflight --skill <name>`.
 // It is the DRY replacement for the Step 0 lock setup block duplicated across
 // auto-pr, auto-pr-wt, auto-merge, and flow skill files (B-0080).
 //

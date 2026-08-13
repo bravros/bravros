@@ -23,7 +23,7 @@ var (
 	saTokenJSON       bool
 )
 
-// secretsSATokenCmd implements `kaisser secrets sa-token`.
+// secretsSATokenCmd implements `bravros secrets sa-token`.
 //
 // It writes a marker-fenced, idempotent 1Password Service-Account-token block
 // into ~/.zshenv. NON-INTERACTIVE + flag-driven by default (testable); the
@@ -99,7 +99,7 @@ Flags:
 				return err
 			}
 			if tok == "" {
-				return fmt.Errorf("%s backend needs the token on stdin (e.g. printf %%s \"$TOKEN\" | kaisser secrets sa-token --backend %s)", spec.Backend, spec.Backend)
+				return fmt.Errorf("%s backend needs the token on stdin (e.g. printf %%s \"$TOKEN\" | bravros secrets sa-token --backend %s)", spec.Backend, spec.Backend)
 			}
 			spec.Token = tok
 		case secrets.SABackendNone:

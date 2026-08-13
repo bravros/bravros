@@ -1,5 +1,5 @@
 #!/bin/bash
-# kaisser-managed-commit-msg-hook v1
+# bravros-managed-commit-msg-hook v1
 #
 # Git commit-msg hook to enforce commit message conventions
 #

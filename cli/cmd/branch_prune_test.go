@@ -15,12 +15,12 @@ import (
 // makeBranchPruneTestRepo creates a minimal git repo in a temp dir, changes into it,
 // and returns (dir, restoreFunc). Always use defer restore().
 //
-// Sets KAISSER_BRANCH_PRUNE_BYPASS_ACTIVE_CMD=1 so the active-command guard does not
+// Sets BRAVROS_BRANCH_PRUNE_BYPASS_ACTIVE_CMD=1 so the active-command guard does not
 // fire when tests run inside a live Claude Code session (which maintains the marker).
 // `t.Setenv` reverts at test end.
 func makeBranchPruneTestRepo(t *testing.T) (string, func()) {
 	t.Helper()
-	t.Setenv("KAISSER_BRANCH_PRUNE_BYPASS_ACTIVE_CMD", "1")
+	t.Setenv("BRAVROS_BRANCH_PRUNE_BYPASS_ACTIVE_CMD", "1")
 	dir := t.TempDir()
 
 	run := func(args ...string) {

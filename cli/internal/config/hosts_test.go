@@ -7,7 +7,7 @@ import (
 )
 
 func TestOptedInHosts_EnvOverride(t *testing.T) {
-	t.Setenv("KAISSER_HOSTS", "codex, PI ,foo,claude")
+	t.Setenv("BRAVROS_HOSTS", "codex, PI ,foo,claude")
 	got := OptedInHosts()
 	// foo (unsupported) and claude (implicit) dropped; lowercased; sorted.
 	if len(got) != 2 || got[0] != "codex" || got[1] != "pi" {
@@ -17,8 +17,8 @@ func TestOptedInHosts_EnvOverride(t *testing.T) {
 
 func TestOptedInHosts_FileAndFailSafe(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("KAISSER_CONFIG_DIR", dir)
-	t.Setenv("KAISSER_HOSTS", "") // no env override → read file
+	t.Setenv("BRAVROS_CONFIG_DIR", dir)
+	t.Setenv("BRAVROS_HOSTS", "") // no env override → read file
 
 	// No file → nil (Claude-only default).
 	if got := OptedInHosts(); got != nil {
@@ -40,7 +40,7 @@ func TestOptedInHosts_FileAndFailSafe(t *testing.T) {
 }
 
 func TestHostOptedIn(t *testing.T) {
-	t.Setenv("KAISSER_HOSTS", "codex")
+	t.Setenv("BRAVROS_HOSTS", "codex")
 	cases := []struct {
 		host string
 		want bool
@@ -62,8 +62,8 @@ func TestHostOptedIn(t *testing.T) {
 
 func TestSetOptedInHosts_MergeDedupIdempotent(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("KAISSER_CONFIG_DIR", dir)
-	t.Setenv("KAISSER_HOSTS", "") // force file path
+	t.Setenv("BRAVROS_CONFIG_DIR", dir)
+	t.Setenv("BRAVROS_HOSTS", "") // force file path
 
 	if err := SetOptedInHosts([]string{"codex"}); err != nil {
 		t.Fatalf("set 1: %v", err)

@@ -1,4 +1,4 @@
-// Package secrets implements the kaisser secrets bootstrap and export-template
+// Package secrets implements the bravros secrets bootstrap and export-template
 // verbs (B-0118).
 package secrets
 
@@ -16,14 +16,14 @@ package secrets
 // keychain service name is generic toolkit data, not an owner-specific
 // 1Password item, so the two name spaces stay independent. When unset they
 // default (see KeychainServiceFor / KeychainAccountFor) to a fixed generic
-// service (`kaisser-secrets`) keyed by account = EnvVar.
+// service (`bravros-secrets`) keyed by account = EnvVar.
 type KnownSecret struct {
 	EnvVar  string // e.g. FIRECRAWL_API_KEY
 	OPItem  string // 1Password item name (must match install.sh's `op read` refs)
 	OPField string // 1Password field label (default: "credential")
 
 	// KeychainService overrides the macOS keychain service name for this secret.
-	// Empty → defaultKeychainService ("kaisser-secrets"). Never an owner-specific
+	// Empty → defaultKeychainService ("bravros-secrets"). Never an owner-specific
 	// op vault/item — purely a generic, machine-local keychain bucket name.
 	KeychainService string
 	// KeychainAccount overrides the macOS keychain account for this secret.
@@ -35,7 +35,7 @@ type KnownSecret struct {
 // KnownSecret does not pin its own KeychainService. It is intentionally NOT
 // machine-derived and NOT owner-specific — registered per-secret values are
 // disambiguated by account (the EnvVar) within this one service bucket.
-const defaultKeychainService = "kaisser-secrets"
+const defaultKeychainService = "bravros-secrets"
 
 // KeychainServiceFor returns the keychain service name for a registered secret:
 // the explicit KeychainService when set, else the generic default.
@@ -68,7 +68,7 @@ func keychainCoords(envVar string) (service, account string) {
 	return defaultKeychainService, envVar
 }
 
-// Registry returns the list of all known kaisser secrets.
+// Registry returns the list of all known bravros secrets.
 //
 // STEP-0 DATA-BUG RECONCILIATION (B-0322): the previous registry declared
 // OPItem "firecrawl-api-key"/field "credential" and "hass-token"/field
@@ -78,11 +78,11 @@ func keychainCoords(envVar string) (service, account string) {
 //	Firecrawl: op read "op://ClaudeCode/Firecrawl API/credencial"   (Portuguese field)
 //	HA:        op item get "Home Assistant - Long Lived Token" --fields label=password
 //
-// With the old values, an op-backend kaisser_secret() call would have queried a
+// With the old values, an op-backend bravros_secret() call would have queried a
 // non-existent ref and silently resolved empty. The OPItem/OPField below now
 // mirror install.sh exactly, so op-backend reads actually work. (Note the old
 // eager ShellLine field is gone entirely — bootstrap.go renders self-gating
-// kaisser_secret calls from EnvVar/OPItem/OPField instead.)
+// bravros_secret calls from EnvVar/OPItem/OPField instead.)
 func Registry() []KnownSecret {
 	return []KnownSecret{
 		{

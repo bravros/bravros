@@ -28,7 +28,7 @@ func TestParseLsofPC(t *testing.T) {
 }
 
 func TestParseLsofPCSelfExcluded(t *testing.T) {
-	out := "p4711\ncclaude\np500\nckaisser\n"
+	out := "p4711\ncclaude\np500\ncbravros\n"
 	procs, selfInside := parseLsofPC(out, 500)
 	if !selfInside {
 		t.Fatalf("selfInside = false, want true (pid 500 is self)")

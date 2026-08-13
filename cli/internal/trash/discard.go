@@ -26,9 +26,9 @@ func (r *DiscardResult) Empty() bool {
 // It resolves pathspecs via `git status --porcelain`, copies every file whose
 // current content git has never seen into a fresh .trash/ entry, THEN discards:
 // `git checkout --` for tracked modifications, delete for untracked files.
-// No token required — the discard is reversible via `kaisser trash restore`.
+// No token required — the discard is reversible via `bravros trash restore`.
 //
-// untrackedOnly restricts the run to untracked files (`kaisser clean-untracked`).
+// untrackedOnly restricts the run to untracked files (`bravros clean-untracked`).
 // dryRun reports what would happen without touching the tree.
 func Discard(repoRoot string, pathspecs []string, untrackedOnly, dryRun bool) (*DiscardResult, error) {
 	entries, err := Status(repoRoot, pathspecs)

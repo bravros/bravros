@@ -49,7 +49,7 @@ func TestCheckBinary_FoundBinary(t *testing.T) {
 
 func TestCheckBinary_MissingBinary(t *testing.T) {
 	// Use a fake binary name that will never exist.
-	results := checkBinary("kaisser-nonexistent-tool-xyz", "fake tool")
+	results := checkBinary("bravros-nonexistent-tool-xyz", "fake tool")
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
@@ -132,7 +132,7 @@ func TestInstallMissing_ProposesPackages(t *testing.T) {
 }
 
 // Run with Fix=true must rewrite the managed sections in settings.json +
-// CLAUDE.md (mirrors `kaisser config sync`) and report what was repaired.
+// CLAUDE.md (mirrors `bravros config sync`) and report what was repaired.
 func TestRun_FixMode_AppliesRepairs(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)

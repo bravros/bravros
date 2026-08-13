@@ -17,15 +17,15 @@ import (
 var promoteGate = token.Gate{
 	Name:       "promote",
 	SuccessMsg: "Promote token minted",
-	RefuseMsg:  "✋ kaisser promote unlock REFUSED: running inside Claude Code.",
+	RefuseMsg:  "✋ bravros promote unlock REFUSED: running inside Claude Code.",
 	UnlockHelp: `The promote token must be minted from a separate terminal outside
 Claude Code. This is intentional — it proves human presence.
 
   1. Open a new terminal (outside Claude Code, same machine)
-  2. Run: kaisser promote unlock
+  2. Run: bravros promote unlock
   3. Return to Claude Code and run: /promote
 
-Suggested alias: alias promote-unlock='kaisser promote unlock'`,
+Suggested alias: alias promote-unlock='bravros promote unlock'`,
 }
 
 // promoteToken is retained as the JSON shape backing the promote token. It is an
@@ -53,9 +53,9 @@ var promoteCmd = &cobra.Command{
 	Short: "Promote homolog → main with human-presence token",
 	Long: `Out-of-band token gate for fast homolog→main promotion.
 
-kaisser promote unlock   — mint token (REFUSED inside Claude Code)
-kaisser promote status   — check token presence and expiry
-kaisser promote revoke   — delete token (safe inside Claude Code)
+bravros promote unlock   — mint token (REFUSED inside Claude Code)
+bravros promote status   — check token presence and expiry
+bravros promote revoke   — delete token (safe inside Claude Code)
 
 The token lives at ~/.claude/state/promote-token and is consumed by
 the /promote skill after a successful merge.`,
@@ -141,7 +141,7 @@ func unlockNextStep(name string) string {
 	case "verify-suite":
 		return "Run the full test suite in Claude Code now."
 	case "review-stamp":
-		return "Re-run `kaisser pr-review <PR> --write-stamp` in Claude Code now."
+		return "Re-run `bravros pr-review <PR> --write-stamp` in Claude Code now."
 	case "destructive":
 		return "Re-run the blocked destructive command in Claude Code now (one execution)."
 	default:

@@ -1,12 +1,12 @@
 // Package trash implements the repo-local .trash/ preserve area backing
-// `kaisser discard`, `kaisser clean-untracked` and `kaisser trash *` (P-0184).
+// `bravros discard`, `bravros clean-untracked` and `bravros trash *` (P-0184).
 //
 // Design principle: git can only restore what it has already seen. Content that
 // was never staged or committed exists nowhere in git, so before any discard the
 // affected files are COPIED (never moved — a copy cannot fail halfway and leave
 // the tree inconsistent) into <repo-root>/.trash/<UTC-stamp>-<slug>/ preserving
 // their repo-relative layout. The directory is gitignored and swept after
-// DefaultRetentionDays by `kaisser trash gc` / `kaisser branch prune --gc`.
+// DefaultRetentionDays by `bravros trash gc` / `bravros branch prune --gc`.
 package trash
 
 import (
@@ -177,7 +177,7 @@ func Restore(repoRoot, id string) (int, error) {
 	}
 	entryDir := filepath.Join(Root(repoRoot), id)
 	if info, err := os.Stat(entryDir); err != nil || !info.IsDir() {
-		return 0, fmt.Errorf("no trash entry %q (see `kaisser trash list`)", id)
+		return 0, fmt.Errorf("no trash entry %q (see `bravros trash list`)", id)
 	}
 	restored := 0
 	err := filepath.Walk(entryDir, func(src string, info os.FileInfo, err error) error {

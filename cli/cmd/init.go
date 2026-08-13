@@ -33,7 +33,7 @@ var (
 )
 
 // resolveBootstrapDir returns the directory that init will deploy from.
-// Priority: positional arg > --portable-repo / KAISSER_PORTABLE_REPO > cwd.
+// Priority: positional arg > --portable-repo / BRAVROS_PORTABLE_REPO > cwd.
 // args is the cobra positional args slice; portableRepo is the resolved flag value.
 func resolveBootstrapDir(root, portableRepo string, args []string) string {
 	// Positional arg was provided — it already lives in root.
@@ -50,20 +50,20 @@ func resolveBootstrapDir(root, portableRepo string, args []string) string {
 var initCmd = &cobra.Command{
 	Use:   "init [path]",
 	Short: "Initialize project with SDLC structure (or bootstrap ~/.claude/)",
-	Long: `Initialize a project with the Kaisser SDLC structure:
-- Detect tech stack and write .kaisser.yml
+	Long: `Initialize a project with the Bravros SDLC structure:
+- Detect tech stack and write .bravros.yml
 - Create .planning/backlog/archive/ directory structure
 - Copy git hooks from templates
 - Create .github/workflows/ directory
 - Create staging branch (homolog) if missing
 
-When --portable-repo is provided (or KAISSER_PORTABLE_REPO is set and the cwd
-is a kaisser config repo), also bootstraps ~/.claude/ using the specified
+When --portable-repo is provided (or BRAVROS_PORTABLE_REPO is set and the cwd
+is a bravros config repo), also bootstraps ~/.claude/ using the specified
 --deploy-mode (symlinks or copies). Symlinks are the default; falls back to
 copies when the filesystem does not support them.
 
 Next steps after init:
-  kaisser doctor && kaisser secrets bootstrap && kaisser mcp register --from config/mcp.json`,
+  bravros doctor && bravros secrets bootstrap && bravros mcp register --from config/mcp.json`,
 	Run: func(cmd *cobra.Command, args []string) {
 		root, err := os.Getwd()
 		if err != nil {
@@ -111,11 +111,11 @@ Next steps after init:
 		// When --portable-repo is supplied explicitly (or resolved from env) AND no
 		// positional arg was provided, the portable-repo path wins over cwd; this
 		// is the path install.sh always passes.  When a positional arg was given
-		// (kaisser init /some/path), that path already sits in `root` and takes
+		// (bravros init /some/path), that path already sits in `root` and takes
 		// priority — bootstrapDir == root in that case too.
 		bootstrapDir := resolveBootstrapDir(root, portableRepo, args)
 
-		// Only deploy when running from the kaisser config repo.
+		// Only deploy when running from the bravros config repo.
 		if ideploy.IsClaudeRepo(bootstrapDir) {
 			if deployMode != "copies" {
 				// Symlink mode.
@@ -159,10 +159,10 @@ Next steps after init:
 			}
 
 			if !initSkipSecrets {
-				fmt.Printf("next: kaisser doctor && kaisser secrets bootstrap && kaisser mcp register --from config/mcp.json\n")
+				fmt.Printf("next: bravros doctor && bravros secrets bootstrap && bravros mcp register --from config/mcp.json\n")
 			}
 		} else if initPortableRepo != "" {
-			// --portable-repo was explicitly passed but bootstrapDir is not a kaisser
+			// --portable-repo was explicitly passed but bootstrapDir is not a bravros
 			// config repo.  Fail loudly so install.sh surfaces the misconfiguration
 			// instead of silently skipping the bootstrap step.
 			//
@@ -170,7 +170,7 @@ Next steps after init:
 			// the resolved portableRepo from env/config.  install.sh always passes
 			// --portable-repo, so the flag is the right gate for the install.sh
 			// contract.  Treating env/config fallback the same way would surface a
-			// noisy error in interactive `kaisser init` sessions where the env var
+			// noisy error in interactive `bravros init` sessions where the env var
 			// happens to be set to a stale path — those should silently skip.
 			//
 			// We check existence first because IsClaudeRepo is basename-only —
@@ -182,7 +182,7 @@ Next steps after init:
 				initExitFn(1)
 				return
 			} else if !ideploy.IsClaudeRepo(bootstrapDir) {
-				fmt.Fprintf(os.Stderr, "Error: --portable-repo %q is not a kaisser config repo (expected basename \"claude\")\n", bootstrapDir)
+				fmt.Fprintf(os.Stderr, "Error: --portable-repo %q is not a bravros config repo (expected basename \"claude\")\n", bootstrapDir)
 				initExitFn(1)
 				return
 			}
@@ -190,12 +190,12 @@ Next steps after init:
 	},
 }
 
-// expandPlaceholdersCmd implements `kaisser init expand-placeholders <file>`.
+// expandPlaceholdersCmd implements `bravros init expand-placeholders <file>`.
 var expandPlaceholdersCmd = &cobra.Command{
 	Use:   "expand-placeholders <file>",
 	Short: "Expand {{PLACEHOLDER}} tokens in a template file using detected stack values",
 	Long: `Read a template file and replace placeholder tokens with values sourced from
-stack detection (kaisser detect-stack) and project metadata (kaisser meta).
+stack detection (bravros detect-stack) and project metadata (bravros meta).
 
 Supported placeholders:
   {{PROJECT_NAME}}  — project name from git remote or directory basename
@@ -244,8 +244,8 @@ func init() {
 	initCmd.Flags().BoolVar(&initSkipStaging, "skip-staging-branch", false, "Skip staging branch creation")
 
 	// B-0117 bootstrap flags
-	initCmd.Flags().StringVar(&initPortableRepo, "portable-repo", "", "Path to kaisser config repo (default: $KAISSER_PORTABLE_REPO)")
-	initCmd.Flags().StringVar(&initDeployMode, "deploy-mode", "", "Deploy mode: symlinks|copies|auto (default: $KAISSER_DEPLOY_MODE or symlinks)")
+	initCmd.Flags().StringVar(&initPortableRepo, "portable-repo", "", "Path to bravros config repo (default: $BRAVROS_PORTABLE_REPO)")
+	initCmd.Flags().StringVar(&initDeployMode, "deploy-mode", "", "Deploy mode: symlinks|copies|auto (default: $BRAVROS_DEPLOY_MODE or symlinks)")
 	initCmd.Flags().BoolVar(&initSkipSecrets, "skip-secrets", false, "Skip secrets bootstrap prompt in post-init summary")
 	initCmd.Flags().BoolVar(&initSkipMCP, "skip-mcp", false, "Skip MCP register prompt in post-init summary")
 	initCmd.Flags().BoolVar(&initForce, "force", false, "Force overwrite of existing non-symlink directories during deploy")

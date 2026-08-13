@@ -16,12 +16,12 @@ import (
 // makeGitRepo creates a bare-minimum git repo in a temp dir and returns the path.
 // It sets the working directory to that path via os.Chdir and returns a cleanup func.
 //
-// Also sets KAISSER_BRANCH_PRUNE_BYPASS_ACTIVE_CMD=1 so the active-command guard
+// Also sets BRAVROS_BRANCH_PRUNE_BYPASS_ACTIVE_CMD=1 so the active-command guard
 // added in P-0161 follow-up doesn't trip when tests run inside a live Claude Code
 // session (which itself maintains the marker). `t.Setenv` reverts at test end.
 func makeGitRepo(t *testing.T) (dir string, restore func()) {
 	t.Helper()
-	t.Setenv("KAISSER_BRANCH_PRUNE_BYPASS_ACTIVE_CMD", "1")
+	t.Setenv("BRAVROS_BRANCH_PRUNE_BYPASS_ACTIVE_CMD", "1")
 	dir = t.TempDir()
 
 	run := func(args ...string) {
@@ -660,7 +660,7 @@ func TestHasActiveCommand_NoMarker_NoBypass(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("TMPDIR", tmp)
 	// Ensure bypass is OFF — we're testing the real detection path.
-	t.Setenv("KAISSER_BRANCH_PRUNE_BYPASS_ACTIVE_CMD", "")
+	t.Setenv("BRAVROS_BRANCH_PRUNE_BYPASS_ACTIVE_CMD", "")
 	// /tmp and /private/tmp may have real markers from a live session, so this
 	// test is meaningful only when those are also clean; on macOS the live
 	// session marker lives in $TMPDIR (which we just isolated) so /tmp paths
@@ -682,7 +682,7 @@ func TestHasActiveCommand_BypassEnv(t *testing.T) {
 		t.Fatalf("write marker: %v", err)
 	}
 	t.Setenv("TMPDIR", tmp)
-	t.Setenv("KAISSER_BRANCH_PRUNE_BYPASS_ACTIVE_CMD", "1")
+	t.Setenv("BRAVROS_BRANCH_PRUNE_BYPASS_ACTIVE_CMD", "1")
 
 	active, markerPath := HasActiveCommand()
 	if active {
@@ -702,7 +702,7 @@ func TestHasActiveCommand_MarkerPresent(t *testing.T) {
 		t.Fatalf("write marker: %v", err)
 	}
 	t.Setenv("TMPDIR", tmp)
-	t.Setenv("KAISSER_BRANCH_PRUNE_BYPASS_ACTIVE_CMD", "")
+	t.Setenv("BRAVROS_BRANCH_PRUNE_BYPASS_ACTIVE_CMD", "")
 	// HOME isolated so writeLog doesn't touch real ~/.claude.
 	t.Setenv("HOME", t.TempDir())
 
@@ -778,7 +778,7 @@ func TestPlanReferencingBranch_BOM(t *testing.T) {
 // The local repo has "main" as HEAD and a fresh initial commit.
 func makeGitRepoWithRemote(t *testing.T) (localDir, remoteDir string, restore func()) {
 	t.Helper()
-	t.Setenv("KAISSER_BRANCH_PRUNE_BYPASS_ACTIVE_CMD", "1")
+	t.Setenv("BRAVROS_BRANCH_PRUNE_BYPASS_ACTIVE_CMD", "1")
 	t.Setenv("HOME", t.TempDir())
 
 	remoteDir = t.TempDir()
@@ -1073,7 +1073,7 @@ func TestPruneBranch_SkipsOnActiveCommandMarker(t *testing.T) {
 	run("git", "branch", "feat/active-cmd-test")
 
 	// makeGitRepo set the bypass — flip it OFF for this test, then plant a marker.
-	t.Setenv("KAISSER_BRANCH_PRUNE_BYPASS_ACTIVE_CMD", "")
+	t.Setenv("BRAVROS_BRANCH_PRUNE_BYPASS_ACTIVE_CMD", "")
 	tmp := t.TempDir()
 	markerDir := filepath.Join(tmp, "agent-audit-pruneguard")
 	if err := os.MkdirAll(markerDir, 0755); err != nil {

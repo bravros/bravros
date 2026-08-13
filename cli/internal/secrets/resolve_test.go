@@ -7,15 +7,15 @@ import (
 )
 
 func TestEnvFilePath_OverrideAndDefault(t *testing.T) {
-	t.Setenv("KAISSER_ENV_FILE", "/tmp/custom-secrets.env")
+	t.Setenv("BRAVROS_ENV_FILE", "/tmp/custom-secrets.env")
 	if got := EnvFilePath(); got != "/tmp/custom-secrets.env" {
 		t.Errorf("override: got %q", got)
 	}
 
-	t.Setenv("KAISSER_ENV_FILE", "")
+	t.Setenv("BRAVROS_ENV_FILE", "")
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	want := filepath.Join(home, ".config", "kaisser", "secrets.env")
+	want := filepath.Join(home, ".config", "bravros", "secrets.env")
 	if got := EnvFilePath(); got != want {
 		t.Errorf("default: got %q, want %q", got, want)
 	}
@@ -39,7 +39,7 @@ func TestDetectBackend_ExplicitOverrideWins(t *testing.T) {
 	} {
 		t.Setenv(backendEnvVar, c.val)
 		if got := DetectBackend(); got != c.want {
-			t.Errorf("KAISSER_SECRETS_BACKEND=%q: got %q, want %q", c.val, got, c.want)
+			t.Errorf("BRAVROS_SECRETS_BACKEND=%q: got %q, want %q", c.val, got, c.want)
 		}
 	}
 }
@@ -68,7 +68,7 @@ func TestResolve_Precedence(t *testing.T) {
 	t.Setenv("MY_SECRET", "from-env")
 	envFile := filepath.Join(t.TempDir(), "secrets.env")
 	os.WriteFile(envFile, []byte("MY_SECRET=from-file\n"), 0600)
-	t.Setenv("KAISSER_ENV_FILE", envFile)
+	t.Setenv("BRAVROS_ENV_FILE", envFile)
 	if got := Resolve("MY_SECRET", "my-item", "credential"); got != "from-env" {
 		t.Errorf("env var should win, got %q", got)
 	}
@@ -100,7 +100,7 @@ func TestReadEnvFile_IgnoresCommentsAndBlanks(t *testing.T) {
 	}
 }
 
-// TestResolve_BackendNone_SkipsLookups: KAISSER_SECRETS_BACKEND=none must skip the
+// TestResolve_BackendNone_SkipsLookups: BRAVROS_SECRETS_BACKEND=none must skip the
 // .env + op lookups (even when op is "available"), while an already-exported env
 // var still wins. (PR #318 review: Resolve must honor the backend like DetectBackend.)
 func TestResolve_BackendNone_SkipsLookups(t *testing.T) {
@@ -111,7 +111,7 @@ func TestResolve_BackendNone_SkipsLookups(t *testing.T) {
 
 	envFile := filepath.Join(t.TempDir(), "secrets.env")
 	os.WriteFile(envFile, []byte("MY_SECRET=from-file\n"), 0600)
-	t.Setenv("KAISSER_ENV_FILE", envFile)
+	t.Setenv("BRAVROS_ENV_FILE", envFile)
 
 	t.Setenv("MY_SECRET", "from-env")
 	if got := Resolve("MY_SECRET", "my-item", "credential"); got != "from-env" {
@@ -132,7 +132,7 @@ func TestResolve_BackendEnv_DoesNotReachOp(t *testing.T) {
 	defer func() { opAvailableFn = orig }()
 	t.Setenv(backendEnvVar, "env")
 	t.Setenv("MY_SECRET", "")
-	t.Setenv("KAISSER_ENV_FILE", filepath.Join(t.TempDir(), "absent.env")) // no file
+	t.Setenv("BRAVROS_ENV_FILE", filepath.Join(t.TempDir(), "absent.env")) // no file
 	if got := Resolve("MY_SECRET", "my-item", "credential"); got != "" {
 		t.Errorf("backend=env must not reach op, got %q", got)
 	}

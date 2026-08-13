@@ -28,8 +28,8 @@ func TestRewriteJSONSection_InsertNew(t *testing.T) {
 	if _, ok := raw["hooks"]; !ok {
 		t.Error("expected 'hooks' key in output")
 	}
-	if _, ok := raw["_kaisser_managed_keys"]; !ok {
-		t.Error("expected '_kaisser_managed_keys' in output")
+	if _, ok := raw["_bravros_managed_keys"]; !ok {
+		t.Error("expected '_bravros_managed_keys' in output")
 	}
 }
 
@@ -131,9 +131,9 @@ func TestRewriteJSONSection_OrphanedManagedKeyAtEnd(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.json")
 
-	// Seed a file where _kaisser_managed_keys references a key that is no
+	// Seed a file where _bravros_managed_keys references a key that is no
 	// longer present in the JSON body — the orphan ("orphan") sorts last.
-	initial := `{"_kaisser_managed_keys":["actual","orphan"],"actual":"val"}`
+	initial := `{"_bravros_managed_keys":["actual","orphan"],"actual":"val"}`
 	os.WriteFile(path, []byte(initial), 0644)
 
 	// Rewrite an unrelated section. Output must remain valid JSON — the
@@ -170,10 +170,10 @@ func TestRewriteMarkdownSection_InsertNew(t *testing.T) {
 	data, _ := os.ReadFile(path)
 	content := string(data)
 
-	if !strings.Contains(content, "<!-- kaisser-managed:start globalRules -->") {
+	if !strings.Contains(content, "<!-- bravros-managed:start globalRules -->") {
 		t.Error("start marker missing")
 	}
-	if !strings.Contains(content, "<!-- kaisser-managed:end globalRules -->") {
+	if !strings.Contains(content, "<!-- bravros-managed:end globalRules -->") {
 		t.Error("end marker missing")
 	}
 	if !strings.Contains(content, "## Auto Rules") {
@@ -189,7 +189,7 @@ func TestRewriteMarkdownSection_ReplaceExisting(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "CLAUDE.md")
 
-	initial := "# Config\n\n<!-- kaisser-managed:start rules -->\nOLD CONTENT\n<!-- kaisser-managed:end rules -->\n\nUser stuff.\n"
+	initial := "# Config\n\n<!-- bravros-managed:start rules -->\nOLD CONTENT\n<!-- bravros-managed:end rules -->\n\nUser stuff.\n"
 	os.WriteFile(path, []byte(initial), 0644)
 
 	if err := RewriteMarkdownSection(path, "rules", "NEW CONTENT"); err != nil {
@@ -236,7 +236,7 @@ func TestRewriteMarkdownSection_MissingEndMarkerError(t *testing.T) {
 	path := filepath.Join(dir, "CLAUDE.md")
 
 	// Only start marker present.
-	os.WriteFile(path, []byte("<!-- kaisser-managed:start rules -->\nsome content\n"), 0644)
+	os.WriteFile(path, []byte("<!-- bravros-managed:start rules -->\nsome content\n"), 0644)
 
 	err := RewriteMarkdownSection(path, "rules", "NEW")
 	if err == nil {
@@ -248,7 +248,7 @@ func TestReadMarkdownSection_ReturnsContent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "CLAUDE.md")
 
-	os.WriteFile(path, []byte("<!-- kaisser-managed:start rules -->\nHELLO\n<!-- kaisser-managed:end rules -->\n"), 0644)
+	os.WriteFile(path, []byte("<!-- bravros-managed:start rules -->\nHELLO\n<!-- bravros-managed:end rules -->\n"), 0644)
 
 	content, err := ReadMarkdownSection(path, "rules")
 	if err != nil {

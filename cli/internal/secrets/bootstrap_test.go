@@ -38,8 +38,8 @@ func TestBootstrap_PrintOnly_RendersBlock(t *testing.T) {
 	if !strings.Contains(out, markerV2Start) || !strings.Contains(out, markerV2End) {
 		t.Error("print-only output missing v2 markers")
 	}
-	if !strings.Contains(out, "kaisser_secret()") {
-		t.Error("print-only output missing kaisser_secret function definition")
+	if !strings.Contains(out, "bravros_secret()") {
+		t.Error("print-only output missing bravros_secret function definition")
 	}
 }
 
@@ -126,7 +126,7 @@ func TestMigration_HalfWrittenBlock(t *testing.T) {
 		"alias before='echo before'",
 		markerV2Start,
 		"# partially written block, machine crashed here",
-		`export KAISSER_SECRETS_BACKEND=op`,
+		`export BRAVROS_SECRETS_BACKEND=op`,
 		// NO end marker, NO trailing content
 	}, "\n")
 	os.WriteFile(rc, []byte(orig), 0644)
@@ -173,9 +173,9 @@ func TestBackendNone_NoOpReferences(t *testing.T) {
 	}
 }
 
-// TestBackendEnv_resolvesFromFile: under the env backend, kaisser_secret resolves
-// the value from $KAISSER_ENV_FILE (verified through Resolve, the same code the
-// shell helper calls via `kaisser secrets resolve`).
+// TestBackendEnv_resolvesFromFile: under the env backend, bravros_secret resolves
+// the value from $BRAVROS_ENV_FILE (verified through Resolve, the same code the
+// shell helper calls via `bravros secrets resolve`).
 func TestBackendEnv_resolvesFromFile(t *testing.T) {
 	orig := opAvailableFn
 	opAvailableFn = func() bool { return true } // op "available" — env backend must ignore it
@@ -183,7 +183,7 @@ func TestBackendEnv_resolvesFromFile(t *testing.T) {
 
 	envFile := filepath.Join(t.TempDir(), "secrets.env")
 	os.WriteFile(envFile, []byte("FIRECRAWL_API_KEY=fc-from-file\n"), 0600)
-	t.Setenv("KAISSER_ENV_FILE", envFile)
+	t.Setenv("BRAVROS_ENV_FILE", envFile)
 	t.Setenv(backendEnvVar, "env")
 	t.Setenv("FIRECRAWL_API_KEY", "")
 
@@ -196,8 +196,8 @@ func TestBackendEnv_resolvesFromFile(t *testing.T) {
 	if strings.Contains(block, "op read") || strings.Contains(block, "op://") {
 		t.Errorf("env block leaked op refs:\n%s", block)
 	}
-	if !strings.Contains(block, "kaisser_secret 'FIRECRAWL_API_KEY'") {
-		t.Errorf("env block missing kaisser_secret call:\n%s", block)
+	if !strings.Contains(block, "bravros_secret 'FIRECRAWL_API_KEY'") {
+		t.Errorf("env block missing bravros_secret call:\n%s", block)
 	}
 	if !strings.Contains(block, "export "+backendEnvVar+"=env") {
 		t.Error("env block missing backend marker")
@@ -244,7 +244,7 @@ func TestWriteRCAtomic(t *testing.T) {
 	// No .tmp leftover.
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), ".kaisser-rc-") {
+		if strings.HasPrefix(e.Name(), ".bravros-rc-") {
 			t.Errorf("leftover temp file: %s", e.Name())
 		}
 	}
@@ -262,14 +262,14 @@ func TestWriteRCAtomic(t *testing.T) {
 	// No temp leftover after the failure either.
 	entries, _ = os.ReadDir(dir)
 	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), ".kaisser-rc-") {
+		if strings.HasPrefix(e.Name(), ".bravros-rc-") {
 			t.Errorf("leftover temp file after failure: %s", e.Name())
 		}
 	}
 }
 
 // TestRenderedBlock_ShellSyntax renders every backend to a temp file and runs
-// BOTH `bash -n` and `zsh -n` on it, then asserts kaisser_secret is defined.
+// BOTH `bash -n` and `zsh -n` on it, then asserts bravros_secret is defined.
 func TestRenderedBlock_ShellSyntax(t *testing.T) {
 	shells := []string{}
 	for _, sh := range []string{"bash", "zsh"} {
@@ -283,8 +283,8 @@ func TestRenderedBlock_ShellSyntax(t *testing.T) {
 
 	for _, backend := range []Backend{BackendOp, BackendEnv, BackendNone} {
 		block := RenderBlock(backend)
-		if !strings.Contains(block, "kaisser_secret()") {
-			t.Errorf("backend %s: kaisser_secret not defined", backend)
+		if !strings.Contains(block, "bravros_secret()") {
+			t.Errorf("backend %s: bravros_secret not defined", backend)
 		}
 		f := filepath.Join(t.TempDir(), "block-"+string(backend)+".sh")
 		if err := os.WriteFile(f, []byte(block), 0644); err != nil {

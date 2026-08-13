@@ -150,8 +150,8 @@ func TestInit_PortableRepoFlagInvalid(t *testing.T) {
 	badRepo := t.TempDir() // basename will be something like "TestInit_Port..." not "claude"
 	initPortableRepo = badRepo
 
-	// Set KAISSER_CONFIG_DIR to a safe temp location so deploy does not touch ~/.claude.
-	t.Setenv("KAISSER_CONFIG_DIR", t.TempDir())
+	// Set BRAVROS_CONFIG_DIR to a safe temp location so deploy does not touch ~/.claude.
+	t.Setenv("BRAVROS_CONFIG_DIR", t.TempDir())
 
 	stderrOut := captureInitStderr(t, func() {
 		initCmd.Run(initCmd, []string{})
@@ -196,21 +196,21 @@ func TestInit_PositionalArgWinsOverFlag(t *testing.T) {
 }
 
 // TestInit_NoFlagFallsBackToConfigPortableRepo verifies that when no --portable-repo
-// flag is passed but KAISSER_PORTABLE_REPO env var is set, the env var path is used
+// flag is passed but BRAVROS_PORTABLE_REPO env var is set, the env var path is used
 // as the portableRepo value fed into resolveBootstrapDir.
 func TestInit_NoFlagFallsBackToConfigPortableRepo(t *testing.T) {
 	resetInitGlobals(t)
 
 	envPath := t.TempDir()
-	t.Setenv("KAISSER_PORTABLE_REPO", envPath)
+	t.Setenv("BRAVROS_PORTABLE_REPO", envPath)
 
 	// Simulate the resolution inside initCmd.Run:
 	//   portableRepo := initPortableRepo              (== "" — flag not set)
 	//   if portableRepo == "" { portableRepo = config.PortableRepo() }
-	// config.PortableRepo() reads KAISSER_PORTABLE_REPO.
+	// config.PortableRepo() reads BRAVROS_PORTABLE_REPO.
 	portableRepo := initPortableRepo // "" — flag not set
 	if portableRepo == "" {
-		if v := os.Getenv("KAISSER_PORTABLE_REPO"); v != "" {
+		if v := os.Getenv("BRAVROS_PORTABLE_REPO"); v != "" {
 			portableRepo = v
 		}
 	}
@@ -234,7 +234,7 @@ func TestInit_NoFlagNoEnvUsesCwd(t *testing.T) {
 	resetInitGlobals(t)
 
 	// Ensure no env var overrides.
-	t.Setenv("KAISSER_PORTABLE_REPO", "")
+	t.Setenv("BRAVROS_PORTABLE_REPO", "")
 
 	plainDir := t.TempDir() // not named "claude"
 
@@ -242,7 +242,7 @@ func TestInit_NoFlagNoEnvUsesCwd(t *testing.T) {
 	// We test the path resolution: cwd wins when portableRepo resolves empty-or-nonexistent.
 	portableRepo := initPortableRepo // ""
 	// After env lookup, still "".
-	if v := os.Getenv("KAISSER_PORTABLE_REPO"); v != "" {
+	if v := os.Getenv("BRAVROS_PORTABLE_REPO"); v != "" {
 		portableRepo = v
 	}
 
@@ -285,7 +285,7 @@ func TestInit_FallsBackToCopyOnExistingRealDir(t *testing.T) {
 	}
 
 	// Wire the target as the config dir.
-	t.Setenv("KAISSER_CONFIG_DIR", configDir)
+	t.Setenv("BRAVROS_CONFIG_DIR", configDir)
 
 	// Set --portable-repo to the source claude repo.
 	initPortableRepo = claudeRepo
@@ -350,7 +350,7 @@ func TestInit_PropagatesDeployErrorOnFallback(t *testing.T) {
 		_ = os.Chmod(filepath.Join(configDir, "skills"), 0o755)
 	})
 
-	t.Setenv("KAISSER_CONFIG_DIR", configDir)
+	t.Setenv("BRAVROS_CONFIG_DIR", configDir)
 	initPortableRepo = claudeRepo
 	initDeployMode = ""
 	initSkipSecrets = true
@@ -402,7 +402,7 @@ func TestInit_PropagatesDeployErrorOnCopyMode(t *testing.T) {
 		_ = os.Chmod(filepath.Join(configDir, "skills"), 0o755)
 	})
 
-	t.Setenv("KAISSER_CONFIG_DIR", configDir)
+	t.Setenv("BRAVROS_CONFIG_DIR", configDir)
 	initPortableRepo = claudeRepo
 	initDeployMode = "copies" // explicit copy mode — no symlink fallback path
 	initSkipSecrets = true

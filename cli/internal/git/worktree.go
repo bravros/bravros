@@ -56,7 +56,7 @@ type WorktreeCleanupResult struct {
 }
 
 // resolveDefaultBaseBranch returns explicit (with any "origin/" prefix
-// stripped) if non-empty, else .kaisser.yml's staging_branch, else "main".
+// stripped) if non-empty, else .bravros.yml's staging_branch, else "main".
 // Shared by WorktreeSetup (rebase target) and WorktreeCleanup (merge-checked
 // destroy guard) so both derive the base branch the same way.
 func resolveDefaultBaseBranch(explicit string) string {
@@ -358,7 +358,7 @@ func buildTeardownScope(path, branch, baseBranch string, permanent bool, opts Cl
 // The following helpers (extractPlanNum, computeWorktreePath, resolvePath,
 // worktreeExists, worktreeBranch) are lifted verbatim from bravros's battle-tested
 // worktree.go. They use `git worktree list --porcelain` for robustness over fragile
-// path-string comparisons. Kaisser consumes them via plan 0047 Phase 6; future bravros
+// path-string comparisons. Bravros consumes them via plan 0047 Phase 6; future bravros
 // revisions should sync back from here.
 
 // extractPlanNum extracts a plan number from a branch name like "feat/0023-something".
@@ -737,9 +737,9 @@ func WorktreeCleanup(path string, opts CleanupOpts) (*WorktreeCleanupResult, err
 	// goroutine-safe. WorktreeCleanup is user-triggered teardown and is not
 	// expected to run concurrently with itself; if that ever changes, scope the
 	// bypass to the child process via exec.Cmd.Env instead of the parent env.
-	os.Setenv("KAISSER_WORKTREE_DESTROY", "1")
+	os.Setenv("BRAVROS_WORKTREE_DESTROY", "1")
 	_, stderr, err := Run(removeArgs...)
-	os.Unsetenv("KAISSER_WORKTREE_DESTROY")
+	os.Unsetenv("BRAVROS_WORKTREE_DESTROY")
 	if err != nil {
 		return nil, fmt.Errorf("failed to remove worktree: %s", stderr)
 	}

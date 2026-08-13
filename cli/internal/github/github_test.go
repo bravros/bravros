@@ -74,15 +74,15 @@ func TestRun_stderrCapture(t *testing.T) {
 	}
 }
 
-// --- Integration tests against real repo skaisser/claude ---
+// --- Integration tests against real repo sbravros/claude ---
 
 func TestGetRepo(t *testing.T) {
 	repo, err := GetRepo()
 	if err != nil {
 		t.Skipf("skipping: gh not available or not in a repo: %v", err)
 	}
-	if repo != "skaisser/claude" && repo != "bravros/bravros" {
-		t.Fatalf("expected 'skaisser/claude' or 'bravros/bravros', got %q", repo)
+	if repo != "sbravros/claude" && repo != "bravros/bravros" {
+		t.Fatalf("expected 'sbravros/claude' or 'bravros/bravros', got %q", repo)
 	}
 }
 
@@ -136,7 +136,7 @@ func TestFetchReviews(t *testing.T) {
 
 func TestFetchInlineComments(t *testing.T) {
 	// May return empty — just verify no hard error
-	_, err := FetchInlineComments("skaisser/claude", "16")
+	_, err := FetchInlineComments("sbravros/claude", "16")
 	if err != nil {
 		t.Skipf("skipping: gh not available: %v", err)
 	}
@@ -154,21 +154,21 @@ func TestFetchPRChecks(t *testing.T) {
 
 func TestFetchBotComments(t *testing.T) {
 	// May return empty — just verify no hard error
-	_, err := FetchBotComments("skaisser/claude", "16", "github-actions")
+	_, err := FetchBotComments("sbravros/claude", "16", "github-actions")
 	if err != nil {
 		t.Skipf("skipping: gh not available: %v", err)
 	}
 }
 
 func TestFetchLatestBotComment(t *testing.T) {
-	_, err := FetchLatestBotComment("skaisser/claude", "16", "github-actions")
+	_, err := FetchLatestBotComment("sbravros/claude", "16", "github-actions")
 	if err != nil {
 		t.Skipf("skipping: gh not available: %v", err)
 	}
 }
 
 func TestFetchHumanComments(t *testing.T) {
-	_, err := FetchHumanComments("skaisser/claude", "16", "github-actions")
+	_, err := FetchHumanComments("sbravros/claude", "16", "github-actions")
 	if err != nil {
 		t.Skipf("skipping: gh not available: %v", err)
 	}

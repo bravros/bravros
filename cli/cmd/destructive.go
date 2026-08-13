@@ -13,18 +13,18 @@ import (
 var destructiveGate = token.Gate{
 	Name:       "destructive",
 	SuccessMsg: "Destructive token minted",
-	RefuseMsg:  "✋ kaisser destructive unlock REFUSED: running inside Claude Code.",
+	RefuseMsg:  "✋ bravros destructive unlock REFUSED: running inside Claude Code.",
 	UnlockHelp: `The destructive token must be minted from a separate terminal outside
 Claude Code. This is intentional — it proves human presence before content
 git has never seen is destroyed permanently.
 
   1. Open a new terminal (outside Claude Code, same machine)
-  2. Run: kaisser destructive unlock --reason "why"
+  2. Run: bravros destructive unlock --reason "why"
   3. Return to Claude Code and re-run the blocked command
 
-Prefer the reversible path instead: kaisser discard <paths> needs no token.
+Prefer the reversible path instead: bravros discard <paths> needs no token.
 
-Suggested alias: alias destructive-unlock='kaisser destructive unlock'`,
+Suggested alias: alias destructive-unlock='bravros destructive unlock'`,
 }
 
 var destructiveTTLFlag int
@@ -37,14 +37,14 @@ var destructiveCmd = &cobra.Command{
 	Short: "Gate permanently destructive commands with a human-presence token",
 	Long: `Out-of-band token gate for audit Rule 52 (irreversible content-loss guard).
 
-kaisser destructive unlock   — mint token (REFUSED inside Claude Code)
-kaisser destructive status   — check token presence and expiry
-kaisser destructive revoke   — delete token (safe inside Claude Code)
+bravros destructive unlock   — mint token (REFUSED inside Claude Code)
+bravros destructive status   — check token presence and expiry
+bravros destructive revoke   — delete token (safe inside Claude Code)
 
 The token lives at ~/.claude/state/destructive-token, is single-use with a
 5-minute TTL, and authorizes exactly ONE Rule-52-blocked command (it is
 consumed on first use). For reversible discards no token is needed —
-use kaisser discard <paths> instead.`,
+use bravros discard <paths> instead.`,
 }
 
 var destructiveUnlockCmd = &cobra.Command{

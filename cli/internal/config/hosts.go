@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// supportedHosts are the non-Claude harnesses kaisser can adapt to. "claude" is
+// supportedHosts are the non-Claude harnesses bravros can adapt to. "claude" is
 // implicit and always-on — it is never stored in hosts.json.
 var supportedHosts = map[string]struct{}{
 	"codex":    {},
@@ -21,9 +21,9 @@ type hostsFile struct {
 }
 
 // hostsFilePath is the machine-global opt-in store. It MUST be machine-global
-// (under ConfigDir) rather than a per-project .kaisser.yml key: `kaisser
+// (under ConfigDir) rather than a per-project .bravros.yml key: `bravros
 // selfupdate` runs from the SessionStart hook with an arbitrary CWD, and host
-// install is a machine-level fact ("I installed the kaisser-codex adapter on
+// install is a machine-level fact ("I installed the bravros-codex adapter on
 // THIS box"), not a per-repo one.
 func hostsFilePath() string { return filepath.Join(ConfigDir(), "hosts.json") }
 
@@ -50,11 +50,11 @@ func normalizeHosts(in []string) []string {
 }
 
 // OptedInHosts returns the lowercase set of opted-in non-Claude hosts.
-// Precedence: KAISSER_HOSTS env (comma-separated) > ConfigDir/hosts.json > nil.
-// Fail-safe: any read/parse error yields nil (Claude-only) — kaisser never
+// Precedence: BRAVROS_HOSTS env (comma-separated) > ConfigDir/hosts.json > nil.
+// Fail-safe: any read/parse error yields nil (Claude-only) — bravros never
 // auto-opts a machine into a host.
 func OptedInHosts() []string {
-	if env := strings.TrimSpace(os.Getenv("KAISSER_HOSTS")); env != "" {
+	if env := strings.TrimSpace(os.Getenv("BRAVROS_HOSTS")); env != "" {
 		return normalizeHosts(strings.Split(env, ","))
 	}
 	data, err := os.ReadFile(hostsFilePath())
@@ -68,7 +68,7 @@ func OptedInHosts() []string {
 	return normalizeHosts(hf.Hosts)
 }
 
-// HostOptedIn reports whether a host is enabled for kaisser on this machine.
+// HostOptedIn reports whether a host is enabled for bravros on this machine.
 // "claude" is always true; unknown/unsupported hosts are always false.
 func HostOptedIn(host string) bool {
 	host = strings.ToLower(strings.TrimSpace(host))

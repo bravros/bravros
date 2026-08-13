@@ -16,7 +16,7 @@ var (
 	hooksUpdateJSON   bool
 )
 
-// hooksUpdateResult is the JSON output shape for `kaisser hooks update --json`.
+// hooksUpdateResult is the JSON output shape for `bravros hooks update --json`.
 type hooksUpdateResult struct {
 	Refreshed         []string `json:"refreshed"`
 	SkippedCustomized []string `json:"skipped_customized"`
@@ -34,13 +34,13 @@ func canonicalHookPath() (string, error) {
 
 var hooksCmd = &cobra.Command{
 	Use:   "hooks",
-	Short: "Manage kaisser-managed git hooks",
+	Short: "Manage bravros-managed git hooks",
 }
 
 var hooksUpdateCmd = &cobra.Command{
 	Use:   "update",
 	Short: "Refresh commit-msg hook from canonical",
-	Long: `Refresh the commit-msg hook in the current repository from the kaisser canonical.
+	Long: `Refresh the commit-msg hook in the current repository from the bravros canonical.
 
 By default:
   - Updates hooks whose content matches a known canonical version (Pristine or OldCanonical).
@@ -158,7 +158,7 @@ Use --json for machine-parseable output.`,
 }
 
 func init() {
-	hooksUpdateCmd.Flags().BoolVar(&hooksUpdateForce, "force", false, "Overwrite customized hooks (those with a kaisser marker)")
+	hooksUpdateCmd.Flags().BoolVar(&hooksUpdateForce, "force", false, "Overwrite customized hooks (those with a bravros marker)")
 	hooksUpdateCmd.Flags().BoolVar(&hooksUpdateDryRun, "dry-run", false, "Report what would change without writing")
 	hooksUpdateCmd.Flags().BoolVar(&hooksUpdateJSON, "json", false, "Machine-parseable JSON output to stdout")
 	hooksCmd.AddCommand(hooksUpdateCmd)

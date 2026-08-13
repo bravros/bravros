@@ -87,7 +87,7 @@ func TestFetchLatestBotReviewOrComment_CommentOnlyDetected(t *testing.T) {
 		{
 			Kind:        "comment",
 			Login:       "claude",
-			Body:        "**Claude finished @skaisser's task in 1m 29s** —— [View job](https://example/run/1)\n\nReview: looks good.",
+			Body:        "**Claude finished @sbravros's task in 1m 29s** —— [View job](https://example/run/1)\n\nReview: looks good.",
 			State:       "posted",
 			SubmittedAt: "2026-05-08T00:17:00Z",
 		},
@@ -126,7 +126,7 @@ func TestFetchLatestBotReviewOrComment_ReviewWinsWhenNewer(t *testing.T) {
 		{
 			Kind:        "comment",
 			Login:       "claude",
-			Body:        "**Claude finished @skaisser's task in 1m 29s** —— [View job](https://example/run/1)\n\nLooked at PR.",
+			Body:        "**Claude finished @sbravros's task in 1m 29s** —— [View job](https://example/run/1)\n\nLooked at PR.",
 			State:       "posted",
 			SubmittedAt: "2026-05-08T00:10:00Z", // older
 		},
@@ -173,7 +173,7 @@ func TestFetchLatestBotReviewOrComment_UserRequestCommentExcluded(t *testing.T) 
 	// Simulate a user's "@claude review" comment — it should not pass the filter.
 	userRequestBody := "@claude review\nPlease take a look at this PR."
 	// Realistic bot reply shape — closing `**` lands AFTER timing/job text.
-	botReplyBody := "**Claude finished @skaisser's task in 2m 59s** —— [View job](https://example/run/1)\n\nReview verdict."
+	botReplyBody := "**Claude finished @sbravros's task in 2m 59s** —— [View job](https://example/run/1)\n\nReview verdict."
 
 	if strings.HasPrefix(userRequestBody, "**Claude finished") {
 		t.Error("user's @claude review request comment incorrectly passed the body-prefix filter")
@@ -229,7 +229,7 @@ func TestIsBotOrAction_BareClaudeMatchesClaudeBotDefault(t *testing.T) {
 // the only thing keeping that from vetoing. If a future change cannot approve this
 // body, FIX THE CODE — never weaken this fixture.
 const pr1343FinalReviewBody = "" +
-	"**Claude finished @skaisser's task in 1m 56s** —— [View job](https://github.com/paylog/ev/actions/runs/29188937182)\n" +
+	"**Claude finished @sbravros's task in 1m 56s** —— [View job](https://github.com/paylog/ev/actions/runs/29188937182)\n" +
 	"\n" +
 	"---\n" +
 	"### 🔍 Review: PR #1343 — frete audit zero-charge description\n" +
@@ -280,7 +280,7 @@ const pr1343FinalReviewBody = "" +
 // An exemption list built only from "non-blocking" vetoes this genuine approval. Real
 // production data beats intuition: pinned so that regression can never come back.
 const pr1343FirstReviewBody = "" +
-	"**Claude finished @skaisser's task in 3m 32s** —— [View job](https://github.com/paylog/ev/actions/runs/29188453797)\n" +
+	"**Claude finished @sbravros's task in 3m 32s** —— [View job](https://github.com/paylog/ev/actions/runs/29188453797)\n" +
 	"\n" +
 	"---\n" +
 	"### 🔍 Review: PR #1343 — frete audit zero-charge description\n" +
@@ -331,7 +331,7 @@ func TestParseVerdict_TableDriven(t *testing.T) {
 		// Positive markers
 		{
 			name:     "ready to merge lowercase",
-			body:     "**Claude finished @skaisser's task in 1m 29s** —— [View job](...)\n\nThis looks good. **Ready to merge.**",
+			body:     "**Claude finished @sbravros's task in 1m 29s** —— [View job](...)\n\nThis looks good. **Ready to merge.**",
 			wantV:    "approved",
 			wantConf: false,
 		},
@@ -347,7 +347,7 @@ func TestParseVerdict_TableDriven(t *testing.T) {
 		// per-CHECK CI status line legitimately begins its own line (see the
 		// "Status: ✅ CI green … I'd rather not land this yet" case below, which
 		// approved even WITH the anchor). Both tests below previously asserted the
-		// buggy behavior; they now pin the deletion. The tier-1 kaisser-verdict
+		// buggy behavior; they now pin the deletion. The tier-1 bravros-verdict
 		// marker supersedes the legacy template, and a template that means to sign
 		// off can emit a real verdict token instead.
 		{
@@ -371,7 +371,7 @@ func TestParseVerdict_TableDriven(t *testing.T) {
 		// Negative markers
 		{
 			name:     "Changes requested case-insensitive",
-			body:     "**Claude finished @skaisser's task in 2m 5s** —— [View job](...)\n\nChanges requested:\n- Fix the error handler.",
+			body:     "**Claude finished @sbravros's task in 2m 5s** —— [View job](...)\n\nChanges requested:\n- Fix the error handler.",
 			wantV:    "changes-requested",
 			wantConf: true,
 		},
@@ -397,14 +397,14 @@ func TestParseVerdict_TableDriven(t *testing.T) {
 		// is the verdict signal. Body with no markers at all still falls through to unclear.
 		{
 			name:     "lgtm is a positive phrase",
-			body:     "**Claude finished @skaisser's task in 1m 11s** —— [View job](...)\n\nLGTM overall but please address the nit.",
+			body:     "**Claude finished @sbravros's task in 1m 11s** —— [View job](...)\n\nLGTM overall but please address the nit.",
 			wantV:    "approved",
 			wantConf: false,
 		},
 		// Unclear
 		{
 			name:     "no verdict markers at all",
-			body:     "**Claude finished @skaisser's task in 1m 11s** —— [View job](...)\n\nPlease address the nit before merging.",
+			body:     "**Claude finished @sbravros's task in 1m 11s** —— [View job](...)\n\nPlease address the nit before merging.",
 			wantV:    "unclear",
 			wantConf: false,
 		},
@@ -1189,7 +1189,7 @@ func TestParseVerdict_TableDriven(t *testing.T) {
 		// PROSE-FALLBACK FALSE-APPROVE PANEL — 5 bodies, each PROVEN to return
 		// "approved" by a real `go test` run against the pre-fix parser.
 		//
-		// The kaisser-verdict marker (TIER 1, below) is now the authoritative path,
+		// The bravros-verdict marker (TIER 1, below) is now the authoritative path,
 		// but this TIER-2 fallback still gates legacy comments, human reviews, and
 		// any review not posted through our skills — so it must not fail OPEN.
 		//
@@ -1324,7 +1324,7 @@ func TestParseVerdict_TableDriven(t *testing.T) {
 			// The MARKER path is immune: it reads the RAW body at step 0, before any
 			// stripping, so a legit verdict still wins inside a malformed body.
 			name:     "marker still wins inside a malformed body",
-			body:     "**Mergeable.**\n\n```diff\n- old\n\n<!-- kaisser-verdict: approved -->",
+			body:     "**Mergeable.**\n\n```diff\n- old\n\n<!-- bravros-verdict: approved -->",
 			wantV:    "approved",
 			wantConf: true,
 		},
@@ -1499,7 +1499,7 @@ func TestParseVerdict_TableDriven(t *testing.T) {
 		},
 
 		// =====================================================================
-		// TIER 1 — the kaisser-verdict MARKER. Authoritative; short-circuits
+		// TIER 1 — the bravros-verdict MARKER. Authoritative; short-circuits
 		// everything below it.
 		//
 		// Four adversarial rounds of prose-parsing whack-a-mole motivated this:
@@ -1515,7 +1515,7 @@ func TestParseVerdict_TableDriven(t *testing.T) {
 		// =====================================================================
 		{
 			name:     "marker approved with otherwise empty body",
-			body:     "<!-- kaisser-verdict: approved -->",
+			body:     "<!-- bravros-verdict: approved -->",
 			wantV:    "approved",
 			wantConf: true,
 		},
@@ -1525,7 +1525,7 @@ func TestParseVerdict_TableDriven(t *testing.T) {
 			// kill. The bot said approved. It is approved.
 			name: "marker approved beats a red X in a CI summary table",
 			body: "### CI\n\n| Check | Result |\n|---|---|\n| lint | ✅ |\n| e2e | ❌ CI failed (flaky, unrelated) |\n\n" +
-				"The failure is a known-flaky e2e job on main, not this PR.\n\n<!-- kaisser-verdict: approved -->",
+				"The failure is a known-flaky e2e job on main, not this PR.\n\n<!-- bravros-verdict: approved -->",
 			wantV:    "approved",
 			wantConf: true,
 		},
@@ -1533,20 +1533,20 @@ func TestParseVerdict_TableDriven(t *testing.T) {
 			// The bot's explicit structured verdict overrides our prose GUESS —
 			// even when the prose scan would have read a bolded "**Blocking.**".
 			name:     "marker approved beats a bolded Blocking in prose",
-			body:     "**Blocking.** ...on reflection, no: the guard already covers this.\n\n<!-- kaisser-verdict: approved -->",
+			body:     "**Blocking.** ...on reflection, no: the guard already covers this.\n\n<!-- bravros-verdict: approved -->",
 			wantV:    "approved",
 			wantConf: true,
 		},
 		{
 			name:     "marker changes-requested beats a bolded Mergeable",
-			body:     "### Verdict\n\n**Mergeable.** Everything checks out.\n\n<!-- kaisser-verdict: changes-requested -->",
+			body:     "### Verdict\n\n**Mergeable.** Everything checks out.\n\n<!-- bravros-verdict: changes-requested -->",
 			wantV:    "changes-requested",
 			wantConf: true,
 		},
 		{
 			// LAST marker wins — a bot that revises its verdict emits a new marker.
 			name:     "two markers changes-requested then approved yields approved",
-			body:     "<!-- kaisser-verdict: changes-requested -->\n\nOn re-read the finding is already handled.\n\n<!-- kaisser-verdict: approved -->",
+			body:     "<!-- bravros-verdict: changes-requested -->\n\nOn re-read the finding is already handled.\n\n<!-- bravros-verdict: approved -->",
 			wantV:    "approved",
 			wantConf: true,
 		},
@@ -1555,14 +1555,14 @@ func TestParseVerdict_TableDriven(t *testing.T) {
 			// an earlier quoted/echoed marker (e.g. the bot repeating our own
 			// instruction block back at us) non-authoritative.
 			name:     "two markers approved then changes-requested yields changes-requested",
-			body:     "<!-- kaisser-verdict: approved -->\n\nWait — the nil deref is real.\n\n<!-- kaisser-verdict: changes-requested -->",
+			body:     "<!-- bravros-verdict: approved -->\n\nWait — the nil deref is real.\n\n<!-- bravros-verdict: changes-requested -->",
 			wantV:    "changes-requested",
 			wantConf: true,
 		},
 		{
 			// Liberal in what we accept: case + internal whitespace.
 			name:     "marker with odd whitespace and casing approves",
-			body:     "Looks fine.\n\n<!--   KAISSER-VERDICT:   APPROVED   -->",
+			body:     "Looks fine.\n\n<!--   BRAVROS-VERDICT:   APPROVED   -->",
 			wantV:    "approved",
 			wantConf: true, // TIER 1 — the marker is authoritative regardless of casing
 		},
@@ -1571,7 +1571,7 @@ func TestParseVerdict_TableDriven(t *testing.T) {
 			// "maybe" is not a marker at all — fall through to prose, which finds
 			// nothing decisive here. It must NOT approve on its own.
 			name:     "malformed marker value falls through to prose",
-			body:     "<!-- kaisser-verdict: maybe -->\n\nI am not sure about the retry logic.",
+			body:     "<!-- bravros-verdict: maybe -->\n\nI am not sure about the retry logic.",
 			wantV:    "unclear",
 			wantConf: false,
 		},
@@ -1591,15 +1591,15 @@ func TestParseVerdict_TableDriven(t *testing.T) {
 		// ever inspected). The canonical marker is now a plain-text line the
 		// Action preserves:
 		//
-		//	KAISSER-VERDICT: approved
-		//	KAISSER-VERDICT: changes-requested
+		//	BRAVROS-VERDICT: approved
+		//	BRAVROS-VERDICT: changes-requested
 		//
 		// Same tier-1 semantics as the legacy form: authoritative, raw-body,
 		// last-wins across BOTH forms by position.
 		// =====================================================================
 		{
 			name:     "sentinel approved with otherwise empty body",
-			body:     "KAISSER-VERDICT: approved",
+			body:     "BRAVROS-VERDICT: approved",
 			wantV:    "approved",
 			wantConf: true,
 		},
@@ -1608,13 +1608,13 @@ func TestParseVerdict_TableDriven(t *testing.T) {
 			// in prose and ends with the sentinel. Must be tier-1 approved even
 			// with a ❌ in a CI table above it.
 			name:     "sentinel approved beats a red X in a CI summary table",
-			body:     "| e2e | ❌ flaky, unrelated |\n\nThe failure is a known-flaky job on main.\n\nKAISSER-VERDICT: approved",
+			body:     "| e2e | ❌ flaky, unrelated |\n\nThe failure is a known-flaky job on main.\n\nBRAVROS-VERDICT: approved",
 			wantV:    "approved",
 			wantConf: true,
 		},
 		{
 			name:     "sentinel changes-requested beats a bolded Mergeable",
-			body:     "**Mergeable.** Everything checks out.\n\nKAISSER-VERDICT: changes-requested",
+			body:     "**Mergeable.** Everything checks out.\n\nBRAVROS-VERDICT: changes-requested",
 			wantV:    "changes-requested",
 			wantConf: true,
 		},
@@ -1622,7 +1622,7 @@ func TestParseVerdict_TableDriven(t *testing.T) {
 			// Models love to bold a final verdict — accept emphasis wrappers and
 			// a trailing period, case-insensitively.
 			name:     "sentinel bolded with trailing period and odd casing approves",
-			body:     "All good.\n\n**kaisser-verdict: APPROVED.**",
+			body:     "All good.\n\n**bravros-verdict: APPROVED.**",
 			wantV:    "approved",
 			wantConf: true,
 		},
@@ -1630,13 +1630,13 @@ func TestParseVerdict_TableDriven(t *testing.T) {
 			// LAST-wins works ACROSS forms: a legacy HTML marker early, a
 			// sentinel later — the sentinel (by position) is the verdict.
 			name:     "legacy marker then later sentinel yields the sentinel verdict",
-			body:     "<!-- kaisser-verdict: changes-requested -->\n\nOn re-read the finding is already handled.\n\nKAISSER-VERDICT: approved",
+			body:     "<!-- bravros-verdict: changes-requested -->\n\nOn re-read the finding is already handled.\n\nBRAVROS-VERDICT: approved",
 			wantV:    "approved",
 			wantConf: true,
 		},
 		{
 			name:     "sentinel then later legacy marker yields the legacy verdict",
-			body:     "KAISSER-VERDICT: approved\n\nWait — the nil deref is real.\n\n<!-- kaisser-verdict: changes-requested -->",
+			body:     "BRAVROS-VERDICT: approved\n\nWait — the nil deref is real.\n\n<!-- bravros-verdict: changes-requested -->",
 			wantV:    "changes-requested",
 			wantConf: true,
 		},
@@ -1644,7 +1644,7 @@ func TestParseVerdict_TableDriven(t *testing.T) {
 			// A verbatim echo of our request block (both lines, no real verdict
 			// after) resolves to the SECOND line — changes-requested. Fail closed.
 			name:     "instruction echo of both sentinel lines fails closed",
-			body:     "You asked me to end with one of:\n\nKAISSER-VERDICT: approved\nKAISSER-VERDICT: changes-requested\n\nStill reviewing.",
+			body:     "You asked me to end with one of:\n\nBRAVROS-VERDICT: approved\nBRAVROS-VERDICT: changes-requested\n\nStill reviewing.",
 			wantV:    "changes-requested",
 			wantConf: true,
 		},
@@ -1656,7 +1656,7 @@ func TestParseVerdict_TableDriven(t *testing.T) {
 			// echo can never self-authorize. Anchoring details are unit-tested in
 			// TestFindVerdictMarker_SentinelAnchoring below.
 			name:     "blockquoted sentinel echo never reaches tier 1",
-			body:     "> KAISSER-VERDICT: approved\n\nThat is what the template wants; I have not decided yet.",
+			body:     "> BRAVROS-VERDICT: approved\n\nThat is what the template wants; I have not decided yet.",
 			wantV:    "approved",
 			wantConf: false,
 		},
@@ -1664,7 +1664,7 @@ func TestParseVerdict_TableDriven(t *testing.T) {
 			// Value strictness matches the legacy form: only the two sanctioned
 			// values are markers.
 			name:     "sentinel with unsanctioned value falls through to prose",
-			body:     "KAISSER-VERDICT: maybe\n\nI am not sure about the retry logic.",
+			body:     "BRAVROS-VERDICT: maybe\n\nI am not sure about the retry logic.",
 			wantV:    "unclear",
 			wantConf: false,
 		},
@@ -1695,18 +1695,18 @@ func TestFindVerdictMarker_SentinelAnchoring(t *testing.T) {
 		wantV  string
 		wantOK bool
 	}{
-		{"bare sentinel matches", "KAISSER-VERDICT: approved", "approved", true},
-		{"sentinel with leading whitespace matches", "   KAISSER-VERDICT: changes-requested", "changes-requested", true},
-		{"bolded sentinel with trailing period matches", "**KAISSER-VERDICT: approved.**", "approved", true},
-		{"CRLF line ending matches", "prose above\r\nKAISSER-VERDICT: approved\r\n", "approved", true},
-		{"blockquoted echo does not match", "> KAISSER-VERDICT: approved", "", false},
-		{"list-item echo does not match", "- KAISSER-VERDICT: approved\n* KAISSER-VERDICT: changes-requested", "", false},
-		{"numbered-list echo does not match", "1. KAISSER-VERDICT: approved", "", false},
-		{"mid-sentence mention does not match", "end with the KAISSER-VERDICT: approved line, nothing after it", "", false},
-		{"trailing prose on the line does not match", "KAISSER-VERDICT: approved — assuming you fix the nil deref", "", false},
-		{"unsanctioned value does not match", "KAISSER-VERDICT: maybe", "", false},
-		{"legacy HTML form still matches", "<!-- kaisser-verdict: approved -->", "approved", true},
-		{"last wins across forms by position", "<!-- kaisser-verdict: approved -->\nKAISSER-VERDICT: changes-requested", "changes-requested", true},
+		{"bare sentinel matches", "BRAVROS-VERDICT: approved", "approved", true},
+		{"sentinel with leading whitespace matches", "   BRAVROS-VERDICT: changes-requested", "changes-requested", true},
+		{"bolded sentinel with trailing period matches", "**BRAVROS-VERDICT: approved.**", "approved", true},
+		{"CRLF line ending matches", "prose above\r\nBRAVROS-VERDICT: approved\r\n", "approved", true},
+		{"blockquoted echo does not match", "> BRAVROS-VERDICT: approved", "", false},
+		{"list-item echo does not match", "- BRAVROS-VERDICT: approved\n* BRAVROS-VERDICT: changes-requested", "", false},
+		{"numbered-list echo does not match", "1. BRAVROS-VERDICT: approved", "", false},
+		{"mid-sentence mention does not match", "end with the BRAVROS-VERDICT: approved line, nothing after it", "", false},
+		{"trailing prose on the line does not match", "BRAVROS-VERDICT: approved — assuming you fix the nil deref", "", false},
+		{"unsanctioned value does not match", "BRAVROS-VERDICT: maybe", "", false},
+		{"legacy HTML form still matches", "<!-- bravros-verdict: approved -->", "approved", true},
+		{"last wins across forms by position", "<!-- bravros-verdict: approved -->\nBRAVROS-VERDICT: changes-requested", "changes-requested", true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1746,7 +1746,7 @@ func TestWriteStampFromVerdict_ApprovedWritesStamp(t *testing.T) {
 	defer os.Chdir(orig)
 	withNoReviewStampToken(t)
 
-	body := "All checks pass. Ready to merge.\n\n<!-- kaisser-verdict: approved -->"
+	body := "All checks pass. Ready to merge.\n\n<!-- bravros-verdict: approved -->"
 	code := writeStampFromVerdict("999", body)
 	// Code 0 = stamp written or already present (idempotent).
 	if code != 0 {
@@ -1976,7 +1976,7 @@ func TestParseVerdict_ClearToMergePhrases(t *testing.T) {
 // the "**Claude finished" prefix — so the human request never enters the pool.
 func TestVerdictSelection_BotReplyBeatsNewerHumanRequest(t *testing.T) {
 	humanRequestBody := "@claude re-review — all 6 prior findings addressed, please confirm."
-	botReplyBody := "**Claude finished @skaisser's task in 2m 59s** —— [View job](https://example/run/1)\n\nClear to merge. All 6 prior findings are correctly resolved with no new concerns introduced."
+	botReplyBody := "**Claude finished @sbravros's task in 2m 59s** —— [View job](https://example/run/1)\n\nClear to merge. All 6 prior findings are correctly resolved with no new concerns introduced."
 
 	// The old bug: classifying the raw newest comment (the human request)
 	// yields unclear. Pin that shape so the test documents the failure mode.

@@ -114,7 +114,7 @@ type BotCommentJSON struct {
 }
 
 // FetchLatestBotCommentJSON fetches the most recent bot comment and returns it
-// as a structured BotCommentJSON. Used by kaisser pr-review --json --latest.
+// as a structured BotCommentJSON. Used by bravros pr-review --json --latest.
 func FetchLatestBotCommentJSON(repo, prNumber, botLogin string) (*BotCommentJSON, error) {
 	jq := fmt.Sprintf(`[.[] | select(.user.login == "%s" or (.user.login | endswith("[bot]")))] | sort_by(.created_at) | last | {author: .user.login, body: .body, posted_at: .created_at, url: .html_url}`, botLogin)
 	out, _, err := Run("gh", "api",

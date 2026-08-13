@@ -307,7 +307,7 @@ func findCollisionWithPrefix(collisions []IDCollision, prefix string, id int) *I
 }
 
 // TestAuditDuplicateIDs_FolderPlanDoesNotAbort covers the crash that made
-// `kaisser nextid audit` unusable in any repo containing a folder plan.
+// `bravros nextid audit` unusable in any repo containing a folder plan.
 //
 // The `plan` entity is dual-kind (P-0180): its Kind is EntityKindFile, but it
 // also accepts `P-NNNN-<slug>/` directories — and older trees carry bare

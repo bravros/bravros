@@ -29,7 +29,7 @@ func fieldExtract(jsonStr string, field string) string {
 // fieldExtractFound is fieldExtract's strict sibling: it returns (value, found)
 // so callers can distinguish "found, value is empty string" from "path does not
 // exist in the JSON tree." Lenient callers keep using fieldExtract; strict
-// callers (e.g. `kaisser meta --field`) use this and exit non-zero when found
+// callers (e.g. `bravros meta --field`) use this and exit non-zero when found
 // is false. P-0121 follow-up #15 — silent empty-on-typo regressed real fixes.
 func fieldExtractFound(jsonStr string, field string) (string, bool) {
 	var data map[string]interface{}
@@ -107,7 +107,7 @@ var nextidReserveScanMode string
 var nextidReserveVerbose bool
 
 // nextidReserveCmd reserves a single ID for one entity type and writes a
-// placeholder file atomically. Skills call this instead of bare `kaisser nextid`
+// placeholder file atomically. Skills call this instead of bare `bravros nextid`
 // to avoid ID collisions in parallel flows. B-0116 / P-0116.
 //
 // For directory-kind entities (debug), the command creates the investigation
@@ -119,8 +119,8 @@ var nextidReserveCmd = &cobra.Command{
 
 File-kind entities (plan, backlog, report, user_report):
   Writes a <id>.placeholder sentinel file. Consumer skills MUST rename it to
-  the final filename rather than double-calling kaisser nextid. On abort, call
-  'kaisser nextid release <ID>' to delete the placeholder.
+  the final filename rather than double-calling bravros nextid. On abort, call
+  'bravros nextid release <ID>' to delete the placeholder.
 
 Directory-kind entities (debug):
   Creates the investigation directory D-NNNN-<slug>-open/ directly. The slug
@@ -136,7 +136,7 @@ Entity → location mapping:
 Scan modes (--scan-mode):
   auto        — default; scans all local branches and active worktrees to
                 find the true highest ID, preventing cross-worktree collisions
-                (P-0170). Reads KAISSER_NEXTID_SCAN_MODE env for override.
+                (P-0170). Reads BRAVROS_NEXTID_SCAN_MODE env for override.
   single-tree — original behaviour (B-0208): only scans the entity directory
                 in the current checkout's .planning/ tree. Use as an escape
                 hatch when git commands are unavailable or slow.
@@ -559,7 +559,7 @@ var nextidCmd = &cobra.Command{
 	Use:   "nextid",
 	Short: "Atomically reserve next plan, backlog, report, and user-report IDs (JSON)",
 	Long: `Return the next available IDs for all four entity streams as a JSON object.
-Deprecated for write workflows: use 'kaisser nextid reserve <entity>' instead,
+Deprecated for write workflows: use 'bravros nextid reserve <entity>' instead,
 which atomically reserves a single ID and writes a placeholder file.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		// P-0170: use the calling checkout's write root so placeholders land in the
@@ -585,7 +585,7 @@ which atomically reserves a single ID and writes a placeholder file.`,
 		os.MkdirAll(reportsDir, 0755)
 		os.MkdirAll(userReportsDir, 0755)
 
-		// Pass "" scanMode so the env-var fallback (KAISSER_NEXTID_SCAN_MODE) applies.
+		// Pass "" scanMode so the env-var fallback (BRAVROS_NEXTID_SCAN_MODE) applies.
 		// The deprecated all-ids verb is read-only and non-interactive; env-var override
 		// is the correct escape hatch for callers that cannot pass flags here.
 		planNum, _, err := plan.GetNextNumAtomic(planDir, planDef.Prefix, "")

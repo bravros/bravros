@@ -20,7 +20,7 @@ import (
 // gitCommandTimeout is the maximum time a git subprocess may run before being
 // killed. 30 seconds is generous for `git ls-tree -r` over many branches; the
 // primary guard is against hung subprocesses on network-mounted repos (e.g. NFS
-// or slow SMB shares) that would otherwise block `kaisser nextid reserve`
+// or slow SMB shares) that would otherwise block `bravros nextid reserve`
 // indefinitely.
 const gitCommandTimeout = 30 * time.Second
 
@@ -77,7 +77,7 @@ func sweepLegacyPlaceholders(dir string) {
 //     B-0208 escape hatch).
 //   - "" / "auto" (or any other value) — perform the cross-worktree scan via
 //     ScanAllSources so that IDs committed on any branch or held by any active
-//     worktree are counted. Falls back to the KAISSER_NEXTID_SCAN_MODE env var
+//     worktree are counted. Falls back to the BRAVROS_NEXTID_SCAN_MODE env var
 //     when scanMode is empty, so external library users retain the same override
 //     mechanism they had before this parameter was added.
 func GetNextNumAtomic(dir, prefix, scanMode string) (string, func(), error) {
@@ -97,17 +97,17 @@ func GetNextNumAtomic(dir, prefix, scanMode string) (string, func(), error) {
 
 	// Resolve effective scan mode: explicit parameter wins; fall back to env var
 	// when the parameter is empty so that external library users (e.g. tests that
-	// set KAISSER_NEXTID_SCAN_MODE=single-tree) retain the same override path.
+	// set BRAVROS_NEXTID_SCAN_MODE=single-tree) retain the same override path.
 	effectiveScanMode := scanMode
 	if effectiveScanMode == "" {
-		effectiveScanMode = os.Getenv("KAISSER_NEXTID_SCAN_MODE")
+		effectiveScanMode = os.Getenv("BRAVROS_NEXTID_SCAN_MODE")
 	}
 	// "strict" = auto, but a scan error is returned instead of silently
 	// degrading to the single-tree fallback. Callers that must not hand out a
 	// possibly-colliding id (backlog add) use it to get the hard-fail contract
 	// without paying for a second full scan just to probe. The single-tree
 	// escape hatch still wins so the override remains reachable.
-	if effectiveScanMode == "strict" && os.Getenv("KAISSER_NEXTID_SCAN_MODE") == "single-tree" {
+	if effectiveScanMode == "strict" && os.Getenv("BRAVROS_NEXTID_SCAN_MODE") == "single-tree" {
 		effectiveScanMode = "single-tree"
 	}
 
@@ -155,7 +155,7 @@ func GetNextNumAtomic(dir, prefix, scanMode string) (string, func(), error) {
 					"cross-worktree id scan failed: %w\n"+
 						"Refusing to allocate an id from a single-directory scan — it cannot see ids held\n"+
 						"by other worktrees or branches and would likely collide.\n"+
-						"Set KAISSER_NEXTID_SCAN_MODE=single-tree to override once the cause is understood",
+						"Set BRAVROS_NEXTID_SCAN_MODE=single-tree to override once the cause is understood",
 					scanErr)
 			}
 			// scanErr != nil — fall through to single-tree below.
@@ -168,7 +168,7 @@ func GetNextNumAtomic(dir, prefix, scanMode string) (string, func(), error) {
 			// how duplicate ids get minted. Warn loudly there.
 			if _, gitErr := runGitCommand("rev-parse", "--show-toplevel"); gitErr == nil {
 				fmt.Fprintf(os.Stderr,
-					"⚠️  kaisser: cross-worktree id scan failed (%v)\n"+
+					"⚠️  bravros: cross-worktree id scan failed (%v)\n"+
 						"    Falling back to a single-directory scan, which CANNOT see ids held by\n"+
 						"    other worktrees or branches — the id returned may collide.\n",
 					scanErr)
@@ -177,7 +177,7 @@ func GetNextNumAtomic(dir, prefix, scanMode string) (string, func(), error) {
 	}
 
 	// Single-tree fallback: original directory-scan logic (used when
-	// KAISSER_NEXTID_SCAN_MODE=single-tree, outside a git repo, or for an
+	// BRAVROS_NEXTID_SCAN_MODE=single-tree, outside a git repo, or for an
 	// unrecognised prefix).
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -477,7 +477,7 @@ func FindPlanFile(planningDir, branch string) string {
 
 	// activeFiles: plans in active stages (not yet complete or cancelled).
 	// This pool is preferred over allPlanFiles so that a plan file renamed from
-	// *-todo.md to *-approved.md (via `kaisser plan advance`) is still found by
+	// *-todo.md to *-approved.md (via `bravros plan advance`) is still found by
 	// FindPlanFile without falling through to the unfiltered allPlanFiles fallback.
 	var activeFiles []string
 	var allPlanFiles []string
@@ -596,7 +596,7 @@ func findEntityFileByID(prefix, dir, id string) (string, error) {
 	}
 
 	// B-0185: normalize bare numeric input (e.g. "0108" or "108") to "P-0108" so that
-	// kaisser plan advance accepts bare numbers at any pipeline stage.
+	// bravros plan advance accepts bare numbers at any pipeline stage.
 	// The P- prefix is used for plan IDs; backlog/report use separate lookup paths.
 	// Priority-1 frontmatter match still tries the original id verbatim (legacy plans
 	// may have a bare numeric id: field), so we only inject the normalized form for
@@ -844,7 +844,7 @@ func ResolveGitRoot() string {
 		// Not a git repo or git unavailable — fall back to cwd gracefully.
 		cwd, cwdErr := os.Getwd()
 		if cwdErr == nil {
-			fmt.Fprintf(os.Stderr, "warning: kaisser nextid: not in a git repo; using cwd for .planning/ resolution\n")
+			fmt.Fprintf(os.Stderr, "warning: bravros nextid: not in a git repo; using cwd for .planning/ resolution\n")
 			return cwd
 		}
 		return "."
@@ -935,7 +935,7 @@ func ResolveWriteRoot() string {
 // Returns (stdout, error). Stderr is discarded.
 //
 // A 30-second timeout (gitCommandTimeout) is applied via context.WithTimeout to
-// prevent hung git subprocesses from blocking `kaisser nextid reserve` indefinitely
+// prevent hung git subprocesses from blocking `bravros nextid reserve` indefinitely
 // on network-mounted repos or when git is waiting for credential input.
 func runGitCommand(args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), gitCommandTimeout)

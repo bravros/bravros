@@ -1,5 +1,5 @@
 #!/bin/bash
-# kaisser-managed-commit-msg-hook v0
+# bravros-managed-commit-msg-hook v0
 # This is an older version of the canonical hook (v0).
 set -u
 COMMIT_MSG_FILE=$1

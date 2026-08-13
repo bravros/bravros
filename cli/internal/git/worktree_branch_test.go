@@ -239,32 +239,32 @@ func TestResolveWorktreeGitDir(t *testing.T) {
 	})
 }
 
-// TestProjectNameWithKaisserYML verifies that a project: field in .kaisser.yml
+// TestProjectNameWithBravrosYML verifies that a project: field in .bravros.yml
 // takes precedence over the directory basename.
-func TestProjectNameWithKaisserYML(t *testing.T) {
+func TestProjectNameWithBravrosYML(t *testing.T) {
 	dir := t.TempDir()
 
-	// Write a minimal .kaisser.yml with a project field.
-	kaisserYML := `project: "my-canonical-project"
+	// Write a minimal .bravros.yml with a project field.
+	bravrosYML := `project: "my-canonical-project"
 staging_branch: homolog
 `
-	if err := os.WriteFile(filepath.Join(dir, ".kaisser.yml"), []byte(kaisserYML), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".bravros.yml"), []byte(bravrosYML), 0644); err != nil {
 		t.Fatal(err)
 	}
 
 	got := projectNameFromDir(dir)
 	if got != "my-canonical-project" {
-		t.Errorf("projectNameFromDir() with .kaisser.yml project field = %q, want %q", got, "my-canonical-project")
+		t.Errorf("projectNameFromDir() with .bravros.yml project field = %q, want %q", got, "my-canonical-project")
 	}
 }
 
-// TestProjectNameWithoutKaisserYML verifies fallback to directory basename.
-func TestProjectNameWithoutKaisserYML(t *testing.T) {
+// TestProjectNameWithoutBravrosYML verifies fallback to directory basename.
+func TestProjectNameWithoutBravrosYML(t *testing.T) {
 	dir := t.TempDir()
-	// No .kaisser.yml → should return basename of dir.
+	// No .bravros.yml → should return basename of dir.
 	got := projectNameFromDir(dir)
 	if got != filepath.Base(dir) {
-		t.Errorf("projectNameFromDir() without .kaisser.yml = %q, want %q", got, filepath.Base(dir))
+		t.Errorf("projectNameFromDir() without .bravros.yml = %q, want %q", got, filepath.Base(dir))
 	}
 }
 

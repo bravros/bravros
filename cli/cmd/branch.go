@@ -25,7 +25,7 @@ var branchCreateCmd = &cobra.Command{
 	Long: `Create a new feature branch from the base branch.
 
 Base branch priority:
-  1. .kaisser.yml staging_branch (if exists)
+  1. .bravros.yml staging_branch (if exists)
   2. DetectBaseBranch() (homolog → main → master)
 
 With --checkout-only, only checks out and pulls the base branch

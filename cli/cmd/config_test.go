@@ -6,13 +6,13 @@ import (
 	"testing"
 )
 
-// configFixture writes a .kaisser.yml in the current directory with the given YAML content.
+// configFixture writes a .bravros.yml in the current directory with the given YAML content.
 func configFixture(t *testing.T, yaml string) {
 	t.Helper()
-	if err := os.WriteFile(".kaisser.yml", []byte(yaml), 0o644); err != nil {
-		t.Fatalf("write .kaisser.yml: %v", err)
+	if err := os.WriteFile(".bravros.yml", []byte(yaml), 0o644); err != nil {
+		t.Fatalf("write .bravros.yml: %v", err)
 	}
-	t.Cleanup(func() { os.Remove(".kaisser.yml") })
+	t.Cleanup(func() { os.Remove(".bravros.yml") })
 }
 
 func TestConfigMergeStrategy_ByBase_Hit_Cmd(t *testing.T) {
@@ -101,7 +101,7 @@ func TestConfigMergeStrategy_NoConfigFile_FallbackMerge_Cmd(t *testing.T) {
 }
 
 // TestConfigGet_SkillsPreserve verifies that `config get skills.preserve` prints
-// the space-separated list from .kaisser.yml.
+// the space-separated list from .bravros.yml.
 func TestConfigGet_SkillsPreserve(t *testing.T) {
 	dir := t.TempDir()
 	chdirTo(t, dir)

@@ -5,7 +5,7 @@ package branch
 // PruneBranch() independently of the unit tests in prune_test.go.
 //
 // All tests use makeGitRepo() from prune_test.go and set
-// KAISSER_BRANCH_PRUNE_BYPASS_ACTIVE_CMD=1 via that helper.
+// BRAVROS_BRANCH_PRUNE_BYPASS_ACTIVE_CMD=1 via that helper.
 //
 // Run: go test ./cli/internal/branch/... -run TestInvariant
 
@@ -225,7 +225,7 @@ func TestInvariant_I6_ActiveCommandBlocking(t *testing.T) {
 	mustRunIn(t, ".", "git", "checkout", "main")
 
 	// Unset the bypass flag so the guard fires.
-	t.Setenv("KAISSER_BRANCH_PRUNE_BYPASS_ACTIVE_CMD", "")
+	t.Setenv("BRAVROS_BRANCH_PRUNE_BYPASS_ACTIVE_CMD", "")
 
 	// Create a fake session marker.
 	sessionID := "test-session-i6"
@@ -245,7 +245,7 @@ func TestInvariant_I6_ActiveCommandBlocking(t *testing.T) {
 	}
 
 	// With bypass re-enabled, the branch should proceed past the guard.
-	t.Setenv("KAISSER_BRANCH_PRUNE_BYPASS_ACTIVE_CMD", "1")
+	t.Setenv("BRAVROS_BRANCH_PRUNE_BYPASS_ACTIVE_CMD", "1")
 	d2 := PruneBranch("feat/i6-test", PruneOpts{Base: "main", Apply: true})
 	// The branch may still be skipped for other reasons (e.g. head), but NOT for active-command.
 	if d2.SkipReason == SkipActiveCommand {

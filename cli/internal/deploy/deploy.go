@@ -48,7 +48,7 @@ type DeployResult struct {
 // compared against the source repo; missing source counterparts are pruned.
 //
 // Allowlist (NEVER prune):
-//   - bin/        (kaisser binary)
+//   - bin/        (bravros binary)
 //   - projects/   (per-project state, .planning, MEMORY.md)
 //   - state/      (promote-token, locks)
 //   - settings.local.json (user-local overrides)
@@ -62,7 +62,7 @@ var pruneSubtrees = []string{"skills", "templates", "hooks", "agents"}
 // skills/ is included here for file-counting and Dirs population; the actual
 // per-skill atomic deployment is handled by the SHA-manifest loop in Deploy().
 // templates/ is included so that templates/.githooks/ stays in sync with the
-// source repo on every `kaisser deploy` — mirroring what install.sh does at
+// source repo on every `bravros deploy` — mirroring what install.sh does at
 // install.sh:492-496. copyFile preserves source file modes (including the
 // executable bit), but we also apply an explicit chmod after the copy loop
 // so that hook files are always executable even if the source mode was lost.
@@ -514,7 +514,7 @@ func Deploy(opts DeployOpts) (*DeployResult, error) {
 			// Aborting on it is actively harmful: every file after this one in the
 			// loop stays stale, silently. A locked ~/.claude/settings.json used to
 			// kill the whole install, which is how ~/.claude/scripts/ ended up
-			// months behind while `kaisser update` still reported success — the
+			// months behind while `bravros update` still reported success — the
 			// giveaway was two graphify scripts deployed from two DIFFERENT commits.
 			if errors.Is(err, fs.ErrPermission) {
 				fmt.Fprintf(os.Stderr, "⏭️  %s is locked (permission denied) — skipped, deploy continues\n", dstRel)
@@ -668,7 +668,7 @@ func mapSourceToDest(rel string) string {
 
 // reconcileGlobalClaudeMd reconciles the managed-global CLAUDE.md block into
 // <targetDir>/CLAUDE.md from <sourceDir>/home/CLAUDE.md, preserving the user's
-// personal content outside the # >>> kaisser-managed-global >>> markers. It shells
+// personal content outside the # >>> bravros-managed-global >>> markers. It shells
 // out to the deterministic reconcile script (scripts/reconcile-global-claude.py) —
 // the same one install.sh and verify-install use — so the marker/migration logic
 // lives in exactly one place and can never diverge across deploy paths.

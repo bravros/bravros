@@ -1,5 +1,5 @@
 // Package hooks provides detection, classification, and refresh logic for the
-// kaisser-managed commit-msg git hook.
+// bravros-managed commit-msg git hook.
 //
 // The canonical hook lives at ~/.claude/templates/.githooks/commit-msg (deployed
 // location) or at templates/.githooks/commit-msg in the source repo.
@@ -10,7 +10,7 @@
 //	Pristine     – file matches a known historical MD5 (no marker; older installs)
 //	OldCanonical – file has the sentinel marker but an older version number
 //	Customized   – file has no marker and no MD5 match (user-edited)
-//	Foreign      – file exists, has content, but shows no kaisser origin at all
+//	Foreign      – file exists, has content, but shows no bravros origin at all
 //
 // Refresh writes the canonical hook atomically and marks it 0755.
 package hooks
@@ -26,10 +26,10 @@ import (
 	"strings"
 )
 
-// MarkerLine is the prefix embedded on line 2 of every kaisser-managed commit-msg hook.
+// MarkerLine is the prefix embedded on line 2 of every bravros-managed commit-msg hook.
 // The actual line in the file may append a version suffix (e.g., "v1"), so all
 // detection uses HasPrefix matching rather than exact equality.
-const MarkerLine = "# kaisser-managed-commit-msg-hook"
+const MarkerLine = "# bravros-managed-commit-msg-hook"
 
 // CurrentMarkerVersion is the version number embedded in the current canonical hook.
 const CurrentMarkerVersion = 1
@@ -48,7 +48,7 @@ var HistoricalCanonicalMD5s = []string{
 }
 
 // Status describes the state of a project's commit-msg hook relative to the
-// kaisser canonical version.
+// bravros canonical version.
 type Status int
 
 const (
@@ -67,7 +67,7 @@ const (
 	// match canonical; MD5 comparison happens upstream in detectHookDrift.
 	StatusCurrent
 
-	// StatusForeign – file exists but shows no kaisser origin (no marker, no
+	// StatusForeign – file exists but shows no bravros origin (no marker, no
 	// historical MD5 match).  Must not be overwritten without --force.
 	StatusForeign
 )
@@ -96,7 +96,7 @@ func (s Status) String() string {
 //
 // The second line is expected to follow the pattern:
 //
-//	# kaisser-managed-commit-msg-hook v<N>
+//	# bravros-managed-commit-msg-hook v<N>
 func ReadMarker(path string) (version int, ok bool, err error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

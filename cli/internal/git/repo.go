@@ -280,12 +280,12 @@ func HasHomologBranch(cwd string) bool {
 //
 // Resolution order:
 //  1. If inside a linked worktree, walk up to the primary repo root and look for
-//     `.kaisser.yml` there (the primary worktree holds the authoritative config).
-//  2. If `.kaisser.yml` exists in cwd (primary worktree), read `project:` from it.
+//     `.bravros.yml` there (the primary worktree holds the authoritative config).
+//  2. If `.bravros.yml` exists in cwd (primary worktree), read `project:` from it.
 //  3. Fallback: basename of the primary worktree root directory (not cwd, which may
 //     be a worktree directory like "myapp-0058" rather than the project "myapp").
 //
-// Note: the `.kaisser.yml` `project:` field is optional. If it's absent this
+// Note: the `.bravros.yml` `project:` field is optional. If it's absent this
 // function falls back to the primary root dir name — still more correct than cwd.
 func ProjectName() string {
 	cwd, err := os.Getwd()
@@ -329,20 +329,20 @@ func resolvePrimaryRoot(worktreeGitDir string) string {
 	return primaryRoot
 }
 
-// projectNameFromDir tries to read the project name from .kaisser.yml in dir,
+// projectNameFromDir tries to read the project name from .bravros.yml in dir,
 // falling back to the directory basename.
 func projectNameFromDir(dir string) string {
-	// Try .kaisser.yml project field.
-	if name := readKaisserYMLProject(dir); name != "" {
+	// Try .bravros.yml project field.
+	if name := readBravrosYMLProject(dir); name != "" {
 		return name
 	}
 	return filepath.Base(dir)
 }
 
-// readKaisserYMLProject reads the optional `project:` field from .kaisser.yml.
+// readBravrosYMLProject reads the optional `project:` field from .bravros.yml.
 // Returns "" if the file is absent or the field is not set.
-func readKaisserYMLProject(dir string) string {
-	data, err := os.ReadFile(filepath.Join(dir, ".kaisser.yml"))
+func readBravrosYMLProject(dir string) string {
+	data, err := os.ReadFile(filepath.Join(dir, ".bravros.yml"))
 	if err != nil {
 		return ""
 	}

@@ -95,7 +95,7 @@ func TestSendHASay_UnmutedFallsThroughToClient(t *testing.T) {
 
 func TestRoomFile_LivesWhereAnnounceScriptLooks(t *testing.T) {
 	// announce.sh reads these paths literally; if they move, room routing and mute
-	// silently stop working on any host whose kaisser binary is newer than its scripts.
+	// silently stop working on any host whose bravros binary is newer than its scripts.
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 

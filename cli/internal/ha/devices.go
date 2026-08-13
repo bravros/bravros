@@ -55,7 +55,7 @@ func DeviceSlug(name string) string {
 	return strings.TrimPrefix(svc, "notify/alexa_media_")
 }
 
-// RoomFile is the path of the current-room override consumed by both `kaisser ha room` and
+// RoomFile is the path of the current-room override consumed by both `bravros ha room` and
 // scripts/announce.sh.
 func RoomFile() string {
 	home, err := os.UserHomeDir()

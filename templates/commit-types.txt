@@ -1,10 +1,10 @@
-# kaisser-canonical-commit-types v1
+# bravros-canonical-commit-types v1
 #
 # Format: type|emoji|description
 # One entry per line. Comments and blank lines are ignored.
 #
 # This is the single source of truth for all commit types accepted by the
-# kaisser toolchain. Consumers:
+# bravros toolchain. Consumers:
 #   - templates/.githooks/commit-msg  (validation)
 #   - .github/workflows/auto-release.yml (release-trigger prefix filter)
 #   - skills/commit/SKILL.md (documentation table)

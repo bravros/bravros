@@ -1,24 +1,24 @@
 // Package managed implements the managed-block marker strategy for preserving
 // user customizations in settings.json (B-0096) and CLAUDE.md (B-0097) across
-// kaisser selfupdates.
+// bravros selfupdates.
 //
 // JSON strategy:
-//   A sentinel key "_kaisser_managed_keys" at the top level lists which
-//   top-level keys are owned by kaisser.  On rewrite, only those keys are
+//   A sentinel key "_bravros_managed_keys" at the top level lists which
+//   top-level keys are owned by bravros.  On rewrite, only those keys are
 //   replaced; everything else is preserved verbatim.
 //
 //   Example settings.json:
 //     {
-//       "_kaisser_managed_keys": ["hooks", "permissions"],
+//       "_bravros_managed_keys": ["hooks", "permissions"],
 //       "hooks": { ... auto-generated ... },
 //       "userKey": "preserved"
 //     }
 //
 // Markdown strategy:
 //   HTML comment markers bracket auto-generated regions:
-//     <!-- kaisser-managed:start <name> -->
+//     <!-- bravros-managed:start <name> -->
 //     ... auto-generated content ...
-//     <!-- kaisser-managed:end <name> -->
+//     <!-- bravros-managed:end <name> -->
 //   Content outside markers is preserved verbatim.
 package managed
 
@@ -33,7 +33,7 @@ import (
 
 // RewriteJSONSection rewrites a single named section in a JSON file while
 // preserving all other top-level keys.  The section name is added to the
-// _kaisser_managed_keys list automatically.
+// _bravros_managed_keys list automatically.
 //
 // If the file does not exist it is created from scratch.
 // If the section does not exist in the file it is inserted.
@@ -101,16 +101,16 @@ func ReadJSONSection(path, sectionName string) (json.RawMessage, error) {
 // Markdown (or any text) file.  Content outside the markers is preserved.
 //
 // Markers (exact form):
-//   <!-- kaisser-managed:start <name> -->
-//   <!-- kaisser-managed:end <name> -->
+//   <!-- bravros-managed:start <name> -->
+//   <!-- bravros-managed:end <name> -->
 //
 // If the file does not exist it is created.
 // If the markers are absent the section is appended to the file.
 // If only one marker is present an error is returned (malformed file).
 // The function is idempotent: re-running with the same content is a no-op.
 func RewriteMarkdownSection(path, sectionName, newContent string) error {
-	startMarker := fmt.Sprintf("<!-- kaisser-managed:start %s -->", sectionName)
-	endMarker := fmt.Sprintf("<!-- kaisser-managed:end %s -->", sectionName)
+	startMarker := fmt.Sprintf("<!-- bravros-managed:start %s -->", sectionName)
+	endMarker := fmt.Sprintf("<!-- bravros-managed:end %s -->", sectionName)
 
 	// Read existing file.
 	var fileContent string
@@ -166,8 +166,8 @@ func ReadMarkdownSection(path, sectionName string) (string, error) {
 		return "", err
 	}
 	content := string(data)
-	startMarker := fmt.Sprintf("<!-- kaisser-managed:start %s -->", sectionName)
-	endMarker := fmt.Sprintf("<!-- kaisser-managed:end %s -->", sectionName)
+	startMarker := fmt.Sprintf("<!-- bravros-managed:start %s -->", sectionName)
+	endMarker := fmt.Sprintf("<!-- bravros-managed:end %s -->", sectionName)
 
 	startIdx := strings.Index(content, startMarker)
 	if startIdx < 0 {
@@ -183,9 +183,9 @@ func ReadMarkdownSection(path, sectionName string) (string, error) {
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 
-// isManaged reports whether sectionName appears in _kaisser_managed_keys.
+// isManaged reports whether sectionName appears in _bravros_managed_keys.
 func isManaged(raw map[string]json.RawMessage, sectionName string) bool {
-	keysRaw, ok := raw["_kaisser_managed_keys"]
+	keysRaw, ok := raw["_bravros_managed_keys"]
 	if !ok {
 		return false
 	}
@@ -201,10 +201,10 @@ func isManaged(raw map[string]json.RawMessage, sectionName string) bool {
 	return false
 }
 
-// ensureManagedKey adds sectionName to _kaisser_managed_keys if absent.
+// ensureManagedKey adds sectionName to _bravros_managed_keys if absent.
 func ensureManagedKey(raw map[string]json.RawMessage, sectionName string) map[string]json.RawMessage {
 	var keys []string
-	if existing, ok := raw["_kaisser_managed_keys"]; ok {
+	if existing, ok := raw["_bravros_managed_keys"]; ok {
 		_ = json.Unmarshal(existing, &keys)
 	}
 	found := false
@@ -218,21 +218,21 @@ func ensureManagedKey(raw map[string]json.RawMessage, sectionName string) map[st
 		keys = append(keys, sectionName)
 	}
 	encoded, _ := json.Marshal(keys)
-	raw["_kaisser_managed_keys"] = json.RawMessage(encoded)
+	raw["_bravros_managed_keys"] = json.RawMessage(encoded)
 	return raw
 }
 
-// marshalOrdered emits the JSON object with _kaisser_managed_keys first,
+// marshalOrdered emits the JSON object with _bravros_managed_keys first,
 // then the managed section keys, then remaining user keys — for stable output.
 func marshalOrdered(raw map[string]json.RawMessage) ([]byte, error) {
 	var keys []string
-	if existing, ok := raw["_kaisser_managed_keys"]; ok {
+	if existing, ok := raw["_bravros_managed_keys"]; ok {
 		_ = json.Unmarshal(existing, &keys)
 	}
 
 	// Build ordered key list.
-	ordered := []string{"_kaisser_managed_keys"}
-	seen := map[string]bool{"_kaisser_managed_keys": true}
+	ordered := []string{"_bravros_managed_keys"}
+	seen := map[string]bool{"_bravros_managed_keys": true}
 	for _, k := range keys {
 		if !seen[k] {
 			ordered = append(ordered, k)
@@ -247,7 +247,7 @@ func marshalOrdered(raw map[string]json.RawMessage) ([]byte, error) {
 	}
 
 	// Filter ordered down to keys that actually have a value in raw — orphan
-	// entries in _kaisser_managed_keys (referenced but absent from the file)
+	// entries in _bravros_managed_keys (referenced but absent from the file)
 	// must not influence the comma layout, otherwise a trailing-orphan would
 	// leave a stray comma after the previous key.
 	filtered := ordered[:0:0]

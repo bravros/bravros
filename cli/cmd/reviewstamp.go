@@ -3,11 +3,11 @@
 // The THIRD out-of-band human-presence gate (after promote and verify-suite): the
 // review-stamp token at ~/.claude/state/review-stamp-token.
 //
-// WHY IT EXISTS. `kaisser pr-review --write-stamp` writes the review stamp that audit
+// WHY IT EXISTS. `bravros pr-review --write-stamp` writes the review stamp that audit
 // Rules 28/31 accept as authorization for an autonomous merge. It decides from the bot's
 // review body, in two tiers (see prreview.go):
 //
-//	TIER 1 — the bot emitted "<!-- kaisser-verdict: approved -->". An explicit, structured
+//	TIER 1 — the bot emitted "<!-- bravros-verdict: approved -->". An explicit, structured
 //	         assertion. Sound. Self-authorizing. Unchanged.
 //	TIER 2 — no marker; we INFERRED "approved" from free-form English. Six adversarial
 //	         panels proved this inference cannot be made sound in the approval direction,
@@ -44,24 +44,24 @@ import (
 )
 
 // reviewStampGate is the out-of-band human-presence token gate backing
-// `kaisser pr-review --write-stamp` on the tier-2 (prose) path. The token lives at
+// `bravros pr-review --write-stamp` on the tier-2 (prose) path. The token lives at
 // ~/.claude/state/review-stamp-token. Path and JSON shape are the same stable contract
 // the promote and verify-suite tokens use (internal/token.Gate).
 var reviewStampGate = token.Gate{
 	Name:       "review-stamp",
 	SuccessMsg: "Review-stamp token minted",
-	RefuseMsg:  "✋ kaisser pr-review unlock REFUSED: running inside Claude Code.",
+	RefuseMsg:  "✋ bravros pr-review unlock REFUSED: running inside Claude Code.",
 	UnlockHelp: `The review-stamp token must be minted from a separate terminal outside
 Claude Code. This is intentional — it proves a HUMAN read the review and
 agreed with it. A Claude session cannot authorize its own merge.
 
   1. Open a new terminal (outside Claude Code, same machine)
-  2. Run: kaisser pr-review unlock
-  3. Return to Claude Code and re-run: kaisser pr-review <PR> --write-stamp
+  2. Run: bravros pr-review unlock
+  3. Return to Claude Code and re-run: bravros pr-review <PR> --write-stamp
 
 The token is single-use (5-min TTL) and is consumed by the stamp it authorizes.
 
-Suggested alias: alias stamp-unlock='kaisser pr-review unlock'`,
+Suggested alias: alias stamp-unlock='bravros pr-review unlock'`,
 }
 
 // consumeReviewStampToken reads, validates, and — when valid — CONSUMES (deletes) the
@@ -106,8 +106,8 @@ var prReviewUnlockCmd = &cobra.Command{
 	Short: "Mint a review-stamp token (must be run OUTSIDE Claude Code)",
 	Long: `Writes a time-limited review-stamp token to ~/.claude/state/review-stamp-token.
 
-The token lets ` + "`kaisser pr-review --write-stamp`" + ` write the merge-gate stamp for a bot
-review that APPEARS to approve but carries no <!-- kaisser-verdict: approved --> marker.
+The token lets ` + "`bravros pr-review --write-stamp`" + ` write the merge-gate stamp for a bot
+review that APPEARS to approve but carries no <!-- bravros-verdict: approved --> marker.
 Without it, such a review is reported but never stamped: a prose guess cannot authorize
 an autonomous merge.
 
@@ -142,7 +142,7 @@ var prReviewRevokeCmd = &cobra.Command{
 }
 
 func init() {
-	// Subcommands of the existing `kaisser pr-review [PR_NUMBER]` command. Cobra routes
+	// Subcommands of the existing `bravros pr-review [PR_NUMBER]` command. Cobra routes
 	// `pr-review unlock|status|revoke` to these; any other first arg (a PR number, or
 	// "diff") still falls through to prReviewCmd's own Run.
 	prReviewCmd.AddCommand(prReviewUnlockCmd)

@@ -11,7 +11,7 @@ import (
 // MergeLock provides per-repo exclusive locking for merge-pr operations.
 // It uses syscall.Flock (POSIX advisory lock) which is safe on Linux and macOS.
 //
-// Lock file location: <gitRoot>/.git/kaisser-merge.lock
+// Lock file location: <gitRoot>/.git/bravros-merge.lock
 // This avoids placing the lock inside .planning/ (which is user-visible and
 // tracked by audit rules), and keeps it co-located with the git internals.
 //
@@ -31,12 +31,12 @@ func mergeLockFilePath() (string, error) {
 	// Find the .git directory using git rev-parse
 	out, _, err := Run("git", "rev-parse", "--git-dir")
 	if err != nil || out == "" {
-		// Fallback: use cwd/.git/kaisser-merge.lock
+		// Fallback: use cwd/.git/bravros-merge.lock
 		cwd, cwdErr := os.Getwd()
 		if cwdErr != nil {
 			return "", fmt.Errorf("cannot determine git dir or cwd: %v", cwdErr)
 		}
-		return filepath.Join(cwd, ".git", "kaisser-merge.lock"), nil
+		return filepath.Join(cwd, ".git", "bravros-merge.lock"), nil
 	}
 	// git rev-parse --git-dir returns the .git dir path (may be relative or absolute)
 	gitDir := out
@@ -47,7 +47,7 @@ func mergeLockFilePath() (string, error) {
 		}
 		gitDir = filepath.Join(cwd, gitDir)
 	}
-	return filepath.Join(gitDir, "kaisser-merge.lock"), nil
+	return filepath.Join(gitDir, "bravros-merge.lock"), nil
 }
 
 // AcquireMergeLock creates and exclusively flocks the merge lock file.

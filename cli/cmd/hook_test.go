@@ -11,11 +11,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// writeUpgradeMarker seeds a verify-install-pending marker in the shared kaisser
+// writeUpgradeMarker seeds a verify-install-pending marker in the shared bravros
 // state dir under homeDir, simulating a real post-upgrade SessionStart.
 func writeUpgradeMarker(t *testing.T, homeDir string) {
 	t.Helper()
-	stateDir := filepath.Join(homeDir, ".config", "kaisser", "state")
+	stateDir := filepath.Join(homeDir, ".config", "bravros", "state")
 	if err := os.MkdirAll(stateDir, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func withSecretsStatus(t *testing.T, st secrets.StatusInfo) {
 	t.Cleanup(func() { secretsStatusFn = prev })
 }
 
-// execVerifyInstallCheck runs `kaisser hook verify-install-check` against a temp HOME dir
+// execVerifyInstallCheck runs `bravros hook verify-install-check` against a temp HOME dir
 // and returns the captured stdout output.
 func execVerifyInstallCheck(t *testing.T, homeDir string) string {
 	t.Helper()
@@ -45,7 +45,7 @@ func execVerifyInstallCheck(t *testing.T, homeDir string) string {
 
 	buf := &bytes.Buffer{}
 
-	root := &cobra.Command{Use: "kaisser"}
+	root := &cobra.Command{Use: "bravros"}
 	h := &cobra.Command{Use: "hook"}
 	// Re-create child so we don't pollute shared state between tests.
 	child := &cobra.Command{
@@ -75,7 +75,7 @@ func TestVerifyInstallCheck_MarkerPresent(t *testing.T) {
 	// Neutral backend keeps the secrets nudge out of this test's assertions.
 	withSecretsStatus(t, secrets.StatusInfo{Backend: secrets.BackendEnv, SATokenBlock: "none"})
 
-	stateDir := filepath.Join(dir, ".config", "kaisser", "state")
+	stateDir := filepath.Join(dir, ".config", "bravros", "state")
 	if err := os.MkdirAll(stateDir, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -289,7 +289,7 @@ func TestVerifyInstallCheck_SecretsNudge_AlreadyNudged(t *testing.T) {
 	withSecretsStatus(t, secrets.StatusInfo{Backend: secrets.BackendOp, SATokenBlock: "none"})
 
 	// Pre-seed the permanent marker.
-	stateDir := filepath.Join(dir, ".config", "kaisser", "state")
+	stateDir := filepath.Join(dir, ".config", "bravros", "state")
 	if err := os.MkdirAll(stateDir, 0755); err != nil {
 		t.Fatal(err)
 	}

@@ -22,7 +22,7 @@ const (
 // derive {dir, prefix} from this registry instead of hardcoding the values.
 // Adding a new entity means adding one entry to AllEntities — nothing else.
 type EntityDef struct {
-	// Name is the canonical CLI argument used by "kaisser nextid reserve <name>".
+	// Name is the canonical CLI argument used by "bravros nextid reserve <name>".
 	Name string
 	// Prefix is the single-letter prefix used in IDs (e.g. "P", "B", "R", "U").
 	Prefix string

@@ -10,7 +10,7 @@ import (
 )
 
 // LockState is the on-disk JSON representation of the merge lock written by
-// the `kaisser merge-lock` verb. The lock is considered held while the file
+// the `bravros merge-lock` verb. The lock is considered held while the file
 // exists and its acquired_at + ttl_seconds window has not elapsed
 // (with a grace period) AND the holder process is alive.
 //

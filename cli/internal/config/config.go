@@ -14,8 +14,8 @@ import (
 // ConfigFilename is the canonical project config filename read by all bravros tooling.
 const (
 	ConfigFilename         = ".bravros/config.json"
-	LegacyConfigFilename   = ".kaisser.yml"
-	LegacySkaisserFilename = ".skaisser.yml"
+	LegacyConfigFilename   = ".bravros.yml"
+	LegacySbravrosFilename = ".sbravros.yml"
 )
 
 // SkillsConfig holds per-project skill configuration.
@@ -54,7 +54,7 @@ type MergeStrategyConfig struct {
 	ByBase   map[string]string `json:"by_base" yaml:"by_base"`
 }
 
-// FeaturesConfig holds feature-flag toggles for optional kaisser behaviours.
+// FeaturesConfig holds feature-flag toggles for optional bravros behaviours.
 type FeaturesConfig struct {
 	ReviewStampGate bool            `json:"review_stamp_gate" yaml:"review_stamp_gate"`
 	Extra           map[string]bool `json:"extra,omitempty" yaml:"extra,omitempty"`
@@ -229,7 +229,7 @@ func configFileIdentity() (mtime time.Time, size int64, exists bool) {
 	if fi, err := os.Stat(LegacyConfigFilename); err == nil {
 		return fi.ModTime(), fi.Size(), true
 	}
-	if fi, err := os.Stat(LegacySkaisserFilename); err == nil {
+	if fi, err := os.Stat(LegacySbravrosFilename); err == nil {
 		return fi.ModTime(), fi.Size(), true
 	}
 	return time.Time{}, 0, false
@@ -315,8 +315,8 @@ func readLegacyData() ([]byte, string, error) {
 	if data, err := os.ReadFile(LegacyConfigFilename); err == nil {
 		return data, LegacyConfigFilename, nil
 	}
-	if data, err := os.ReadFile(LegacySkaisserFilename); err == nil {
-		return data, LegacySkaisserFilename, nil
+	if data, err := os.ReadFile(LegacySbravrosFilename); err == nil {
+		return data, LegacySbravrosFilename, nil
 	}
 	return nil, "", os.ErrNotExist
 }

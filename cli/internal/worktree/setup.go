@@ -1,6 +1,6 @@
 // Test coverage: cli/cmd/worktree_test.go (integration); cli/internal/worktree/setup_test.go (pure helpers)
 
-// Package worktree implements the full `kaisser worktree setup-full` flow:
+// Package worktree implements the full `bravros worktree setup-full` flow:
 // git-worktree-add + framework-aware dependency install + .env copy + asset
 // symlink, all in one idempotent verb.
 //
@@ -40,7 +40,7 @@ type Opts struct {
 	Install   bool   // force real dependency installs; skip APFS CoW runtime-dir cloning
 }
 
-// SetupResult is the JSON payload emitted by `kaisser worktree setup-full`.
+// SetupResult is the JSON payload emitted by `bravros worktree setup-full`.
 // Layout lifted from bravros WorktreeSetupResult and extended for the
 // framework-aware fields this verb adds.
 //
@@ -471,7 +471,7 @@ func checkLockfileDrift(primary, worktree string, files []string) []string {
 // ─── Behavior 3: post-create smoke checks ──────────────────────────────────
 
 // resolveBaseBranchName mirrors gitpkg.WorktreeSetup's base-branch resolution
-// (explicit ref override > .kaisser.yml staging_branch > "main") so the
+// (explicit ref override > .bravros.yml staging_branch > "main") so the
 // post-create smoke check verifies against the same base the worktree was
 // actually created from. baseRef may be a bare branch name or an
 // "origin/<branch>" ref; the "origin/" prefix (if any) is stripped.

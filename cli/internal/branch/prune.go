@@ -268,7 +268,7 @@ func isMergeCommitAncestor(sha, base string) (bool, error) {
 }
 
 // IsProtected reports whether branch should never be deleted.
-// Checks: default protected set, .kaisser.yml permanent_branches, and well-known names.
+// Checks: default protected set, .bravros.yml permanent_branches, and well-known names.
 func IsProtected(branch string) (bool, string) {
 	protected := config.ReadPermanentBranches()
 	for _, p := range protected {
@@ -394,18 +394,18 @@ func HasActiveWorktree(branch string) (bool, string, error) {
 	return ok, path, nil
 }
 
-// HasActiveCommand returns true if any kaisser skill is currently running, by checking
+// HasActiveCommand returns true if any bravros skill is currently running, by checking
 // for active-command marker files at /tmp/agent-audit-*/active-command. While a marker
 // exists, pruning is unsafe (a skill could be mid-flight on these branches).
 // Marker layout matches cli/cmd/active_command.go and audit Rules 5/29.
 // The TMPDIR env var is honoured so the check works inside macOS /var/folders/... paths too.
 //
-// Test-only hatch: setting KAISSER_BRANCH_PRUNE_BYPASS_ACTIVE_CMD=1 short-circuits to
+// Test-only hatch: setting BRAVROS_BRANCH_PRUNE_BYPASS_ACTIVE_CMD=1 short-circuits to
 // (false, ""). The variable is intentionally undocumented in user-facing CLI help — it
 // exists so unit tests run inside a live Claude Code session (which itself sets the
 // marker) don't trip the guard. Production code never sets this.
 func HasActiveCommand() (bool, string) {
-	if os.Getenv("KAISSER_BRANCH_PRUNE_BYPASS_ACTIVE_CMD") == "1" {
+	if os.Getenv("BRAVROS_BRANCH_PRUNE_BYPASS_ACTIVE_CMD") == "1" {
 		return false, ""
 	}
 	dirs := []string{"/tmp", "/private/tmp"}
@@ -552,7 +552,7 @@ func ghPRState(pr int) (string, error) {
 // GCReviewStamps reaps orphaned .planning/.review-stamp-<PR>.json files whose PR
 // has already landed (MERGED or CLOSED). Only /finish deletes its own stamp today;
 // /auto-merge and /address-pr leak theirs, so they accumulate as orphans mapping to
-// already-closed PRs. This sweep, wired into `kaisser branch prune --gc`, clears them.
+// already-closed PRs. This sweep, wired into `bravros branch prune --gc`, clears them.
 //
 // Decision policy:
 //   - state == MERGED or CLOSED → reap immediately (no grace period — stamps are
@@ -727,7 +727,7 @@ func branchLocation(name string) BranchRef {
 //  2. GitHub branch protection rules (network, best-effort)
 //  3. currently checked-out HEAD (local refs only)
 //  4. open plan reference in .planning/
-//  5. active-command marker (a kaisser skill is mid-flight)
+//  5. active-command marker (a bravros skill is mid-flight)
 //  6. active worktree — UNCONDITIONAL, fail-closed, both modes; teardown owned by /worktree destroy
 //  7. merge check (git OR gh pr), then PR-state classification of the refusals
 func PruneBranch(branch string, opts PruneOpts) PruneDecision {
@@ -795,7 +795,7 @@ func PruneBranch(branch string, opts PruneOpts) PruneDecision {
 		return d
 	}
 
-	// Guard 5: active-command marker — a kaisser skill is currently running
+	// Guard 5: active-command marker — a bravros skill is currently running
 	if active, markerPath := HasActiveCommand(); active {
 		d.Skipped = true
 		d.SkipReason = SkipActiveCommand
@@ -809,7 +809,7 @@ func PruneBranch(branch string, opts PruneOpts) PruneDecision {
 	// `loc.HasLocal` gate let a remote-only misclassification bypass this guard.
 	// prune never removes worktrees or deletes a worktree-backed branch (neither
 	// the local ref nor the remote ref); teardown is owned solely by /worktree
-	// destroy (the sanctioned `kaisser worktree cleanup <path>` path does the
+	// destroy (the sanctioned `bravros worktree cleanup <path>` path does the
 	// proper Herd unlink + cert + Redis teardown that prune cannot). Once
 	// /worktree destroy has removed the worktree and local branch, the remaining
 	// remote-only ref no longer appears in the set and a later pass prunes it.
@@ -831,7 +831,7 @@ func PruneBranch(branch string, opts PruneOpts) PruneDecision {
 	if wtPath, held := wtSet[branch]; held {
 		d.Skipped = true
 		d.SkipReason = SkipWorktree
-		d.SkipDetail = wtPath + " — active worktree; teardown via /worktree destroy (kaisser worktree cleanup)"
+		d.SkipDetail = wtPath + " — active worktree; teardown via /worktree destroy (bravros worktree cleanup)"
 		WriteLog(opts.RepoName, branch, "skipped", string(SkipWorktree)+" "+wtPath, "")
 		return d
 	}

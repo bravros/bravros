@@ -18,7 +18,7 @@ type BranchCreateResult struct {
 }
 
 // resolveBaseBranch determines the base branch to use.
-// Priority: .kaisser.yml staging_branch → DetectBaseBranch()
+// Priority: .bravros.yml staging_branch → DetectBaseBranch()
 func resolveBaseBranch(repo *Repo) string {
 	cfg, found := config.LoadBravrosConfig()
 	if found && cfg.StagingBranch != "" {

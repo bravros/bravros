@@ -120,7 +120,7 @@ func Detect(root string, opts DetectOpts) (*DetectResult, error) {
 		}
 	}
 
-	// Staleness detection: compare lockfile mtime vs detected_at from .kaisser.yml
+	// Staleness detection: compare lockfile mtime vs detected_at from .bravros.yml
 	if opts.Versions {
 		result.Stale = checkStaleness(root)
 	}
@@ -134,21 +134,21 @@ func Detect(root string, opts DetectOpts) (*DetectResult, error) {
 }
 
 // WriteConfig writes detection results to .bravros/config.json, preserving user-set fields.
-// If a legacy .kaisser.yml or .skaisser.yml exists alongside, it is migrated (renamed) before write.
+// If a legacy .bravros.yml or .sbravros.yml exists alongside, it is migrated (renamed) before write.
 // Early-exit: when the detection result carries no stack info AND no prior file exists,
 // we skip writing to avoid fabricating an empty config that misleads consumers.
 func WriteConfig(root string, result *DetectResult) error {
 	cfgPath := filepath.Join(root, config.ConfigFilename)
 	legacyPath := filepath.Join(root, config.LegacyConfigFilename)
-	legacySkaisserPath := filepath.Join(root, config.LegacySkaisserFilename)
+	legacySbravrosPath := filepath.Join(root, config.LegacySbravrosFilename)
 
 	// Early-exit: nothing detected AND no prior file → don't create an empty stub.
 	if result.Stack.Language == "" && len(result.Stacks) == 0 {
 		// Check whether a file already exists.
 		_, newErr := os.Stat(cfgPath)
 		_, legacyErr := os.Stat(legacyPath)
-		_, legacySkaisserErr := os.Stat(legacySkaisserPath)
-		if os.IsNotExist(newErr) && os.IsNotExist(legacyErr) && os.IsNotExist(legacySkaisserErr) {
+		_, legacySbravrosErr := os.Stat(legacySbravrosPath)
+		if os.IsNotExist(newErr) && os.IsNotExist(legacyErr) && os.IsNotExist(legacySbravrosErr) {
 			return nil
 		}
 	}
@@ -162,7 +162,7 @@ func WriteConfig(root string, result *DetectResult) error {
 		if data, err := os.ReadFile(legacyPath); err == nil {
 			err2 := yaml.Unmarshal(data, cfg)
 			fmt.Printf("DEBUG: legacyPath=%s err2=%v cfg=%+v\n", legacyPath, err2, cfg)
-		} else if data, err := os.ReadFile(legacySkaisserPath); err == nil {
+		} else if data, err := os.ReadFile(legacySbravrosPath); err == nil {
 			_ = yaml.Unmarshal(data, cfg)
 		}
 	}
@@ -224,7 +224,7 @@ func WriteConfig(root string, result *DetectResult) error {
 
 	// Delete legacy files if they exist
 	_ = os.Remove(legacyPath)
-	_ = os.Remove(legacySkaisserPath)
+	_ = os.Remove(legacySbravrosPath)
 
 	return nil
 }
@@ -246,7 +246,7 @@ func checkStaleness(root string) bool {
 		legacyPath := filepath.Join(root, config.LegacyConfigFilename)
 		data, err = os.ReadFile(legacyPath)
 		if err != nil {
-			data, err = os.ReadFile(filepath.Join(root, config.LegacySkaisserFilename))
+			data, err = os.ReadFile(filepath.Join(root, config.LegacySbravrosFilename))
 		}
 		if err == nil {
 			var cfg struct {
@@ -593,7 +593,7 @@ func detectNodeFramework(dir string) string {
 // Returns one of: "bun", "pnpm", "yarn", "npm" — or empty string when no
 // package.json is present. bravros-style lockfile slice is intentionally more
 // complete here: bravros's lockfile list was missing pnpm/bun/yarn entirely; the
-// full set is added on kaisser first and should be synced back on next DRY pass.
+// full set is added on bravros first and should be synced back on next DRY pass.
 func DetectNodePackageManager(dir string) string {
 	if !fileExists(filepath.Join(dir, "package.json")) {
 		return ""

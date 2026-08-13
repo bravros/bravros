@@ -18,11 +18,11 @@ var discardCmd = &cobra.Command{
 Copies every file the pathspec covers whose content git has never seen
 (uncommitted modifications, untracked files) into .trash/<stamp>-discard/,
 THEN discards: tracked modifications via git checkout --, untracked files
-by deletion. Reversible via kaisser trash restore <id> for 30 days.
+by deletion. Reversible via bravros trash restore <id> for 30 days.
 
-  kaisser discard app/Foo.php     — one file
-  kaisser discard .               — everything under the cwd
-  kaisser discard --dry-run .     — preview without touching the tree`,
+  bravros discard app/Foo.php     — one file
+  bravros discard .               — everything under the cwd
+  bravros discard --dry-run .     — preview without touching the tree`,
 	Args:         cobra.MinimumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -38,7 +38,7 @@ var cleanUntrackedCmd = &cobra.Command{
 Copies every untracked file the pathspec covers into
 .trash/<stamp>-clean-untracked/, then removes it. Tracked files are never
 touched. No pathspec means the whole repo. Reversible via
-kaisser trash restore <id> for 30 days.`,
+bravros trash restore <id> for 30 days.`,
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runDiscard(cmd, args, true, cleanUntrackedDryRunFlag)
@@ -79,7 +79,7 @@ func runDiscard(cmd *cobra.Command, pathspecs []string, untrackedOnly, dryRun bo
 		fmt.Fprintf(out, "  [removed]   %s\n", p)
 	}
 	if res.EntryID != "" {
-		fmt.Fprintf(out, "Recover within %d days: kaisser trash restore %s\n", trash.DefaultRetentionDays, res.EntryID)
+		fmt.Fprintf(out, "Recover within %d days: bravros trash restore %s\n", trash.DefaultRetentionDays, res.EntryID)
 	}
 	return nil
 }

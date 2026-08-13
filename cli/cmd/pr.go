@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// prReviewCmd is the write half of the old `kaisser pr-review` verb (P-0187).
+// prReviewCmd is the write half of the old `bravros pr-review` verb (P-0187).
 //
 // The READ paths (--latest, --terse, --field, --bot-only, --json, --full,
 // diff, --wait) were retired: skills now read review data directly via

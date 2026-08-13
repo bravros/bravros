@@ -72,10 +72,10 @@ func TestSATokenCmd_PlaintextOverKeychain_Refused(t *testing.T) {
 	zshenv := filepath.Join(dir, ".zshenv")
 	// Pre-seed a keychain lookup block by hand (no security needed — pure text).
 	keychainBlock := strings.Join([]string{
-		"# >>> kaisser sa-token (v1) >>>",
+		"# >>> bravros sa-token (v1) >>>",
 		`export OP_CLAUDE_CODE_SERVICE_ACCOUNT_SECRET="$(/usr/bin/security find-generic-password -a "$USER" -s 'claude-sa-test' -w 2>/dev/null)"`,
 		`export OP_SERVICE_ACCOUNT_TOKEN="$OP_CLAUDE_CODE_SERVICE_ACCOUNT_SECRET"`,
-		"# <<< kaisser sa-token (v1) <<<",
+		"# <<< bravros sa-token (v1) <<<",
 		"",
 	}, "\n")
 	if err := os.WriteFile(zshenv, []byte(keychainBlock), 0644); err != nil {

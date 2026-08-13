@@ -42,7 +42,7 @@ var Placeholders = []string{
 }
 
 // ExpandPlaceholders reads InputFile, substitutes template placeholders with
-// values sourced from stack detection and .kaisser.yml, and writes the result.
+// values sourced from stack detection and .bravros.yml, and writes the result.
 // It is idempotent: running twice produces the same output (second run is a no-op).
 func ExpandPlaceholders(opts ExpandOpts) (*ExpandResult, error) {
 	if opts.Root == "" {
@@ -177,7 +177,7 @@ func resolvePlaceholderValues(root string) (map[string]string, error) {
 
 // projectName returns the project name from git remote or directory basename.
 func projectName(root string) string {
-	// Try to extract from .kaisser.yml git.remote (e.g. git@github.com:owner/repo.git → repo)
+	// Try to extract from .bravros.yml git.remote (e.g. git@github.com:owner/repo.git → repo)
 	cfg, found := config.LoadBravrosConfig()
 	if found && cfg.Git.Remote != "" {
 		remote := cfg.Git.Remote

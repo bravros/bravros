@@ -496,7 +496,7 @@ func TestDetect_AppsPackagesMonorepoStillWorks(t *testing.T) {
 
 func TestWriteConfig_EmptyDetection_NoFile_DoesNotCreate(t *testing.T) {
 	dir := setupTestDir(t)
-	// Empty detection (no stack), no prior .kaisser.yml → must NOT create the file.
+	// Empty detection (no stack), no prior .bravros.yml → must NOT create the file.
 	result := &DetectResult{}
 
 	if err := WriteConfig(dir, result); err != nil {
@@ -505,13 +505,13 @@ func TestWriteConfig_EmptyDetection_NoFile_DoesNotCreate(t *testing.T) {
 
 	cfgPath := filepath.Join(dir, config.ConfigFilename)
 	if _, err := os.Stat(cfgPath); !os.IsNotExist(err) {
-		t.Error("expected WriteConfig NOT to create .kaisser.yml for empty detection with no prior file")
+		t.Error("expected WriteConfig NOT to create .bravros.yml for empty detection with no prior file")
 	}
 }
 
 func TestWriteConfig_EmptyDetection_ExistingFile_Preserved(t *testing.T) {
 	dir := setupTestDir(t)
-	// A .kaisser.yml already exists (manually edited). Empty detection must not
+	// A .bravros.yml already exists (manually edited). Empty detection must not
 	// overwrite it with a blank file, but the file itself should be preserved.
 	writeFile(t, filepath.Join(dir, config.ConfigFilename), `staging_branch: custom
 permanent_branches:
@@ -529,7 +529,7 @@ permanent_branches:
 		t.Fatal(err)
 	}
 	if !contains(string(data), "staging_branch") {
-		t.Error("expected existing .kaisser.yml content to be preserved when detection is empty")
+		t.Error("expected existing .bravros.yml content to be preserved when detection is empty")
 	}
 }
 
@@ -580,12 +580,12 @@ func contains(s, sub string) bool { return strings.Contains(s, sub) }
 // differing ONLY in Runtime patch version (e.g. "1.22.0" → "1.22.1") do NOT update
 // detected_at. This is the core regression guard for B-0258.
 //
-// The test pre-seeds .kaisser.yml with a known detected_at so it does not depend on
+// The test pre-seeds .bravros.yml with a known detected_at so it does not depend on
 // RFC3339 clock-second granularity.
 func TestWriteConfig_PatchOnlyDelta_NoDetectedAtBump(t *testing.T) {
 	dir := setupTestDir(t)
 
-	// Seed existing .kaisser.yml with a known detected_at and go 1.22 stack.
+	// Seed existing .bravros.yml with a known detected_at and go 1.22 stack.
 	// The seed uses canonicalized (major.minor) versions as Phase 1 now writes them.
 	seed := `{
   "staging_branch": "homolog",
@@ -636,12 +636,12 @@ func TestWriteConfig_PatchOnlyDelta_NoDetectedAtBump(t *testing.T) {
 // (e.g. "1.26.2" → "1.27.0") DOES update detected_at.
 //
 // To avoid a 1-second clock-granularity race (RFC3339 truncates at seconds), the
-// test pre-seeds .kaisser.yml with a known detected_at far in the past, then
+// test pre-seeds .bravros.yml with a known detected_at far in the past, then
 // asserts the second WriteConfig call changes it.
 func TestWriteConfig_MinorBump_DoesDetectedAtBump(t *testing.T) {
 	dir := setupTestDir(t)
 
-	// Seed existing .kaisser.yml with an old detected_at and go 1.26 stack.
+	// Seed existing .bravros.yml with an old detected_at and go 1.26 stack.
 	// The seed uses canonicalized (major.minor) versions as Phase 1 now writes them.
 	seed := `{
   "staging_branch": "homolog",
@@ -694,11 +694,11 @@ func TestWriteConfig_MinorBump_DoesDetectedAtBump(t *testing.T) {
 // TestWriteConfig_PatchVersionStableAcrossRuns verifies that multiple WriteConfig calls
 // with different patch versions on the same major.minor produce byte-identical on-disk
 // output. This is the core regression guard for P-0145 (B-0258 followup): the on-disk
-// .kaisser.yml must not churn when only the patch component changes.
+// .bravros.yml must not churn when only the patch component changes.
 func TestWriteConfig_PatchVersionStableAcrossRuns(t *testing.T) {
 	dir := setupTestDir(t)
 
-	// Seed existing .kaisser.yml with canonicalized versions and a fixed detected_at.
+	// Seed existing .bravros.yml with canonicalized versions and a fixed detected_at.
 	seed := `{
   "staging_branch": "homolog",
   "language": "auto",
@@ -779,7 +779,7 @@ func TestWriteConfig_PatchVersionStableAcrossRuns(t *testing.T) {
 func TestWriteConfig_PatchVersionStableAcrossRuns_Monorepo(t *testing.T) {
 	dir := setupTestDir(t)
 
-	// Seed existing .kaisser.yml with a monorepo shape and canonicalized versions.
+	// Seed existing .bravros.yml with a monorepo shape and canonicalized versions.
 	seed := `{
   "staging_branch": "homolog",
   "language": "auto",
@@ -948,7 +948,7 @@ func TestWriteConfig_OutputIsSelfStable(t *testing.T) {
 }
 
 // TestWriteConfig_BareYamlNumberSeed_GetsQuoted documents the encoder's intentional
-// behaviour: when .kaisser.yml is seeded with a bare YAML float (language_version: 1.26
+// behaviour: when .bravros.yml is seeded with a bare YAML float (language_version: 1.26
 // without quotes), WriteConfig must re-emit it in quoted form ("1.26"). This prevents
 // anyone from "fixing" hand-edited files back to the bare form and re-introducing the
 // yaml-marshal quoting drift bug.
@@ -1150,7 +1150,7 @@ func TestConfigStackForPath_Monorepo(t *testing.T) {
 
 // TestDetectIntegration_SubdirGoCLI_GoldenFile feeds the testdata/subdir-go-cli
 // fixture (a Go CLI project whose go.mod lives in cli/) into Detect+WriteConfig and
-// compares the resulting .kaisser.yml against the checked-in golden file.
+// compares the resulting .bravros.yml against the checked-in golden file.
 //
 // The golden file (testdata/subdir-go-cli/golden.json) intentionally omits the
 // dynamic `detected_at` field — the comparison strips that line before diffing.

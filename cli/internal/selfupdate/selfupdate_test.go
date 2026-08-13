@@ -347,7 +347,7 @@ func TestHasOriginMainUpdates_AheadOnlyReturnsFalse(t *testing.T) {
 }
 
 func TestUpdatePortableRepo_AllowsDirtyDisposableConfig(t *testing.T) {
-	for _, name := range []string{".kaisser.yml", ".skaisser.yml"} {
+	for _, name := range []string{".bravros.yml", ".sbravros.yml"} {
 		t.Run(name, func(t *testing.T) {
 			tmpDir := t.TempDir()
 
@@ -431,11 +431,11 @@ func TestUpdatePortableRepo_BlocksOtherTrackedDirtyFiles(t *testing.T) {
 }
 
 // TestUpdatePortableRepo_BlocksRenameFromTrackedToDisposableConfig pins the regression where
-// a staged rename from a non-disposable tracked file to .kaisser.yml was treated as disposable
+// a staged rename from a non-disposable tracked file to .bravros.yml was treated as disposable
 // dirt because isDisposablePortableConfigDirty only checked the destination path. That allowed
 // UpdatePortableRepo to proceed and discard the original tracked-file change.
 func TestUpdatePortableRepo_BlocksRenameFromTrackedToDisposableConfig(t *testing.T) {
-	for _, dstName := range []string{".kaisser.yml", ".skaisser.yml"} {
+	for _, dstName := range []string{".bravros.yml", ".sbravros.yml"} {
 		t.Run(dstName, func(t *testing.T) {
 			tmpDir := t.TempDir()
 
@@ -483,7 +483,7 @@ func TestUpdatePortableRepo_BlocksRenameFromTrackedToDisposableConfig(t *testing
 }
 
 // TestUpdatePortableRepo_AllowsRenameBetweenDisposableConfigs verifies that a rename
-// between the two disposable config files (.kaisser.yml <-> .skaisser.yml) is still
+// between the two disposable config files (.bravros.yml <-> .sbravros.yml) is still
 // treated as disposable dirt and does not block the update.
 func TestUpdatePortableRepo_AllowsRenameBetweenDisposableConfigs(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -507,16 +507,16 @@ func TestUpdatePortableRepo_AllowsRenameBetweenDisposableConfigs(t *testing.T) {
 	mustGit("config", "user.email", "test@test.com")
 	mustGit("config", "user.name", "test")
 
-	cfg := filepath.Join(tmpDir, ".kaisser.yml")
+	cfg := filepath.Join(tmpDir, ".bravros.yml")
 	if err := os.WriteFile(cfg, []byte("staging_branch: homolog\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	mustGit("add", ".kaisser.yml")
+	mustGit("add", ".bravros.yml")
 	mustGit("commit", "-m", "initial config")
 	mustGit("update-ref", "refs/remotes/origin/main", "main")
 
-	// Rename .kaisser.yml -> .skaisser.yml and stage it.
-	newCfg := filepath.Join(tmpDir, ".skaisser.yml")
+	// Rename .bravros.yml -> .sbravros.yml and stage it.
+	newCfg := filepath.Join(tmpDir, ".sbravros.yml")
 	if err := os.Rename(cfg, newCfg); err != nil {
 		t.Fatal(err)
 	}

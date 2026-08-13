@@ -31,7 +31,7 @@ var worktreeSetupCmd = &cobra.Command{
 	Short: "Create a worktree for the given branch",
 	Long: `Create a git worktree for parallel development:
 - Computes path from repo name + plan number (or use --path)
-- Creates branch from base branch (staging_branch from .kaisser.yml)
+- Creates branch from base branch (staging_branch from .bravros.yml)
 - Optionally rebases from base branch (skip with --no-rebase)`,
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
@@ -73,7 +73,7 @@ var worktreeCleanupCmd = &cobra.Command{
 - Deletes the local branch (unless permanent)
 - Optionally deletes the remote branch (--delete-remote)
 - Merge-checked destroy: refuses when the branch is not merged into
-  origin/<base> (--base, default: staging_branch from .kaisser.yml) unless
+  origin/<base> (--base, default: staging_branch from .bravros.yml) unless
   --force is also passed
 - Liveness guard: refuses (pids + commands listed) when live processes still
   have their working directory or open files inside the worktree — stop them
@@ -191,7 +191,7 @@ func init() {
 
 	// setup-full flags
 	worktreeSetupFullCmd.Flags().StringVar(&worktreeSetupFullFrom, "from", "", "Primary worktree path (for .env copy + build symlink). Default: cwd")
-	worktreeSetupFullCmd.Flags().StringVar(&worktreeSetupFullBase, "base", "", "Base branch (e.g. origin/homolog). Default: staging_branch from .kaisser.yml")
+	worktreeSetupFullCmd.Flags().StringVar(&worktreeSetupFullBase, "base", "", "Base branch (e.g. origin/homolog). Default: staging_branch from .bravros.yml")
 	worktreeSetupFullCmd.Flags().BoolVar(&worktreeSetupFullNoInstall, "no-install", false, "Skip dependency install step")
 	worktreeSetupFullCmd.Flags().BoolVar(&worktreeSetupFullNoEnv, "no-env", false, "Skip .env copy step")
 	worktreeSetupFullCmd.Flags().BoolVar(&worktreeSetupFullNoBuild, "no-build", false, "Skip asset symlink step")
@@ -202,7 +202,7 @@ func init() {
 	worktreeCleanupCmd.Flags().BoolVar(&worktreeCleanupForce, "force", false, "Force remove dirty worktree; also bypasses the merge-checked destroy guard and the liveness guard")
 	worktreeCleanupCmd.Flags().BoolVar(&worktreeCleanupDeleteRemote, "delete-remote", false, "Also delete the remote branch")
 	worktreeCleanupCmd.Flags().BoolVar(&worktreeCleanupDryRun, "dry-run", false, "Print the teardown scope and exit without removing anything")
-	worktreeCleanupCmd.Flags().StringVar(&worktreeCleanupBase, "base", "", "Base branch to verify merge status against (default: staging_branch from .kaisser.yml)")
+	worktreeCleanupCmd.Flags().StringVar(&worktreeCleanupBase, "base", "", "Base branch to verify merge status against (default: staging_branch from .bravros.yml)")
 
 	worktreeCmd.AddCommand(worktreeSetupCmd)
 	worktreeCmd.AddCommand(worktreeSetupFullCmd)

@@ -44,7 +44,7 @@ func TestProjectName(t *testing.T) {
 	if got == "" {
 		t.Error("ProjectName() returned empty string")
 	}
-	// ProjectName() now returns the primary worktree's project name (from .kaisser.yml
+	// ProjectName() now returns the primary worktree's project name (from .bravros.yml
 	// or the primary root dir basename) — not necessarily the cwd's dirname.
 	// We can't assert a fixed string here because the test may run inside a linked
 	// worktree (e.g. claude58) where the correct answer is "claude" (the primary root)

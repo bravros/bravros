@@ -154,14 +154,14 @@ func TestVerdictTiers(t *testing.T) {
 	}{
 		{
 			name:     "TIER 1 — marker approved stays authoritative and confident",
-			body:     "Some prose.\n\n<!-- kaisser-verdict: approved -->",
+			body:     "Some prose.\n\n<!-- bravros-verdict: approved -->",
 			wantV:    "approved",
 			wantTier: verdictTierMarker,
 			wantConf: true,
 		},
 		{
 			name:     "TIER 1 — marker changes-requested stays confident",
-			body:     "Some prose.\n\n<!-- kaisser-verdict: changes-requested -->",
+			body:     "Some prose.\n\n<!-- bravros-verdict: changes-requested -->",
 			wantV:    "changes-requested",
 			wantTier: verdictTierMarker,
 			wantConf: true,
@@ -349,8 +349,8 @@ func TestResolutionVocabulary_DisplayVerdict(t *testing.T) {
 // demands: flip the marker value and confirm no stamp authority without a token, and
 // no marker authority ever.
 func TestMarkerMutation_FlippedValueNeverStamps(t *testing.T) {
-	approved := "Looks solid overall.\n\nKAISSER-VERDICT: approved\n"
-	flipped := "Looks solid overall.\n\nKAISSER-VERDICT: changes-requested\n"
+	approved := "Looks solid overall.\n\nBRAVROS-VERDICT: approved\n"
+	flipped := "Looks solid overall.\n\nBRAVROS-VERDICT: changes-requested\n"
 
 	vrA := parseVerdict(approved)
 	if got := stampAuthorityFor(vrA, false); got != stampByMarker {
@@ -408,7 +408,7 @@ func TestReviewStampGate_LegacySessionVarAlsoRefuses(t *testing.T) {
 	}
 }
 
-// TestReviewStampGate_StatusReportsPresence covers `kaisser pr-review status`
+// TestReviewStampGate_StatusReportsPresence covers `bravros pr-review status`
 // (--field present), which is how a skill asks "did the operator authorize this?".
 func TestReviewStampGate_StatusReportsPresence(t *testing.T) {
 	withReviewStampHome(t)
@@ -586,7 +586,7 @@ func TestWriteStampFromVerdict_TokenRescuesMarkerlessRejection(t *testing.T) {
 }
 
 // TestWriteStampFromVerdict_TokenCannotOverrideTier1Veto is the boundary of the
-// escape hatch: an EXPLICIT tier-1 KAISSER-VERDICT: changes-requested stands, token
+// escape hatch: an EXPLICIT tier-1 BRAVROS-VERDICT: changes-requested stands, token
 // or not. The token survives — it was never spent.
 func TestWriteStampFromVerdict_TokenCannotOverrideTier1Veto(t *testing.T) {
 	orig, _ := os.Getwd()
@@ -599,7 +599,7 @@ func TestWriteStampFromVerdict_TokenCannotOverrideTier1Veto(t *testing.T) {
 	withReviewStampHome(t)
 	mintTestReviewStampToken(t, 5*time.Minute)
 
-	body := "The nil deref on line 42 crashes production.\n\nKAISSER-VERDICT: changes-requested\n"
+	body := "The nil deref on line 42 crashes production.\n\nBRAVROS-VERDICT: changes-requested\n"
 
 	if code := writeStampFromVerdict("667", body); code != 0 {
 		t.Errorf("expected exit 0, got %d", code)
@@ -612,7 +612,7 @@ func TestWriteStampFromVerdict_TokenCannotOverrideTier1Veto(t *testing.T) {
 	}
 }
 
-// TestPrReviewSubcommandsRegistered pins the three verbs onto `kaisser pr-review`.
+// TestPrReviewSubcommandsRegistered pins the three verbs onto `bravros pr-review`.
 func TestPrReviewSubcommandsRegistered(t *testing.T) {
 	want := map[string]bool{"unlock": false, "status": false, "revoke": false}
 	for _, c := range prReviewCmd.Commands() {
@@ -622,7 +622,7 @@ func TestPrReviewSubcommandsRegistered(t *testing.T) {
 	}
 	for name, found := range want {
 		if !found {
-			t.Errorf("kaisser pr-review %s is not registered", name)
+			t.Errorf("bravros pr-review %s is not registered", name)
 		}
 	}
 	// --field must exist on status (skills call `--field present`).

@@ -13,10 +13,10 @@ import (
 // full-line markers. Migration strips both the v2 block (on re-runs) and the
 // legacy v1 block + eager `export … =$(op read …)` lines (one-time).
 const (
-	markerV2Start = "# >>> kaisser secrets (v2) >>>"
-	markerV2End   = "# <<< kaisser secrets (v2) <<<"
-	markerV1Start = "# --- kaisser secrets bootstrap ---"
-	markerV1End   = "# --- end kaisser secrets bootstrap ---"
+	markerV2Start = "# >>> bravros secrets (v2) >>>"
+	markerV2End   = "# <<< bravros secrets (v2) <<<"
+	markerV1Start = "# --- bravros secrets bootstrap ---"
+	markerV1End   = "# --- end bravros secrets bootstrap ---"
 )
 
 // eagerOpExportRe matches the legacy eager export lines this migration removes,
@@ -112,7 +112,7 @@ func rewriteRC(rcFile, block string) error {
 	return writeRCAtomic(rcFile, sb.String())
 }
 
-// stripManaged removes (a) any kaisser v2 block, (b) any legacy v1 block, and
+// stripManaged removes (a) any bravros v2 block, (b) any legacy v1 block, and
 // (c) any eager `export (FIRECRAWL_API_KEY|HASS_TOKEN)=$(op read …)` line, from
 // the rc text. Marker matching is EXACT on the trimmed full line. A start marker
 // with no matching end marker stops at EOF — it NEVER deletes past the file end
@@ -161,22 +161,22 @@ func stripManaged(text string) string {
 }
 
 // RenderBlock returns the full v2 fenced block for the given backend. The block
-// ALWAYS defines kaisser_secret() FIRST (before any call or sourcing the rc
+// ALWAYS defines bravros_secret() FIRST (before any call or sourcing the rc
 // errors out), then emits per-backend gate lines, then exports the backend
 // marker. The `none` backend emits ZERO op references.
 func RenderBlock(backend Backend) string {
 	var b strings.Builder
 	b.WriteString(markerV2Start + "\n")
-	b.WriteString("# Managed by `kaisser secrets`. Do not edit between these markers —\n")
-	b.WriteString("# changes are overwritten on the next `kaisser secrets bootstrap`.\n")
+	b.WriteString("# Managed by `bravros secrets`. Do not edit between these markers —\n")
+	b.WriteString("# changes are overwritten on the next `bravros secrets bootstrap`.\n")
 	b.WriteString("# Backend: " + string(backend) + "\n")
 
-	// kaisser_secret() MUST be defined first. It is POSIX-sh safe (works in both
-	// bash and zsh) and delegates the actual resolution to the kaisser binary,
-	// which honors KAISSER_SECRETS_BACKEND / KAISSER_ENV_FILE precedence. If the
-	// kaisser binary is absent the function fast-fails to empty (silent), so a
+	// bravros_secret() MUST be defined first. It is POSIX-sh safe (works in both
+	// bash and zsh) and delegates the actual resolution to the bravros binary,
+	// which honors BRAVROS_SECRETS_BACKEND / BRAVROS_ENV_FILE precedence. If the
+	// bravros binary is absent the function fast-fails to empty (silent), so a
 	// missing CLI never breaks shell startup.
-	b.WriteString(kaisserSecretFn)
+	b.WriteString(bravrosSecretFn)
 
 	switch backend {
 	case BackendOp:
@@ -193,7 +193,7 @@ func RenderBlock(backend Backend) string {
 
 	case BackendEnv:
 		b.WriteString("export " + backendEnvVar + "=env\n")
-		// Gate lines resolve from $KAISSER_ENV_FILE via kaisser_secret. The op
+		// Gate lines resolve from $BRAVROS_ENV_FILE via bravros_secret. The op
 		// branch is guarded OFF — even if op is installed, the env backend never
 		// shells out to 1Password.
 		for _, s := range Registry() {
@@ -202,9 +202,9 @@ func RenderBlock(backend Backend) string {
 
 	case BackendKeychain:
 		// macOS-only, opt-in. ZERO op references — keychain resolution happens
-		// entirely inside the kaisser binary via `security find-generic-password`,
+		// entirely inside the bravros binary via `security find-generic-password`,
 		// so the shell only needs to set the backend marker (darwin-guarded) and
-		// emit the same kaisser_secret gate lines. On a non-darwin host the marker
+		// emit the same bravros_secret gate lines. On a non-darwin host the marker
 		// is never exported, so DetectBackend() falls back to its auto-detect path
 		// (op/env) instead of a keychain it cannot read.
 		b.WriteString("if [ \"$(uname -s)\" = \"Darwin\" ]; then\n")
@@ -215,7 +215,7 @@ func RenderBlock(backend Backend) string {
 		b.WriteString("fi\n")
 
 	case BackendNone:
-		// ZERO op references. No gate lines, no kaisser_secret calls — just the
+		// ZERO op references. No gate lines, no bravros_secret calls — just the
 		// backend marker so Resolve()/DetectBackend() see `none`.
 		b.WriteString("export " + backendEnvVar + "=none\n")
 	}
@@ -224,15 +224,15 @@ func RenderBlock(backend Backend) string {
 	return b.String()
 }
 
-// kaisserSecretFn is the shell function definition emitted once, first, in every
+// bravrosSecretFn is the shell function definition emitted once, first, in every
 // v2 block (except it is still emitted for `none` so the contract "function is
 // always defined" holds — sourcing a downstream script that calls
-// kaisser_secret won't error). It is intentionally POSIX-sh compatible.
-const kaisserSecretFn = `kaisser_secret() {
-  # kaisser_secret ENVVAR OP_ITEM OP_FIELD
-  # Resolves a managed secret via the kaisser binary (honors
-  # KAISSER_SECRETS_BACKEND / KAISSER_ENV_FILE). Self-gating: if the value is
-  # already exported it is left untouched; if the kaisser binary is missing it
+// bravros_secret won't error). It is intentionally POSIX-sh compatible.
+const bravrosSecretFn = `bravros_secret() {
+  # bravros_secret ENVVAR OP_ITEM OP_FIELD
+  # Resolves a managed secret via the bravros binary (honors
+  # BRAVROS_SECRETS_BACKEND / BRAVROS_ENV_FILE). Self-gating: if the value is
+  # already exported it is left untouched; if the bravros binary is missing it
   # fast-fails to empty without erroring.
   _ks_var="$1"
   # Read the current (exported) value indirectly WITHOUT eval — printenv takes
@@ -241,37 +241,37 @@ const kaisserSecretFn = `kaisser_secret() {
   # absent the substitution is empty and we simply fall through to resolution.
   _ks_cur="$(printenv "$_ks_var" 2>/dev/null)"
   [ -n "$_ks_cur" ] && return 0
-  command -v kaisser >/dev/null 2>&1 || return 0
-  _ks_val="$(kaisser secrets resolve "$1" "$2" "$3" 2>/dev/null)"
+  command -v bravros >/dev/null 2>&1 || return 0
+  _ks_val="$(bravros secrets resolve "$1" "$2" "$3" 2>/dev/null)"
   [ -n "$_ks_val" ] && export "$_ks_var=$_ks_val"
   unset _ks_var _ks_cur _ks_val
 }
 `
 
 // opGateLine renders a single op-backend resolution call. The whole op branch is
-// already guarded by `op whoami`, but kaisser_secret re-honors the backend so
+// already guarded by `op whoami`, but bravros_secret re-honors the backend so
 // the binary stays the single source of precedence truth.
 func opGateLine(s KnownSecret) string {
-	return fmt.Sprintf("kaisser_secret %s %s %s",
+	return fmt.Sprintf("bravros_secret %s %s %s",
 		shellQuote(s.EnvVar), shellQuote(s.OPItem), shellQuote(s.OPField))
 }
 
 // envGateLine renders a single env-backend resolution call. Under the env
-// backend the kaisser binary resolves from $KAISSER_ENV_FILE only — the op
+// backend the bravros binary resolves from $BRAVROS_ENV_FILE only — the op
 // branch inside Resolve() is guarded off — so this never reaches 1Password.
 func envGateLine(s KnownSecret) string {
-	return fmt.Sprintf("kaisser_secret %s %s %s",
+	return fmt.Sprintf("bravros_secret %s %s %s",
 		shellQuote(s.EnvVar), shellQuote(s.OPItem), shellQuote(s.OPField))
 }
 
 // keychainGateLine renders a single keychain-backend resolution call. The
-// kaisser binary re-honors KAISSER_SECRETS_BACKEND=keychain and reads from the
+// bravros binary re-honors BRAVROS_SECRETS_BACKEND=keychain and reads from the
 // login keychain via `security` — so this line carries ZERO op references. The
-// op-item args are still passed (kaisser_secret takes a fixed 3-arg shape) but
+// op-item args are still passed (bravros_secret takes a fixed 3-arg shape) but
 // the keychain Resolve branch ignores them in favor of the registry's
 // service/account mapping.
 func keychainGateLine(s KnownSecret) string {
-	return fmt.Sprintf("kaisser_secret %s %s %s",
+	return fmt.Sprintf("bravros_secret %s %s %s",
 		shellQuote(s.EnvVar), shellQuote(s.OPItem), shellQuote(s.OPField))
 }
 
@@ -296,7 +296,7 @@ func writeRCAtomic(path, content string) error {
 		mode = fi.Mode().Perm()
 	}
 
-	tmp, err := os.CreateTemp(dir, ".kaisser-rc-*.tmp")
+	tmp, err := os.CreateTemp(dir, ".bravros-rc-*.tmp")
 	if err != nil {
 		return fmt.Errorf("cannot create temp file in %s: %w", dir, err)
 	}

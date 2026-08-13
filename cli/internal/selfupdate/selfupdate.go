@@ -1,9 +1,9 @@
-// Package selfupdate provides portable repo update logic for kaisser selfupdate.
+// Package selfupdate provides portable repo update logic for bravros selfupdate.
 //
 // The portable repo is updated via git fetch + checkout overlay, which works on any branch
 // including homolog. Skills, hooks, scripts, and the portable repo working tree are all
 // updated atomically via this layer. The binary itself is sourced from install.sh, which
-// handles falling back from GitHub Releases to a committed bin/kaisser as needed.
+// handles falling back from GitHub Releases to a committed bin/bravros as needed.
 package selfupdate
 
 import (
@@ -36,7 +36,7 @@ func UpdatePortableRepo(repo string, dryRun bool) error {
 	// We filter out "??" (untracked) lines — untracked files are untouched by
 	// `git checkout origin/main -- .` so they must NOT block the update.
 	//
-	// Exception: .kaisser.yml and the legacy .skaisser.yml are generated/cached
+	// Exception: .bravros.yml and the legacy .sbravros.yml are generated/cached
 	// portable-repo metadata. Claude session startup and context refreshes can
 	// rewrite them as a side effect of simply opening the repo. Those disposable
 	// diffs must not permanently block the auto-update hook; origin/main remains
@@ -82,7 +82,7 @@ func isDisposablePortableConfigDirty(porcelainLine string) bool {
 }
 
 func isDisposableConfigPath(path string) bool {
-	return path == ".kaisser.yml" || path == ".skaisser.yml"
+	return path == ".bravros.yml" || path == ".sbravros.yml"
 }
 
 // HasOriginMainUpdates returns true when the fetched origin/main tree contains

@@ -16,7 +16,7 @@ type Backend string
 
 const (
 	BackendOp       Backend = "op"       // 1Password CLI (lazy, op-whoami-gated)
-	BackendEnv      Backend = "env"      // $KAISSER_ENV_FILE (KEY=value lines)
+	BackendEnv      Backend = "env"      // $BRAVROS_ENV_FILE (KEY=value lines)
 	BackendNone     Backend = "none"     // no secret hydration; features degrade gracefully
 	BackendKeychain Backend = "keychain" // macOS login keychain (darwin-only, opt-in)
 )
@@ -56,23 +56,23 @@ func keychainLookup(service, account string) (string, bool) {
 
 // backendEnvVar lets a user or orchestrator force the backend explicitly,
 // overriding auto-detection.
-const backendEnvVar = "KAISSER_SECRETS_BACKEND"
+const backendEnvVar = "BRAVROS_SECRETS_BACKEND"
 
 // opAvailableFn is the seam tests use to simulate op presence without invoking
 // the real 1Password CLI. Production code uses OpAvailable.
 var opAvailableFn = OpAvailable
 
-// EnvFilePath returns the .env-style secrets file path: $KAISSER_ENV_FILE when
-// set, otherwise the default ~/.config/kaisser/secrets.env.
+// EnvFilePath returns the .env-style secrets file path: $BRAVROS_ENV_FILE when
+// set, otherwise the default ~/.config/bravros/secrets.env.
 func EnvFilePath() string {
-	if p := os.Getenv("KAISSER_ENV_FILE"); p != "" {
+	if p := os.Getenv("BRAVROS_ENV_FILE"); p != "" {
 		return p
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".config", "kaisser", "secrets.env")
+	return filepath.Join(home, ".config", "bravros", "secrets.env")
 }
 
 // OpAvailable reports whether the 1Password CLI is installed AND has a live
@@ -87,7 +87,7 @@ func OpAvailable() bool {
 	return exec.Command("op", "whoami").Run() == nil
 }
 
-// DetectBackend resolves the active backend. An explicit KAISSER_SECRETS_BACKEND
+// DetectBackend resolves the active backend. An explicit BRAVROS_SECRETS_BACKEND
 // wins; otherwise auto-detect: op installed + a live session → op, else env.
 // A no-op machine therefore defaults to env and never gets op lines written.
 func DetectBackend() Backend {
@@ -143,10 +143,10 @@ func readEnvFile(path string) map[string]string {
 }
 
 // Resolve returns a secret value using a single fixed precedence, identical for
-// the shell kaisser_secret() function and any Go caller:
+// the shell bravros_secret() function and any Go caller:
 //
 //  1. an already-set environment variable (highest)
-//  2. $KAISSER_ENV_FILE (KEY=value)
+//  2. $BRAVROS_ENV_FILE (KEY=value)
 //  3. 1Password — ONLY when op is installed AND `op whoami` passes (never prompts)
 //  4. "" (empty, silent)
 //

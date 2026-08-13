@@ -37,8 +37,8 @@ func keychainAccount() string {
 // machine-DERIVED (claude-sa-<machine>), which is generic, not owner data.
 
 const (
-	saMarkerStart = "# >>> kaisser sa-token (v1) >>>"
-	saMarkerEnd   = "# <<< kaisser sa-token (v1) <<<"
+	saMarkerStart = "# >>> bravros sa-token (v1) >>>"
+	saMarkerEnd   = "# <<< bravros sa-token (v1) <<<"
 
 	// saExportVar is the canonical env var the toolkit + op consume. We export
 	// both it and OP_SERVICE_ACCOUNT_TOKEN (op's native var) from it.
@@ -168,7 +168,7 @@ func classifyExisting(text string) existingLookupKind {
 // returns one of "none" | "plaintext" | "keychain" | "op". A missing/unreadable
 // ~/.zshenv classifies as "none". This is the exported, IO-performing wrapper
 // around the pure classifyExisting() classifier — it answers "is the SA-token
-// block configured on this machine?" for `kaisser secrets status`.
+// block configured on this machine?" for `bravros secrets status`.
 //
 // home is the home directory to resolve ~/.zshenv under; pass "" to use the
 // OS-reported home dir.
@@ -258,7 +258,7 @@ func RenderSATokenBlock(spec SATokenSpec, existing existingLookupKind) (string, 
 
 	var b strings.Builder
 	b.WriteString(saMarkerStart + "\n")
-	b.WriteString("# Managed by `kaisser secrets sa-token`. Do not edit between these markers.\n")
+	b.WriteString("# Managed by `bravros secrets sa-token`. Do not edit between these markers.\n")
 	b.WriteString("# Backend: " + string(spec.Backend) + "\n")
 	b.WriteString(swarmGate + "\n")
 	b.WriteString(lookup + "\n")

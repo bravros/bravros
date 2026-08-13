@@ -6,24 +6,24 @@
 //
 // Parity source: ~/.claude/settings.json hooks block (task 7.2)
 //
-// Resolved hooks.json block stamped by `kaisser hook install-codex`:
+// Resolved hooks.json block stamped by `bravros hook install-codex`:
 //
 //	{
-//	  "__managed_by": "kaisser",
+//	  "__managed_by": "bravros",
 //	  "hooks": {
 //	    "PreToolUse": [
 //	      {
 //	        "matcher": ".*",
 //	        "hooks": [
-//	          { "type": "command", "command": "kaisser audit", "__managed_by": "kaisser" }
+//	          { "type": "command", "command": "bravros audit", "__managed_by": "bravros" }
 //	        ]
 //	      }
 //	    ],
 //	    "SessionStart": [
 //	      {
 //	        "hooks": [
-//	          { "type": "command", "command": "kaisser selfupdate",                 "__managed_by": "kaisser" },
-//	          { "type": "command", "command": "kaisser hook verify-install-check", "__managed_by": "kaisser" }
+//	          { "type": "command", "command": "bravros selfupdate",                 "__managed_by": "bravros" },
+//	          { "type": "command", "command": "bravros hook verify-install-check", "__managed_by": "bravros" }
 //	        ]
 //	      }
 //	    ]
@@ -34,9 +34,9 @@
 //   - No macOS $__CFBundleIdentifier guard — Codex CLI has no equivalent mechanism.
 //     The selfupdate and verify-install-check commands are safe to run unconditionally.
 //   - SessionStart MatcherGroup has no `matcher` field (runs for all start types).
-//   - Idempotency: managed hooks are identified by the "__managed_by": "kaisser" marker.
+//   - Idempotency: managed hooks are identified by the "__managed_by": "bravros" marker.
 //     Re-running install-codex removes stale managed groups and re-inserts the canonical set.
-//     User-authored groups (no __managed_by or __managed_by != "kaisser") are preserved verbatim.
+//     User-authored groups (no __managed_by or __managed_by != "bravros") are preserved verbatim.
 
 package cmd
 
@@ -54,7 +54,7 @@ import (
 
 const verifyInstallMarker = ".verify-install-pending"
 const secretsSetupNudgedMarker = ".secrets-setup-nudged"
-const kaisserStateDirName = "kaisser"
+const bravrosStateDirName = "bravros"
 
 // secretsStatusFn is the seam tests use to inject a fake secrets status without
 // shelling out to a live op session or reading the test host's ~/.zshenv.
@@ -73,7 +73,7 @@ var hookCmd = &cobra.Command{
 var hookVerifyInstallCheckCmd = &cobra.Command{
 	Use:   "verify-install-check",
 	Short: "Emit SessionStart context if a pending verify-install marker exists",
-	Long: `Reads ~/.config/kaisser/state/.verify-install-pending, falling back to
+	Long: `Reads ~/.config/bravros/state/.verify-install-pending, falling back to
 ~/.claude/state/.verify-install-pending for older Claude installs. If absent or
 unreadable, exits silently (exit 0). If present, emits a JSON block to stdout
 instructing the host to run /auto-verify-install, then removes the marker so it
@@ -102,7 +102,7 @@ fires only once.`,
 
 		// Emit SessionStart hook JSON instructing the host to run /auto-verify-install.
 		note := fmt.Sprintf(
-			"kaisser auto-update installed a new version (%s). "+
+			"bravros auto-update installed a new version (%s). "+
 				"IMPORTANT: immediately invoke the /auto-verify-install skill now "+
 				"to confirm the installation is healthy. "+
 				"Do not wait for the user to ask — run it as your very first action this session.",
@@ -120,7 +120,7 @@ fires only once.`,
 			st.SATokenBlock == "none" &&
 			!secretsSetupAlreadyNudged(home)
 		if nudgeSecrets {
-			note += " Additionally, kaisser secrets are not yet configured on this machine " +
+			note += " Additionally, bravros secrets are not yet configured on this machine " +
 				"(op/keychain backend, no SA-token block in ~/.zshenv). " +
 				"Invoke /secrets-setup to bootstrap it."
 			// Stamp the permanent marker so the secrets nudge never fires again,
@@ -156,10 +156,10 @@ fires only once.`,
 }
 
 func sharedStateDir(home string) string {
-	if stateHome := strings.TrimSpace(os.Getenv("KAISSER_STATE_HOME")); stateHome != "" {
+	if stateHome := strings.TrimSpace(os.Getenv("BRAVROS_STATE_HOME")); stateHome != "" {
 		return filepath.Join(stateHome, "state")
 	}
-	return filepath.Join(home, ".config", kaisserStateDirName, "state")
+	return filepath.Join(home, ".config", bravrosStateDirName, "state")
 }
 
 func legacyClaudeStateDir(home string) string {
@@ -183,7 +183,7 @@ func firstExistingVerifyInstallMarker(home string) string {
 }
 
 // secretsSetupNudgedMarkerPaths mirrors verifyInstallMarkerPaths for the
-// permanent (once-EVER) secrets-setup nudge marker: the shared kaisser state dir
+// permanent (once-EVER) secrets-setup nudge marker: the shared bravros state dir
 // first, then the legacy ~/.claude/state dir.
 func secretsSetupNudgedMarkerPaths(home string) []string {
 	return []string{
@@ -205,7 +205,7 @@ func secretsSetupAlreadyNudged(home string) bool {
 }
 
 // writeSecretsSetupNudgedMarker stamps the permanent secrets-setup nudge marker
-// into the shared kaisser state dir (best-effort; failures are swallowed because
+// into the shared bravros state dir (best-effort; failures are swallowed because
 // the marker is an optimization — a missed write at worst re-nudges on a future
 // upgrade, never breaks the session).
 func writeSecretsSetupNudgedMarker(home string) {

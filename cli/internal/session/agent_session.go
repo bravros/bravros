@@ -13,7 +13,7 @@ import "os"
 // This list is a DENY-list for the "am I inside an agent?" safety gate — it is NOT
 // a list of supported hosts. Gemini and Antigravity were amputated as skill build /
 // deploy targets in P-0183 G6 (they silently emitted Claude-only paths), but their
-// session vars stay here on purpose: IsInsideAgentSession() gates `kaisser rule
+// session vars stay here on purpose: IsInsideAgentSession() gates `bravros rule
 // disable` and friends, which must refuse to run from inside ANY agent runtime.
 // Dropping a runtime from this list would turn it into a bypass terminal for an
 // always-on safety gate (audit rule 45). Adding runtimes here is free; removing one

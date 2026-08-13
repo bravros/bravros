@@ -59,9 +59,9 @@ func resetSelfupdateFlags(t *testing.T) {
 	origOverride := selfupdateRepoOverride
 	origDeep := selfupdateDeep
 	origForce := selfupdateForce
-	origCodexHome, hadCodexHome := os.LookupEnv("KAISSER_CODEX_HOME")
-	origOpenCodeHome, hadOpenCodeHome := os.LookupEnv("KAISSER_OPENCODE_HOME")
-	origPiHome, hadPiHome := os.LookupEnv("KAISSER_PI_HOME")
+	origCodexHome, hadCodexHome := os.LookupEnv("BRAVROS_CODEX_HOME")
+	origOpenCodeHome, hadOpenCodeHome := os.LookupEnv("BRAVROS_OPENCODE_HOME")
+	origPiHome, hadPiHome := os.LookupEnv("BRAVROS_PI_HOME")
 
 	selfupdateSilent = false
 	selfupdateVerbose = false
@@ -73,15 +73,15 @@ func resetSelfupdateFlags(t *testing.T) {
 	// Disable the check-TTL cache (B-0345) so tests exercise the real check path
 	// and never read/write the developer's real ~/.claude/state marker. Cache
 	// tests opt back in with t.Setenv + a HOME override.
-	t.Setenv("KAISSER_SELFUPDATE_TTL", "0")
-	if err := os.Setenv("KAISSER_CODEX_HOME", filepath.Join(t.TempDir(), "missing-codex")); err != nil {
-		t.Fatalf("set KAISSER_CODEX_HOME: %v", err)
+	t.Setenv("BRAVROS_SELFUPDATE_TTL", "0")
+	if err := os.Setenv("BRAVROS_CODEX_HOME", filepath.Join(t.TempDir(), "missing-codex")); err != nil {
+		t.Fatalf("set BRAVROS_CODEX_HOME: %v", err)
 	}
-	if err := os.Setenv("KAISSER_OPENCODE_HOME", filepath.Join(t.TempDir(), "missing-opencode")); err != nil {
-		t.Fatalf("set KAISSER_OPENCODE_HOME: %v", err)
+	if err := os.Setenv("BRAVROS_OPENCODE_HOME", filepath.Join(t.TempDir(), "missing-opencode")); err != nil {
+		t.Fatalf("set BRAVROS_OPENCODE_HOME: %v", err)
 	}
-	if err := os.Setenv("KAISSER_PI_HOME", filepath.Join(t.TempDir(), "missing-pi")); err != nil {
-		t.Fatalf("set KAISSER_PI_HOME: %v", err)
+	if err := os.Setenv("BRAVROS_PI_HOME", filepath.Join(t.TempDir(), "missing-pi")); err != nil {
+		t.Fatalf("set BRAVROS_PI_HOME: %v", err)
 	}
 
 	t.Cleanup(func() {
@@ -93,19 +93,19 @@ func resetSelfupdateFlags(t *testing.T) {
 		selfupdateDeep = origDeep
 		selfupdateForce = origForce
 		if hadCodexHome {
-			_ = os.Setenv("KAISSER_CODEX_HOME", origCodexHome)
+			_ = os.Setenv("BRAVROS_CODEX_HOME", origCodexHome)
 		} else {
-			_ = os.Unsetenv("KAISSER_CODEX_HOME")
+			_ = os.Unsetenv("BRAVROS_CODEX_HOME")
 		}
 		if hadOpenCodeHome {
-			_ = os.Setenv("KAISSER_OPENCODE_HOME", origOpenCodeHome)
+			_ = os.Setenv("BRAVROS_OPENCODE_HOME", origOpenCodeHome)
 		} else {
-			_ = os.Unsetenv("KAISSER_OPENCODE_HOME")
+			_ = os.Unsetenv("BRAVROS_OPENCODE_HOME")
 		}
 		if hadPiHome {
-			_ = os.Setenv("KAISSER_PI_HOME", origPiHome)
+			_ = os.Setenv("BRAVROS_PI_HOME", origPiHome)
 		} else {
-			_ = os.Unsetenv("KAISSER_PI_HOME")
+			_ = os.Unsetenv("BRAVROS_PI_HOME")
 		}
 	})
 }
@@ -830,13 +830,13 @@ func TestWriteSelfupdateMarkers_WritesSharedAndLegacyVerifyMarkers(t *testing.T)
 			t.Fatalf("marker %s missing version: %s", markerPath, data)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(home, ".claude", "state", ".kaisser-last-update")); err != nil {
+	if _, err := os.Stat(filepath.Join(home, ".claude", "state", ".bravros-last-update")); err != nil {
 		t.Fatalf("expected legacy last-update marker: %v", err)
 	}
 }
 
-// TestSelfupdateAlias_UpdateInvokesSelfupdate verifies that `kaisser update` is
-// registered as an alias for `kaisser selfupdate` via the Cobra command definition.
+// TestSelfupdateAlias_UpdateInvokesSelfupdate verifies that `bravros update` is
+// registered as an alias for `bravros selfupdate` via the Cobra command definition.
 func TestSelfupdateAlias_UpdateInvokesSelfupdate(t *testing.T) {
 	// Verify the alias is registered on the command.
 	found := false
@@ -961,7 +961,7 @@ func hookDriftFixture(t *testing.T, canonicalContent string) (repo, home string)
 
 // currentCanonicalContent is the v1 canonical hook content — matches the fixture
 // in cli/internal/hooks/testdata/canonical_v1.sh.
-const currentCanonicalContent = "#!/bin/bash\n# kaisser-managed-commit-msg-hook v1\n# This is the current canonical hook fixture (v1).\nset -u\nCOMMIT_MSG_FILE=$1\nexit 0\n"
+const currentCanonicalContent = "#!/bin/bash\n# bravros-managed-commit-msg-hook v1\n# This is the current canonical hook fixture (v1).\nset -u\nCOMMIT_MSG_FILE=$1\nexit 0\n"
 
 // TestDetectHookDrift_PristineHookNoOp verifies that a hook that already matches
 // the canonical content byte-for-byte returns an empty report (true no-op).
@@ -996,7 +996,7 @@ func TestDetectHookDrift_OldCanonicalRefreshed(t *testing.T) {
 	repo, home := hookDriftFixture(t, currentCanonicalContent)
 
 	// Write a hook with marker v0 (old-canonical) to .githooks/commit-msg.
-	oldContent := "#!/bin/bash\n# kaisser-managed-commit-msg-hook v0\nexit 0\n"
+	oldContent := "#!/bin/bash\n# bravros-managed-commit-msg-hook v0\nexit 0\n"
 	hookDir := filepath.Join(repo, ".githooks")
 	if err := os.MkdirAll(hookDir, 0755); err != nil {
 		t.Fatalf("mkdir .githooks: %v", err)
@@ -1022,14 +1022,14 @@ func TestDetectHookDrift_OldCanonicalRefreshed(t *testing.T) {
 }
 
 // TestDetectHookDrift_CustomizedEmitsStructuredLine verifies that a hook with the
-// current kaisser marker (v1) but different content populates CustomizedPaths.
+// current bravros marker (v1) but different content populates CustomizedPaths.
 func TestDetectHookDrift_CustomizedEmitsStructuredLine(t *testing.T) {
 	repo, home := hookDriftFixture(t, currentCanonicalContent)
 
 	// Write a hook with current marker version but different body content.
 	// Classify will return StatusCurrent because it has marker v1 (current).
 	// MD5 will differ from canonical because the body is different.
-	customContent := "#!/bin/bash\n# kaisser-managed-commit-msg-hook v1\n# USER CUSTOMIZATION: extra validation\nset -u\nCOMMIT_MSG_FILE=$1\necho 'custom check'\nexit 0\n"
+	customContent := "#!/bin/bash\n# bravros-managed-commit-msg-hook v1\n# USER CUSTOMIZATION: extra validation\nset -u\nCOMMIT_MSG_FILE=$1\necho 'custom check'\nexit 0\n"
 	hookDir := filepath.Join(repo, ".githooks")
 	if err := os.MkdirAll(hookDir, 0755); err != nil {
 		t.Fatalf("mkdir .githooks: %v", err)
@@ -1051,7 +1051,7 @@ func TestDetectHookDrift_CustomizedEmitsStructuredLine(t *testing.T) {
 	}
 }
 
-// TestDetectHookDrift_ForeignHookSkipped verifies that a hook with no kaisser
+// TestDetectHookDrift_ForeignHookSkipped verifies that a hook with no bravros
 // marker and no historical MD5 match is silently skipped (empty report).
 func TestDetectHookDrift_ForeignHookSkipped(t *testing.T) {
 	repo, home := hookDriftFixture(t, currentCanonicalContent)
@@ -1082,7 +1082,7 @@ func TestDetectHookDrift_BothGitHooksAndDotGithooksScanned(t *testing.T) {
 	repo, home := hookDriftFixture(t, currentCanonicalContent)
 
 	// Write old-canonical hooks to BOTH locations.
-	oldContent := "#!/bin/bash\n# kaisser-managed-commit-msg-hook v0\nexit 0\n"
+	oldContent := "#!/bin/bash\n# bravros-managed-commit-msg-hook v0\nexit 0\n"
 
 	githooksDir := filepath.Join(repo, ".githooks")
 	if err := os.MkdirAll(githooksDir, 0755); err != nil {
@@ -1121,7 +1121,7 @@ func TestDetectHookDrift_WritesCacheBufferFile(t *testing.T) {
 	// Instead, replicate what RunE does: call detectHookDrift, then write the cache.
 
 	// Write a customized hook.
-	customContent := "#!/bin/bash\n# kaisser-managed-commit-msg-hook v1\n# USER CUSTOMIZATION\nexit 0\n"
+	customContent := "#!/bin/bash\n# bravros-managed-commit-msg-hook v1\n# USER CUSTOMIZATION\nexit 0\n"
 	hookDir := filepath.Join(repo, ".githooks")
 	if err := os.MkdirAll(hookDir, 0755); err != nil {
 		t.Fatalf("mkdir .githooks: %v", err)
@@ -1231,7 +1231,7 @@ func TestDetectHookDrift_NoCanonical_ReturnsEmptyReport(t *testing.T) {
 	if err := os.MkdirAll(hookDir, 0755); err != nil {
 		t.Fatalf("mkdir .githooks: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(hookDir, "commit-msg"), []byte("#!/bin/bash\n# kaisser-managed-commit-msg-hook v0\nexit 0\n"), 0755); err != nil {
+	if err := os.WriteFile(filepath.Join(hookDir, "commit-msg"), []byte("#!/bin/bash\n# bravros-managed-commit-msg-hook v0\nexit 0\n"), 0755); err != nil {
 		t.Fatalf("write hook: %v", err)
 	}
 
@@ -1259,7 +1259,7 @@ func TestSelfupdate_HookDriftIntegratesWithDecisionGate(t *testing.T) {
 	if err := os.MkdirAll(hookDir, 0755); err != nil {
 		t.Fatalf("mkdir .githooks: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(hookDir, "commit-msg"), []byte("#!/bin/bash\n# kaisser-managed-commit-msg-hook v0\nexit 0\n"), 0755); err != nil {
+	if err := os.WriteFile(filepath.Join(hookDir, "commit-msg"), []byte("#!/bin/bash\n# bravros-managed-commit-msg-hook v0\nexit 0\n"), 0755); err != nil {
 		t.Fatalf("write hook: %v", err)
 	}
 
@@ -1300,7 +1300,7 @@ func TestDetectHookDrift_HistoricalMD5Pristine(t *testing.T) {
 	// canonical (currentCanonicalContent), so drifted=true → NeedsRefresh.
 	repo, home := hookDriftFixture(t, currentCanonicalContent)
 
-	noMarkerContent := "#!/bin/bash\n# Hook without any marker — could be pre-marker kaisser era.\nset -u\nCOMMIT_MSG_FILE=$1\necho \"checking commit message\"\nexit 0\n"
+	noMarkerContent := "#!/bin/bash\n# Hook without any marker — could be pre-marker bravros era.\nset -u\nCOMMIT_MSG_FILE=$1\necho \"checking commit message\"\nexit 0\n"
 
 	hookDir := filepath.Join(repo, ".githooks")
 	if err := os.MkdirAll(hookDir, 0755); err != nil {
@@ -1345,7 +1345,7 @@ func TestDetectHookDrift_HistoricalMD5Pristine(t *testing.T) {
 //  4. fetch --tags into the local clone
 //  5. assert detectCliStale returns true (installed "v0.1.0" ≠ origin/main latest "v0.2.0")
 //
-// Because we cannot control what `kaisser version` returns in the test environment,
+// Because we cannot control what `bravros version` returns in the test environment,
 // we instead call detectCliStale with a fake `cli` binary that prints a fixed
 // installed-version string, letting us exercise the tag-comparison logic directly.
 func TestDetectCliStale_TagOnlyDrift(t *testing.T) {
@@ -1374,12 +1374,12 @@ func TestDetectCliStale_TagOnlyDrift(t *testing.T) {
 	// Fetch tags into the local clone so it knows v0.1.0.
 	mustGit(t, local, "fetch", "origin", "main", "--tags")
 
-	// Build a fake `kaisser` binary that prints "kaisser v0.1.0"
+	// Build a fake `bravros` binary that prints "bravros v0.1.0"
 	// (matches origin/main's current tag -> should return false).
-	fakeCLI := filepath.Join(t.TempDir(), "kaisser-fake")
-	fakeBody := "#!/bin/sh\necho 'kaisser v0.1.0'\n"
+	fakeCLI := filepath.Join(t.TempDir(), "bravros-fake")
+	fakeBody := "#!/bin/sh\necho 'bravros v0.1.0'\n"
 	if err := os.WriteFile(fakeCLI, []byte(fakeBody), 0o755); err != nil {
-		t.Fatalf("write fake kaisser: %v", err)
+		t.Fatalf("write fake bravros: %v", err)
 	}
 
 	// Baseline: installed matches origin/main tag -> detectCliStale must return false.
@@ -1405,9 +1405,9 @@ func TestDetectCliStale_TagOnlyDrift(t *testing.T) {
 	}
 
 	// 6. Confirm the inverse: update the fake CLI to report v0.2.0 -> back to false.
-	fakeCLI2 := filepath.Join(t.TempDir(), "kaisser-fake2")
-	if err := os.WriteFile(fakeCLI2, []byte("#!/bin/sh\necho 'kaisser v0.2.0'\n"), 0o755); err != nil {
-		t.Fatalf("write fake kaisser2: %v", err)
+	fakeCLI2 := filepath.Join(t.TempDir(), "bravros-fake2")
+	if err := os.WriteFile(fakeCLI2, []byte("#!/bin/sh\necho 'bravros v0.2.0'\n"), 0o755); err != nil {
+		t.Fatalf("write fake bravros2: %v", err)
 	}
 	if detectCliStale(fakeCLI2, local) {
 		t.Error("expected false when installed matches latest tag, got true")
@@ -1446,7 +1446,7 @@ func TestSelfupdate_CheckCache_FreshMarkerSkipsCheck(t *testing.T) {
 	resetSelfupdateFlags(t)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("KAISSER_SELFUPDATE_TTL", "6h")
+	t.Setenv("BRAVROS_SELFUPDATE_TTL", "6h")
 	writeCheckMarker(t, home, 0)
 
 	binDir := shimGit(t, `echo "$@" >> "$(dirname "$0")/git.log"; exit 1`)
@@ -1471,7 +1471,7 @@ func TestSelfupdate_CheckCache_StaleMarkerRunsCheck(t *testing.T) {
 	resetSelfupdateFlags(t)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("KAISSER_SELFUPDATE_TTL", "1h")
+	t.Setenv("BRAVROS_SELFUPDATE_TTL", "1h")
 	writeCheckMarker(t, home, 2*time.Hour)
 
 	binDir := shimGit(t, `echo "$@" >> "$(dirname "$0")/git.log"; exit 1`)
@@ -1494,7 +1494,7 @@ func TestSelfupdate_CheckCache_ForceBypasses(t *testing.T) {
 	resetSelfupdateFlags(t)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("KAISSER_SELFUPDATE_TTL", "6h")
+	t.Setenv("BRAVROS_SELFUPDATE_TTL", "6h")
 	writeCheckMarker(t, home, 0)
 
 	binDir := shimGit(t, `echo "$@" >> "$(dirname "$0")/git.log"; exit 1`)
@@ -1519,7 +1519,7 @@ func TestSelfupdate_CheckCache_MarkerStampedAfterCompletedCheck(t *testing.T) {
 	resetSelfupdateFlags(t)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("KAISSER_SELFUPDATE_TTL", "6h")
+	t.Setenv("BRAVROS_SELFUPDATE_TTL", "6h")
 
 	selfupdateRepoOverride = makeRepoWithOriginMain(t, "main")
 
@@ -1536,7 +1536,7 @@ func TestSelfupdate_CheckCache_DryRunLeavesNoMarker(t *testing.T) {
 	resetSelfupdateFlags(t)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("KAISSER_SELFUPDATE_TTL", "6h")
+	t.Setenv("BRAVROS_SELFUPDATE_TTL", "6h")
 
 	selfupdateRepoOverride = makeRepoWithOriginMain(t, "main")
 	selfupdateDryRun = true
@@ -1563,9 +1563,9 @@ func TestSelfupdateCheckTTL_Parsing(t *testing.T) {
 		{"-1h", 0},                 // negative → disabled
 	}
 	for _, c := range cases {
-		t.Setenv("KAISSER_SELFUPDATE_TTL", c.raw)
+		t.Setenv("BRAVROS_SELFUPDATE_TTL", c.raw)
 		if got := selfupdateCheckTTL(); got != c.want {
-			t.Errorf("KAISSER_SELFUPDATE_TTL=%q: got %v, want %v", c.raw, got, c.want)
+			t.Errorf("BRAVROS_SELFUPDATE_TTL=%q: got %v, want %v", c.raw, got, c.want)
 		}
 	}
 }

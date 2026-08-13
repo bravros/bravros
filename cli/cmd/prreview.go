@@ -1,6 +1,6 @@
 // Package cmd — prreview.go
 //
-// Implements `--wait` mode for `kaisser pr-review`: blocks until a bot posts a
+// Implements `--wait` mode for `bravros pr-review`: blocks until a bot posts a
 // review OR an issue comment on the specified PR (or the timeout expires). This
 // gives autonomous workers (e.g. /auto-pr) a concrete blocking command to run
 // after /pr instead of an inline bash poll loop.
@@ -39,8 +39,8 @@ var prReviewWriteStamp bool
 //
 //	verdictTierMarker — TIER 1. The bot emitted the canonical verdict marker our
 //	  review-request skills instruct it to emit — the plain-text sentinel line
-//	  "KAISSER-VERDICT: …" (canonical since B-0342) or the legacy HTML comment
-//	  "<!-- kaisser-verdict: … -->". This is an explicit, machine-readable,
+//	  "BRAVROS-VERDICT: …" (canonical since B-0342) or the legacy HTML comment
+//	  "<!-- bravros-verdict: … -->". This is an explicit, machine-readable,
 //	  structured assertion. It is SOUND, and it alone can self-authorize an
 //	  autonomous merge.
 //
@@ -77,7 +77,7 @@ var prReviewWriteStamp bool
 // the approval direction — the one that can authorize an irreversible action — is
 // demoted.
 const (
-	verdictTierMarker = "marker" // TIER 1 — the bot's own KAISSER-VERDICT sentinel / <!-- kaisser-verdict: … --> marker
+	verdictTierMarker = "marker" // TIER 1 — the bot's own BRAVROS-VERDICT sentinel / <!-- bravros-verdict: … --> marker
 	verdictTierProse  = "prose"  // TIER 2 — inferred from free-form prose (advisory only, for approvals)
 )
 
@@ -140,7 +140,7 @@ type parseVerdictResult struct {
 //     not a merge verdict: a per-CHECK CI line legitimately begins its own line, so even
 //     the line-start anchor could not rescue them —
 //     "Status: ✅ CI green (42/42 tests pass)\n\nThe migration drops the users table —
-//     I'd rather not land this yet." → approved. The tier-1 kaisser-verdict marker
+//     I'd rather not land this yet." → approved. The tier-1 bravros-verdict marker
 //     supersedes them, and a structured template that means to sign off can emit a real
 //     verdict token.
 //
@@ -1049,7 +1049,7 @@ func findBacktickRun(body string, from, want int, exact bool) int {
 //	"Status: ✅ CI green (42/42 tests pass)\n\nThe migration drops the users table — I'd
 //	 rather not land this yet."                                             → APPROVED
 //
-// The tier-1 kaisser-verdict marker supersedes them for any bot we drive, and a
+// The tier-1 bravros-verdict marker supersedes them for any bot we drive, and a
 // structured template that genuinely means to sign off can emit a real verdict token
 // ("**Mergeable.**") which the structural matcher already accepts. There is nothing left
 // for an emoji status line to buy — only a fail-OPEN hole on a gate that authorizes
@@ -1059,13 +1059,13 @@ func findBacktickRun(body string, from, want int, exact bool) int {
 //
 // CANONICAL (since B-0342) — a plain-text sentinel line, alone on its line:
 //
-//	KAISSER-VERDICT: approved
-//	KAISSER-VERDICT: changes-requested
+//	BRAVROS-VERDICT: approved
+//	BRAVROS-VERDICT: changes-requested
 //
 // LEGACY — the original HTML-comment form:
 //
-//	<!-- kaisser-verdict: approved -->
-//	<!-- kaisser-verdict: changes-requested -->
+//	<!-- bravros-verdict: approved -->
+//	<!-- bravros-verdict: changes-requested -->
 //
 // WHY TWO FORMS (B-0342): the @claude GitHub Action strips HTML comments from the
 // model's output before posting, so the legacy marker NEVER survived an Action-posted
@@ -1081,14 +1081,14 @@ func findBacktickRun(body string, from, want int, exact bool) int {
 // (e.g. "maybe") is NOT a marker and falls through to the prose heuristics.
 //
 // The sentinel is LINE-ANCHORED on both sides on purpose: a quoted echo
-// ("> KAISSER-VERDICT: approved"), a list item ("- KAISSER-VERDICT: approved"), or a
-// prose mention ("the KAISSER-VERDICT: approved line must be last") does NOT match.
+// ("> BRAVROS-VERDICT: approved"), a list item ("- BRAVROS-VERDICT: approved"), or a
+// prose mention ("the BRAVROS-VERDICT: approved line must be last") does NOT match.
 var (
-	verdictMarkerRe = regexp.MustCompile(`(?is)<!--\s*kaisser-verdict\s*:\s*(approved|changes-requested)\s*-->`)
+	verdictMarkerRe = regexp.MustCompile(`(?is)<!--\s*bravros-verdict\s*:\s*(approved|changes-requested)\s*-->`)
 	// The emphasis wrappers must sit ADJACENT to the token (no space): that is what
-	// separates a bolded sign-off ("**KAISSER-VERDICT: approved**") from a markdown
-	// list-item echo ("* KAISSER-VERDICT: approved"), which must NOT match.
-	verdictSentinelRe = regexp.MustCompile(`(?im)^[ \t]*[*_~` + "`" + `]{0,3}kaisser-verdict[ \t]*:[ \t]*(approved|changes-requested)[.!]?[*_~` + "`" + `]{0,3}[ \t\r]*$`)
+	// separates a bolded sign-off ("**BRAVROS-VERDICT: approved**") from a markdown
+	// list-item echo ("* BRAVROS-VERDICT: approved"), which must NOT match.
+	verdictSentinelRe = regexp.MustCompile(`(?im)^[ \t]*[*_~` + "`" + `]{0,3}bravros-verdict[ \t]*:[ \t]*(approved|changes-requested)[.!]?[*_~` + "`" + `]{0,3}[ \t\r]*$`)
 )
 
 // findVerdictMarker returns the value of the LAST verdict marker in body (either
@@ -1121,7 +1121,7 @@ func findVerdictMarker(body string) (string, bool) {
 
 // parseVerdict scans a bot review body for verdict markers.
 //
-// TIER 1 — the kaisser-verdict marker (AUTHORITATIVE). See step (0) below.
+// TIER 1 — the bravros-verdict marker (AUTHORITATIVE). See step (0) below.
 // TIER 2 — the prose heuristics (best-effort FALLBACK, biased to fail closed).
 //
 // REPORT-ONLY (P-0183 G1, operator-decided 2026-07-13): the TIER-2 prose verdict is
@@ -1145,7 +1145,7 @@ func findVerdictMarker(body string) (string, bool) {
 // asymmetric):
 //
 //  0. findVerdictMarker over the RAW body — if the bot emitted the canonical
-//     KAISSER-VERDICT sentinel (or the legacy <!-- kaisser-verdict: … --> marker),
+//     BRAVROS-VERDICT sentinel (or the legacy <!-- bravros-verdict: … --> marker),
 //     that IS the verdict. Return immediately.
 //     This runs before EVERYTHING (before the rejection scan, before any stripping)
 //     for two reasons:
@@ -1204,7 +1204,7 @@ func parseVerdict(body string) parseVerdictResult {
 			Verdict:       v,
 			Tier:          verdictTierMarker,
 			Confident:     true,
-			MatchedPhrase: "kaisser-verdict marker",
+			MatchedPhrase: "bravros-verdict marker",
 		}
 	}
 
@@ -1352,7 +1352,7 @@ type stampAuthority string
 const (
 	// stampNone — nobody authorized this. Write nothing.
 	stampNone stampAuthority = "none"
-	// stampByMarker — TIER 1. The bot asserted "KAISSER-VERDICT: approved" (or the
+	// stampByMarker — TIER 1. The bot asserted "BRAVROS-VERDICT: approved" (or the
 	// legacy HTML-comment form). Sound, self-authorizing, and unchanged from the
 	// original behavior.
 	stampByMarker stampAuthority = "marker"
@@ -1457,9 +1457,9 @@ func writeStampFromVerdict(prNumber string, body string) int {
 			// hatch that authorizes a marker-less approval can override a marker-less
 			// misread (e.g. "Previously blocking … : fixed" matching bare "blocking").
 			fmt.Fprintf(os.Stderr, "verdict: changes-requested (tier=%s, matched=%q, advisory) — no stamp written. Address feedback then re-request review;\n", vr.Tier, vr.MatchedPhrase)
-			fmt.Fprintf(os.Stderr, "   if you have READ the review and this is a prose misread, the out-of-band escape hatch applies: kaisser pr-review unlock (separate terminal), then re-run --write-stamp.\n")
+			fmt.Fprintf(os.Stderr, "   if you have READ the review and this is a prose misread, the out-of-band escape hatch applies: bravros pr-review unlock (separate terminal), then re-run --write-stamp.\n")
 		default:
-			fmt.Fprintf(os.Stderr, "⚠️  verdict unclear — no stamp written. Read the bot reply yourself; if you agree, see `kaisser pr-review unlock`.\n")
+			fmt.Fprintf(os.Stderr, "⚠️  verdict unclear — no stamp written. Read the bot reply yourself; if you agree, see `bravros pr-review unlock`.\n")
 		}
 		return 0
 	}
@@ -1488,7 +1488,7 @@ func emitStamp(prNumber string, vr parseVerdictResult, authority string) int {
 	// prose the human was trusting (or overriding) when they minted the token.
 	fmt.Fprintf(os.Stderr, "✅ review stamp written: %s (stamp=approved, prose-guess=%s, tier=%s, matched=%q)\n",
 		sr.Path, vr.Verdict, vr.Tier, vr.MatchedPhrase)
-	fmt.Fprintf(os.Stderr, "   authority: %s — the review carried NO KAISSER-VERDICT marker; this stamp\n", authority)
+	fmt.Fprintf(os.Stderr, "   authority: %s — the review carried NO BRAVROS-VERDICT marker; this stamp\n", authority)
 	fmt.Fprintf(os.Stderr, "   rests on the operator's out-of-band approval, not on the prose classifier.\n")
 	return 0
 }
@@ -1499,12 +1499,12 @@ func emitStamp(prNumber string, vr parseVerdictResult, authority string) int {
 // and (c) exactly how to authorize it deliberately if they agree.
 func adviseTier2NoToken(prNumber string, vr parseVerdictResult) {
 	fmt.Fprintf(os.Stderr, "ℹ️  the bot appears to APPROVE (tier=prose, matched=%q), but its review carries NO\n", vr.MatchedPhrase)
-	fmt.Fprintf(os.Stderr, "   KAISSER-VERDICT: approved marker — so this is our GUESS about its prose,\n")
+	fmt.Fprintf(os.Stderr, "   BRAVROS-VERDICT: approved marker — so this is our GUESS about its prose,\n")
 	fmt.Fprintf(os.Stderr, "   not its verdict. A guess cannot authorize a merge: no stamp written.\n\n")
 	fmt.Fprintf(os.Stderr, "   If you have READ the review and you agree with it, stamp it deliberately:\n")
 	fmt.Fprintf(os.Stderr, "     1. Open a separate terminal (outside Claude Code, same machine)\n")
-	fmt.Fprintf(os.Stderr, "     2. Run: kaisser pr-review unlock\n")
-	fmt.Fprintf(os.Stderr, "     3. Return here and re-run: kaisser pr-review %s --write-stamp\n\n", prNumber)
+	fmt.Fprintf(os.Stderr, "     2. Run: bravros pr-review unlock\n")
+	fmt.Fprintf(os.Stderr, "     3. Return here and re-run: bravros pr-review %s --write-stamp\n\n", prNumber)
 	fmt.Fprintf(os.Stderr, "   The token is single-use (5-min TTL) and is consumed by the stamp it authorizes.\n")
 	fmt.Fprintf(os.Stderr, "   Claude Code CANNOT mint this token — that is intentional.\n")
 }
@@ -1564,7 +1564,7 @@ func fetchLatestBotReviewOrComment(prNumber string, botLogin string, sinceTime t
 		if commentErr == nil && comment != nil {
 			// Only count comments whose body starts with "**Claude finished" —
 			// the @claude GitHub Action posts replies like:
-			//   **Claude finished @skaisser's task in 2m 59s** —— [View job](...)
+			//   **Claude finished @sbravros's task in 2m 59s** —— [View job](...)
 			// The closing `**` appears AFTER extra text (timing/job link), so we
 			// match the opening `**Claude finished` prefix only. This still excludes
 			// the user's "@claude review" request comment, which never starts with

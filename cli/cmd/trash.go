@@ -12,15 +12,15 @@ var trashGCDaysFlag int
 var trashCmd = &cobra.Command{
 	Use:   "trash",
 	Short: "Inspect and manage the .trash/ preserve area",
-	Long: `The .trash/ preserve area holds copies made by kaisser discard and
-kaisser clean-untracked before they discard uncommitted content.
+	Long: `The .trash/ preserve area holds copies made by bravros discard and
+bravros clean-untracked before they discard uncommitted content.
 
-kaisser trash list           — entries with age, file count and size
-kaisser trash restore <id>   — copy an entry's files back (byte-identical)
-kaisser trash gc [--days N]  — reap entries older than N days (default 30)
+bravros trash list           — entries with age, file count and size
+bravros trash restore <id>   — copy an entry's files back (byte-identical)
+bravros trash gc [--days N]  — reap entries older than N days (default 30)
 
 The area lives at <repo-root>/.trash/ (gitignored) and is also swept by
-kaisser branch prune --gc.`,
+bravros branch prune --gc.`,
 }
 
 var trashListCmd = &cobra.Command{

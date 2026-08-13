@@ -1,9 +1,9 @@
-# Example project configuration for kaisser.
+# Example project configuration for bravros.
 #
-# This file is generated once by `kaisser init`.
+# This file is generated once by `bravros init`.
 # It is consumed by skills, audit rules, and CLI verbs to avoid re-detecting the stack.
 # The file is hand-editable, but `detected_at` is auto-managed by the CLI.
-# Copy to .kaisser.yml and uncomment only the options you need.
+# Copy to .bravros.yml and uncomment only the options you need.
 
 # staging_branch: Set the default staging/development branch.
 # Default: homolog
@@ -129,7 +129,7 @@ env:
 # ============================================================================
 #
 # enabled: Allowlist of skill directory names to deploy.
-#          When non-empty, `kaisser deploy` only copies these skills PLUS
+#          When non-empty, `bravros deploy` only copies these skills PLUS
 #          any skill marked `core: true` in its SKILL.md.
 #          When empty or absent, ALL skills deploy (backward-compatible default).
 #
@@ -167,7 +167,7 @@ env:
 #     staging: rebase
 
 # ============================================================================
-# features: Feature flags for optional kaisser behaviours.
+# features: Feature flags for optional bravros behaviours.
 # ============================================================================
 
 features:
@@ -175,8 +175,8 @@ features:
   review_stamp_gate: false
 
   # Enable context-economy v2 path in /plan-check (B-0235).
-  # When true, /plan-check Step 1 uses `kaisser plan-check-status --json` +
-  # `kaisser plan-diff --since` instead of `kaisser context --diffs` + full plan Read.
+  # When true, /plan-check Step 1 uses `bravros plan-check-status --json` +
+  # `bravros plan-diff --since` instead of `bravros context --diffs` + full plan Read.
   # Target: ≥80% input-token reduction on P-0089-sized plans.
   # Default: false — v1 behavior preserved for one release cycle.
   plan_check_v2: false

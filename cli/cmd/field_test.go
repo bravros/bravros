@@ -94,7 +94,7 @@ func TestFieldExtract_NestedObjectReturnsJSON(t *testing.T) {
 // --- fieldExtractFound (P-0121 follow-up #15 — strict-mode sibling) ---
 //
 // fieldExtractFound is the (value, found) variant used by strict callers like
-// `kaisser meta --field`. Skill typos previously regressed real fixes because
+// `bravros meta --field`. Skill typos previously regressed real fixes because
 // the lenient fieldExtract returned "" silently with exit 0; metaCmd now exits
 // non-zero on found=false.
 

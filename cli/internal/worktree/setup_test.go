@@ -503,7 +503,7 @@ func TestResolveBaseBranchName(t *testing.T) {
 
 func TestResolveBaseBranchName_EmptyFallsBackToConfigOrMain(t *testing.T) {
 	t.Parallel()
-	// No .kaisser.yml in this tempdir and no cwd override — falls back to the
+	// No .bravros.yml in this tempdir and no cwd override — falls back to the
 	// config package's own default ("homolog") or ultimately "main". Either
 	// way it must never return empty.
 	got := resolveBaseBranchName("")

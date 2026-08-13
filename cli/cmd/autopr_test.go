@@ -140,7 +140,7 @@ func TestClearLock_NoOp_SingleOtherLock_PrintsLockCommand(t *testing.T) {
 
 	out := clearLockOutsideClaude(t)
 
-	if !strings.Contains(out, "Clear with: kaisser autopr clear-lock --lock auto-merge-lock") {
+	if !strings.Contains(out, "Clear with: bravros autopr clear-lock --lock auto-merge-lock") {
 		t.Errorf("expected copy-pasteable --lock command in output, got:\n%s", out)
 	}
 	if !strings.Contains(out, "mode=batch") || !strings.Contains(out, "age=") {
@@ -169,7 +169,7 @@ func TestClearLock_NoOp_MultipleOtherLocks_PrintsAll(t *testing.T) {
 
 	out := clearLockOutsideClaude(t)
 
-	if !strings.Contains(out, "Clear all with: kaisser autopr clear-lock --all") {
+	if !strings.Contains(out, "Clear all with: bravros autopr clear-lock --all") {
 		t.Errorf("expected --all hint for multiple other locks, got:\n%s", out)
 	}
 	if !strings.Contains(out, ".auto-merge-lock") || !strings.Contains(out, ".auto-flow-lock") {

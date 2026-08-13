@@ -70,7 +70,7 @@ func sendHASay(msg, dev string, force, tts bool, out io.Writer) error {
 	// The kill-switch outranks everything, --force included: mute is an explicit operator
 	// action for calls and meetings, whereas --force only bypasses the Mac-unlock presence
 	// gate. scripts/announce.sh enforces this too, but the check has to live here as well —
-	// otherwise a bare `kaisser ha say` walks straight past it and the command's own
+	// otherwise a bare `bravros ha say` walks straight past it and the command's own
 	// "kill-switch for every announcement" help text is false. Checked before NewClient so a
 	// muted host needs no HASS_TOKEN to stay quiet.
 	if muted, until := ha.MuteStatus(); muted {
@@ -97,8 +97,8 @@ func sendHASay(msg, dev string, force, tts bool, out io.Writer) error {
 
 	// Alexa silently discards announcements to a device with Do Not Disturb on: HA returns
 	// 200 and nothing plays, so the failure is invisible from here. Clear DND first rather
-	// than lose the message. Opt out with KAISSER_DND_AUTOCLEAR=0.
-	if os.Getenv("KAISSER_DND_AUTOCLEAR") != "0" {
+	// than lose the message. Opt out with BRAVROS_DND_AUTOCLEAR=0.
+	if os.Getenv("BRAVROS_DND_AUTOCLEAR") != "0" {
 		if slug := ha.DeviceSlug(dev); slug != "" {
 			client.CallService("switch/turn_off",
 				fmt.Sprintf(`{"entity_id":"switch.%s_do_not_disturb_switch"}`, slug))
@@ -379,7 +379,7 @@ expiry, so muting before a call can never strand you in permanent silence.
 
 State is ~/.claude/.mute, also read directly by scripts/announce.sh and writable by
 scripts/mute-announce.sh (the StreamDeck entry point) — so mute works even on a machine
-whose kaisser binary is out of date.`,
+whose bravros binary is out of date.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		verb := "status"
 		if len(args) > 0 {

@@ -1,11 +1,11 @@
-// Package nowtime provides canonical time-formatting for the kaisser CLI.
+// Package nowtime provides canonical time-formatting for the bravros CLI.
 // Skills and commands that need a timestamp should call Now() so the format
 // is consistent and testable in one place.
 package nowtime
 
 import "time"
 
-// Layout is the minute-precision ISO 8601 format used throughout the kaisser
+// Layout is the minute-precision ISO 8601 format used throughout the bravros
 // toolchain. Skills write this into plan/backlog frontmatter (created:) and
 // task completion markers.
 //
@@ -14,7 +14,7 @@ import "time"
 const Layout = "2006-01-02T15:04"
 
 // LayoutRFC3339 is the full RFC 3339 layout (seconds + timezone offset).
-// Use via kaisser time --format rfc3339 when callers need higher precision.
+// Use via bravros time --format rfc3339 when callers need higher precision.
 const LayoutRFC3339 = time.RFC3339
 
 // LayoutDateOnly is the date-only layout (YYYY-MM-DD).

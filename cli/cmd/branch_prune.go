@@ -29,7 +29,7 @@ The worktree guard is fail-closed: "git worktree list --porcelain" is parsed
 ONCE up front, and if the listing fails the whole run aborts. A branch checked
 out in any worktree is reported as SKIPPED-WORKTREE — even when merged into
 the base — because worktree teardown is owned by /worktree destroy
-(kaisser worktree cleanup <path>), never by prune.
+(bravros worktree cleanup <path>), never by prune.
 
 Every pull request in the repo is fetched ONCE up front (gh api --paginate) and
 indexed by head branch, so classification costs one round-trip for the whole
@@ -56,7 +56,7 @@ Flags:
                        (.planning/.review-stamp-*.json whose PR is MERGED/CLOSED,
                        fail-closed on uncertainty) AND reap .trash/ entries older
                        than 30 days; skip normal prune.
-  --base <ref>         Override the base branch (default: auto-detected from kaisser meta).
+  --base <ref>         Override the base branch (default: auto-detected from bravros meta).
   --exclude-rejected   Hold back rejected branches instead of deleting them.
 
 Tombstones are written to refs/tombstones/<branch> and can be recovered within
@@ -99,7 +99,7 @@ func runBranchPrune(cmd *cobra.Command, args []string) error {
 		// uncertainty). Errors are non-fatal — the tombstone GC already ran.
 		reapedStamps, _ := branchpkg.GCReviewStamps()
 
-		// Sweep the .trash/ preserve area (kaisser discard / clean-untracked
+		// Sweep the .trash/ preserve area (bravros discard / clean-untracked
 		// copies) past its 30-day retention window. Non-fatal, same as stamps.
 		var reapedTrash []string
 		if root, err := trash.RepoRoot(""); err == nil {

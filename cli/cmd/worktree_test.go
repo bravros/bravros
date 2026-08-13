@@ -343,7 +343,7 @@ func TestSetupFullEnvCopy(t *testing.T) {
 }
 
 // TestDetectNodePackageManager exercises the lockfile heuristic in isolation
-// (the one bravros is missing and kaisser ships first).
+// (the one bravros is missing and bravros ships first).
 func TestDetectNodePackageManager(t *testing.T) {
 	tests := []struct {
 		name     string

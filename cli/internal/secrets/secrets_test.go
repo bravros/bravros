@@ -44,8 +44,8 @@ func TestSplitKeyValue(t *testing.T) {
 // to a different key appends.
 func TestSetEnvSecret_WritesAndUpdates(t *testing.T) {
 	dir := t.TempDir()
-	envFile := filepath.Join(dir, "kaisser", "secrets.env")
-	t.Setenv("KAISSER_ENV_FILE", envFile)
+	envFile := filepath.Join(dir, "bravros", "secrets.env")
+	t.Setenv("BRAVROS_ENV_FILE", envFile)
 
 	path, err := SetEnvSecret("FIRECRAWL_API_KEY", "v1")
 	if err != nil {
@@ -86,7 +86,7 @@ func TestSetEnvSecret_WritesAndUpdates(t *testing.T) {
 	// No .tmp leftover.
 	entries, _ := os.ReadDir(filepath.Dir(envFile))
 	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), ".kaisser-env-") {
+		if strings.HasPrefix(e.Name(), ".bravros-env-") {
 			t.Errorf("leftover temp env file: %s", e.Name())
 		}
 	}
@@ -99,7 +99,7 @@ func TestStatus(t *testing.T) {
 	defer func() { opAvailableFn = orig }()
 
 	envFile := filepath.Join(t.TempDir(), "secrets.env")
-	t.Setenv("KAISSER_ENV_FILE", envFile)
+	t.Setenv("BRAVROS_ENV_FILE", envFile)
 	t.Setenv(backendEnvVar, "env")
 
 	st := Status()

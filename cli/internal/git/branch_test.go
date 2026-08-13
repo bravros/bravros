@@ -126,7 +126,7 @@ func TestBranchBaseDetection(t *testing.T) {
 	}
 }
 
-func TestBranchSkaisserYmlOverride(t *testing.T) {
+func TestBranchSbravrosYmlOverride(t *testing.T) {
 	dir, cleanup := initTempRepo(t)
 	defer cleanup()
 
@@ -143,9 +143,9 @@ func TestBranchSkaisserYmlOverride(t *testing.T) {
 		}
 	}
 
-	// Write .kaisser.yml with staging_branch override
+	// Write .bravros.yml with staging_branch override
 	yml := []byte("staging_branch: staging\n")
-	os.WriteFile(filepath.Join(dir, ".kaisser.yml"), yml, 0644)
+	os.WriteFile(filepath.Join(dir, ".bravros.yml"), yml, 0644)
 
 	repo, err := Open("")
 	if err != nil {
@@ -154,7 +154,7 @@ func TestBranchSkaisserYmlOverride(t *testing.T) {
 
 	base := resolveBaseBranch(repo)
 	if base != "staging" {
-		t.Errorf("expected base 'staging' from .kaisser.yml, got %q", base)
+		t.Errorf("expected base 'staging' from .bravros.yml, got %q", base)
 	}
 }
 

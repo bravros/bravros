@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-// StatusInfo summarizes the active secrets configuration for `kaisser secrets
+// StatusInfo summarizes the active secrets configuration for `bravros secrets
 // status`.
 type StatusInfo struct {
 	Backend       Backend `json:"backend"`
@@ -70,7 +70,7 @@ func SplitKeyValue(arg string) (key, value string, err error) {
 }
 
 // SetEnvSecret writes or updates KEY=VALUE in the env-backend secrets file
-// ($KAISSER_ENV_FILE, default ~/.config/kaisser/secrets.env). The parent dir is
+// ($BRAVROS_ENV_FILE, default ~/.config/bravros/secrets.env). The parent dir is
 // created (0700) and the file is written 0600. Existing keys are updated in
 // place; the rest of the file is preserved. Returns the file path written.
 //
@@ -79,7 +79,7 @@ func SplitKeyValue(arg string) (key, value string, err error) {
 func SetEnvSecret(key, value string) (string, error) {
 	path := EnvFilePath()
 	if path == "" {
-		return "", fmt.Errorf("cannot determine env-file path (set KAISSER_ENV_FILE or $HOME)")
+		return "", fmt.Errorf("cannot determine env-file path (set BRAVROS_ENV_FILE or $HOME)")
 	}
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0700); err != nil {
@@ -149,7 +149,7 @@ func keychainAdd(service, account, value string) error {
 }
 
 // SetKeychainSecret writes KEY=VALUE into the macOS login keychain under the
-// registry's service/account mapping for KEY (default service "kaisser-secrets",
+// registry's service/account mapping for KEY (default service "bravros-secrets",
 // account = KEY). It is the keychain-backend analogue of SetEnvSecret. Returns
 // the (service, account) pair written. Fails fast on non-darwin / no-`security`
 // hosts rather than silently doing nothing.
@@ -169,7 +169,7 @@ func SetKeychainSecret(key, value string) (service, account string, err error) {
 // writer but takes an explicit mode (0600 for secrets).
 func writeFileAtomic(path, content string, mode os.FileMode) error {
 	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".kaisser-env-*.tmp")
+	tmp, err := os.CreateTemp(dir, ".bravros-env-*.tmp")
 	if err != nil {
 		return fmt.Errorf("cannot create temp file in %s: %w", dir, err)
 	}

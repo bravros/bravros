@@ -113,7 +113,7 @@ func TestResolve_KeychainReadsBack(t *testing.T) {
 	}
 	t.Setenv(backendEnvVar, "keychain")
 	t.Setenv("FIRECRAWL_API_KEY", "")
-	t.Setenv("KAISSER_ENV_FILE", filepath.Join(t.TempDir(), "absent.env"))
+	t.Setenv("BRAVROS_ENV_FILE", filepath.Join(t.TempDir(), "absent.env"))
 
 	if got := Resolve("FIRECRAWL_API_KEY", "Firecrawl API", "credencial"); got != "fc-from-keychain" {
 		t.Errorf("keychain backend should resolve from keychain, got %q", got)
@@ -142,7 +142,7 @@ func TestResolve_KeychainDegradesWithoutSecurity(t *testing.T) {
 	keychainLookupFn = func(string, string) (string, bool) { called = true; return "x", true }
 	t.Setenv(backendEnvVar, "keychain")
 	t.Setenv("FIRECRAWL_API_KEY", "")
-	t.Setenv("KAISSER_ENV_FILE", filepath.Join(t.TempDir(), "absent.env"))
+	t.Setenv("BRAVROS_ENV_FILE", filepath.Join(t.TempDir(), "absent.env"))
 
 	// DetectBackend would degrade keychain→env here, so Resolve's keychain branch
 	// is unreachable; still must not shell out.
@@ -179,8 +179,8 @@ func TestSetKeychainSecret_RoundTrip(t *testing.T) {
 	defer func() { securityAvailableFn = origSec }()
 	securityAvailableFn = func() bool { return true }
 
-	const service = "kaisser-secrets-test"
-	const account = "KAISSER_KEYCHAIN_TEST"
+	const service = "bravros-secrets-test"
+	const account = "BRAVROS_KEYCHAIN_TEST"
 	// Best-effort pre-clean + deferred clean.
 	cleanup := func() {
 		_ = exec.Command("/usr/bin/security", "delete-generic-password", "-a", account, "-s", service).Run()

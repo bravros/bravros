@@ -18,7 +18,7 @@ import (
 //     get a stable error path (verify-install reports the missing dir).
 //
 // Filesystem detection means a single binary works on any host without
-// requiring KAISSER_PORTABLE_REPO to be set — important because the env-var
+// requiring BRAVROS_PORTABLE_REPO to be set — important because the env-var
 // override at config.PortableRepo() is only checked by callers that route
 // through that helper.
 func PortableRepoDir() string {

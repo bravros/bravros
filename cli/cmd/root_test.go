@@ -6,7 +6,7 @@ import (
 )
 
 // TestRootVersionFlag verifies that passing --version (or -v) to rootCmd
-// produces the same output as `kaisser version` and does not return an error.
+// produces the same output as `bravros version` and does not return an error.
 // Because the flag triggers os.Exit(0), we test the output path via the
 // versionCmd directly and confirm the flag is registered on rootCmd.
 func TestRootVersionFlag(t *testing.T) {

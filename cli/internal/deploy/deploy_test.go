@@ -534,7 +534,7 @@ func TestPruneAllowlistGuardsBin(t *testing.T) {
 	mustDir(filepath.Join(target, "bin"))
 	mustDir(filepath.Join(target, "projects", "foo"))
 	mustDir(filepath.Join(target, "state"))
-	binFile := filepath.Join(target, "bin", "kaisser")
+	binFile := filepath.Join(target, "bin", "bravros")
 	if err := os.WriteFile(binFile, []byte("binary"), 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -678,7 +678,7 @@ func TestDeployNoBrokenSymlinksNoSpuriousDeletions(t *testing.T) {
 // in the preserve slice are NOT marked as orphans even when absent from source.
 //
 // Covers B-0237: manually-added ~/.claude/skills/graphify/ must survive prune
-// when the user opts in via .kaisser.yml:skills.preserve: [graphify].
+// when the user opts in via .bravros.yml:skills.preserve: [graphify].
 func TestDetectOrphans_HonorsPreserveList(t *testing.T) {
 	// Source: minimal claude repo with one real skill.
 	src := filepath.Join(t.TempDir(), "claude")
@@ -733,7 +733,7 @@ func TestDetectOrphans_HonorsPreserveList(t *testing.T) {
 //
 // Regression guard: a locked ~/.claude/settings.json used to abort the whole
 // deploy, which silently left ~/.claude/scripts/ months stale while
-// `kaisser update` still reported success.
+// `bravros update` still reported success.
 func TestDeployLockedFileSkippedNotFatal(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("running as root — permission bits are not enforced")

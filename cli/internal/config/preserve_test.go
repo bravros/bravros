@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-// writeKaisserYML writes a JSON config with a skills.preserve list to dir.
-func writeKaisserYML(t *testing.T, dir string, skills []string) {
+// writeBravrosYML writes a JSON config with a skills.preserve list to dir.
+func writeBravrosYML(t *testing.T, dir string, skills []string) {
 	t.Helper()
 	type SkillObj struct {
 		Preserve []string `json:"preserve"`
@@ -34,7 +34,7 @@ func writeKaisserYML(t *testing.T, dir string, skills []string) {
 		t.Fatalf("failed to create target dir: %v", err)
 	}
 	if err := os.WriteFile(target, jsonData, 0644); err != nil {
-		t.Fatalf("writeKaisserYML: %v", err)
+		t.Fatalf("writeBravrosYML: %v", err)
 	}
 }
 
@@ -46,7 +46,7 @@ func TestPreservedSkills_Dedup(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(orig) }()
 
-	writeKaisserYML(t, dir, []string{"graphify", "graphify", "myplugin"})
+	writeBravrosYML(t, dir, []string{"graphify", "graphify", "myplugin"})
 	got := PreservedSkills()
 	if len(got) != 2 {
 		t.Fatalf("expected 2 deduplicated skills, got %d: %v", len(got), got)
@@ -66,10 +66,10 @@ func TestPreservedSkills_CwdWinsOverEnv(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(orig) }()
 
-	writeKaisserYML(t, cwdDir, []string{"cwd-skill"})
-	writeKaisserYML(t, envDir, []string{"env-skill"})
+	writeBravrosYML(t, cwdDir, []string{"cwd-skill"})
+	writeBravrosYML(t, envDir, []string{"env-skill"})
 
-	t.Setenv("KAISSER_PORTABLE_REPO", envDir)
+	t.Setenv("BRAVROS_PORTABLE_REPO", envDir)
 
 	got := PreservedSkills()
 	if len(got) != 1 || got[0] != "cwd-skill" {
@@ -79,7 +79,7 @@ func TestPreservedSkills_CwdWinsOverEnv(t *testing.T) {
 
 func TestPreservedSkills_EnvWinsOverHome(t *testing.T) {
 	orig, _ := os.Getwd()
-	cwdDir := t.TempDir() // no .kaisser.yml here
+	cwdDir := t.TempDir() // no .bravros.yml here
 	envDir := t.TempDir()
 	homeDir := t.TempDir()
 	if err := os.Chdir(cwdDir); err != nil {
@@ -87,10 +87,10 @@ func TestPreservedSkills_EnvWinsOverHome(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(orig) }()
 
-	writeKaisserYML(t, envDir, []string{"env-skill"})
-	writeKaisserYML(t, homeDir, []string{"home-skill"})
+	writeBravrosYML(t, envDir, []string{"env-skill"})
+	writeBravrosYML(t, homeDir, []string{"home-skill"})
 
-	t.Setenv("KAISSER_PORTABLE_REPO", envDir)
+	t.Setenv("BRAVROS_PORTABLE_REPO", envDir)
 	t.Setenv("HOME", homeDir)
 
 	got := PreservedSkills()
@@ -101,14 +101,14 @@ func TestPreservedSkills_EnvWinsOverHome(t *testing.T) {
 
 func TestPreservedSkills_NonePresent(t *testing.T) {
 	orig, _ := os.Getwd()
-	dir := t.TempDir() // no .kaisser.yml
+	dir := t.TempDir() // no .bravros.yml
 	if err := os.Chdir(dir); err != nil {
 		t.Fatalf("chdir: %v", err)
 	}
 	defer func() { _ = os.Chdir(orig) }()
 
-	t.Setenv("KAISSER_PORTABLE_REPO", "")
-	t.Setenv("HOME", dir) // also has no .kaisser.yml
+	t.Setenv("BRAVROS_PORTABLE_REPO", "")
+	t.Setenv("HOME", dir) // also has no .bravros.yml
 
 	got := PreservedSkills()
 	if got != nil {
@@ -124,8 +124,8 @@ func TestPreservedSkills_EmptyPreserveList(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(orig) }()
 
-	// .kaisser.yml exists but skills.preserve is empty
-	writeKaisserYML(t, dir, nil)
+	// .bravros.yml exists but skills.preserve is empty
+	writeBravrosYML(t, dir, nil)
 	got := PreservedSkills()
 	if got != nil {
 		t.Fatalf("expected nil for empty preserve list, got %v", got)

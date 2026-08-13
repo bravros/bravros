@@ -8,16 +8,16 @@ import (
 )
 
 func TestEnv_DefaultsByOS(t *testing.T) {
-	// Unset all KAISSER_* env vars to test defaults.
+	// Unset all BRAVROS_* env vars to test defaults.
 	vars := []string{
-		"KAISSER_PORTABLE_REPO",
-		"KAISSER_CONFIG_DIR",
-		"KAISSER_PLANNING_DIR",
-		"KAISSER_OP_VAULT",
-		"KAISSER_BASE_BRANCH",
-		"KAISSER_HASS_SERVER",
-		"KAISSER_HASS_ENTITY_ID",
-		"KAISSER_DEPLOY_MODE",
+		"BRAVROS_PORTABLE_REPO",
+		"BRAVROS_CONFIG_DIR",
+		"BRAVROS_PLANNING_DIR",
+		"BRAVROS_OP_VAULT",
+		"BRAVROS_BASE_BRANCH",
+		"BRAVROS_HASS_SERVER",
+		"BRAVROS_HASS_ENTITY_ID",
+		"BRAVROS_DEPLOY_MODE",
 	}
 	for _, v := range vars {
 		t.Setenv(v, "")
@@ -74,14 +74,14 @@ func TestEnv_DefaultsByOS(t *testing.T) {
 }
 
 func TestEnv_EnvOverride(t *testing.T) {
-	t.Setenv("KAISSER_PORTABLE_REPO", "/custom/repo")
-	t.Setenv("KAISSER_CONFIG_DIR", "/custom/.claude")
-	t.Setenv("KAISSER_PLANNING_DIR", "custom-planning")
-	t.Setenv("KAISSER_OP_VAULT", "MyVault")
-	t.Setenv("KAISSER_BASE_BRANCH", "main")
-	t.Setenv("KAISSER_HASS_SERVER", "my-ha.local:8123")
-	t.Setenv("KAISSER_HASS_ENTITY_ID", "input_boolean.my_lock")
-	t.Setenv("KAISSER_DEPLOY_MODE", "copies")
+	t.Setenv("BRAVROS_PORTABLE_REPO", "/custom/repo")
+	t.Setenv("BRAVROS_CONFIG_DIR", "/custom/.claude")
+	t.Setenv("BRAVROS_PLANNING_DIR", "custom-planning")
+	t.Setenv("BRAVROS_OP_VAULT", "MyVault")
+	t.Setenv("BRAVROS_BASE_BRANCH", "main")
+	t.Setenv("BRAVROS_HASS_SERVER", "my-ha.local:8123")
+	t.Setenv("BRAVROS_HASS_ENTITY_ID", "input_boolean.my_lock")
+	t.Setenv("BRAVROS_DEPLOY_MODE", "copies")
 
 	if got, want := PortableRepo(), "/custom/repo"; got != want {
 		t.Errorf("PortableRepo() = %q, want %q", got, want)

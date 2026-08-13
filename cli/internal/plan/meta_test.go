@@ -184,7 +184,7 @@ func writePlanFileWithFM(t *testing.T, dir, name, branch string) string {
 
 // TestFindPlanFile_AfterAdvanceToApproved verifies that FindPlanFile finds a
 // *-approved.md plan file (branch has zero *-todo.md plans — the plan was
-// advanced via `kaisser plan advance --to approved`). This is the B-0238 regression.
+// advanced via `bravros plan advance --to approved`). This is the B-0238 regression.
 func TestFindPlanFile_AfterAdvanceToApproved(t *testing.T) {
 	dir := t.TempDir()
 
@@ -1521,11 +1521,11 @@ func TestReservePlaceholder_PlaceholderCountedByGetNextNumAtomic(t *testing.T) {
 }
 
 // TestGetNextNumAtomic_EnvVarFallback verifies that when scanMode param is empty,
-// the KAISSER_NEXTID_SCAN_MODE env var is consulted as a fallback. This preserves
+// the BRAVROS_NEXTID_SCAN_MODE env var is consulted as a fallback. This preserves
 // the existing escape-hatch path for external library users.
 func TestGetNextNumAtomic_EnvVarFallback(t *testing.T) {
 	// Use env var (not param) to set single-tree mode.
-	t.Setenv("KAISSER_NEXTID_SCAN_MODE", "single-tree")
+	t.Setenv("BRAVROS_NEXTID_SCAN_MODE", "single-tree")
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "P-0007-plan-todo.md"), []byte("# Plan\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
@@ -1591,7 +1591,7 @@ func TestRunGitCommand_Timeout(t *testing.T) {
 // ─── P-0170 Phase 4 regression tests ──────────────────────────────────────────
 
 // TestReservePlaceholder_WritesToCallingCheckout verifies the P-0170 write-side
-// contract: when `kaisser nextid reserve` is called from a linked worktree, the
+// contract: when `bravros nextid reserve` is called from a linked worktree, the
 // .placeholder file must land in that worktree's .planning/ directory, NOT in the
 // primary worktree's .planning/.
 //
@@ -1699,10 +1699,10 @@ func TestReservePlaceholder_WritesToCallingCheckout(t *testing.T) {
 // ─── P-0172 regression tests ──────────────────────────────────────────────────
 
 // TestResolveWriteRoot_AndFindPlanFile_InLinkedWorktree verifies the post-P-0172
-// (P-0170 Phase 4) contract: kaisser meta --field plan_file from inside a linked
+// (P-0170 Phase 4) contract: bravros meta --field plan_file from inside a linked
 // git worktree returns a path under the CALLING WORKTREE's .planning/, not the
 // primary clone's. This is the inverse of the deleted B-0208 contract — see
-// .planning/debug/D-0004-kaisser-meta-plan-file-worktree-path-open/diagnosis.md
+// .planning/debug/D-0004-bravros-meta-plan-file-worktree-path-open/diagnosis.md
 // for the runtime evidence that motivated reversing it.
 //
 // The test exercises the exact pair of helpers metaCmd now uses:
