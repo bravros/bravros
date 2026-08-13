@@ -143,7 +143,7 @@ func printDeploySummary(r *deploy.DeployResult, w io.Writer) {
 
 var deployCmd = &cobra.Command{
 	Use:   "deploy",
-	Short: "Deploy claude config repo to ~/.claude/",
+	Short: "Deploy the toolkit runtime into the host config dir",
 	Long: `Copy skills, hooks, templates, config/settings.json, config/statusline.sh,
 and CLAUDE.md from the source repo to ~/.claude/.
 Skips mcp.json (machine-specific) and scripts/ (empty).

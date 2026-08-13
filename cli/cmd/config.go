@@ -12,7 +12,7 @@ import (
 
 var configCmd = &cobra.Command{
 	Use:   "config",
-	Short: "Read project configuration values from .bravros.yml",
+	Short: "Read project configuration values from .bravros/config.json",
 	Run: func(cmd *cobra.Command, args []string) {
 		cmd.Help()
 	},
@@ -135,8 +135,9 @@ Markdown strategy — HTML comment markers bracket auto-generated content:
 //     (used by the bash legacy prune block in install.sh)
 var configGetCmd = &cobra.Command{
 	Use:   "get <key>",
-	Short: "Read a single value from .bravros.yml",
-	Long: `Read a single configuration value from .bravros.yml and print it to stdout.
+	Short: "Read a single value from .bravros/config.json",
+	Long: `Read a single configuration value from .bravros/config.json (falling back to a
+legacy .bravros.yml when present) and print it to stdout.
 
 Supported keys:
   skills.preserve   Print space-separated list of preserved skill directory names.

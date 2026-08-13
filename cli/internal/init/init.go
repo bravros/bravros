@@ -6,8 +6,10 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/bravros/bravros/cli/internal/config"
 	"github.com/bravros/bravros/cli/internal/hooks"
@@ -53,6 +55,15 @@ type InitResult struct {
 func Init(opts InitOpts) (*InitResult, error) {
 	if opts.Root == "" {
 		opts.Root = "."
+	}
+
+	// Preflight: a git repository is required, and this must fail BEFORE anything is
+	// written. Hooks and core.hooksPath are git-only, so without a repo the caller
+	// would get .bravros/config.json and .planning/ but no enforcement — a project
+	// that looks initialized while the commit-format and main-push guarantees
+	// silently do not hold. Half-initialized is worse than not initialized.
+	if err := requireGitRepo(opts.Root); err != nil {
+		return nil, err
 	}
 
 	result := &InitResult{}
@@ -259,4 +270,32 @@ func copyFile(src, dst string) error {
 
 	_, err = io.Copy(out, in)
 	return err
+}
+
+// requireGitRepo reports a clear, actionable error when root is not inside a git
+// work tree. Without it the failure surfaced as a raw wrapped git error —
+// "failed to set core.hooksPath: ... exit status 128: fatal: not in a git directory"
+// — which is the first thing a new user saw after `curl | sh` told them to run
+// `bravros init`.
+func requireGitRepo(root string) error {
+	cmd := exec.Command("git", "rev-parse", "--is-inside-work-tree")
+	cmd.Dir = root
+	out, err := cmd.Output()
+	if err == nil && strings.TrimSpace(string(out)) == "true" {
+		return nil
+	}
+
+	abs, absErr := filepath.Abs(root)
+	if absErr != nil {
+		abs = root
+	}
+	return fmt.Errorf(`%s is not a git repository.
+
+bravros init installs git hooks (commit-msg, pre-push) and sets core.hooksPath,
+so it needs a repository. Either:
+
+  cd <your-project>   # if you meant to run it somewhere else
+  git init            # if this really is a new project
+
+then run bravros init again`, abs)
 }

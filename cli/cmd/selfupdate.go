@@ -34,7 +34,7 @@ var (
 var selfupdateCmd = &cobra.Command{
 	Use:     "selfupdate",
 	Aliases: []string{"update"},
-	Short:   "Auto-update SDLC from portable repo",
+	Short:   "Auto-update the toolkit when the source has drifted",
 	Long: `Fetches the portable repo, detects real changes (commits, skills drift, CLI version drift),
 and runs install.sh only when an update is actually needed. Stays silent with no 1Password prompts
 when nothing changed.

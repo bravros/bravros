@@ -94,4 +94,7 @@ chmod +x "${BIN_DIR}/bravros"
 add_to_path
 ok "Installed"
 
-printf '\nBravros installed! Run:\n  export PATH="$HOME/.claude/bin:$PATH"\n  bravros init\n\n'
+# `bravros init` is per-repository — it writes .bravros/ and sets core.hooksPath.
+# Telling the user to run it straight from wherever they piped curl was the first
+# thing a new install did wrong: it fails outside a git repo.
+printf '\nBravros installed!\n\n  export PATH="$HOME/.claude/bin:$PATH"\n\nThen, inside a git repository:\n\n  cd /path/to/your-project\n  bravros init\n\n'

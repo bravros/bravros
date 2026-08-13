@@ -12,7 +12,7 @@ import (
 // remains `bash install.sh` (project-scoped setup is `bravros init`).
 var installCmd = &cobra.Command{
 	Use:   "install",
-	Short: "Install bravros (Claude Code runtime)",
+	Short: "Install the toolkit runtime (delegates to install.sh)",
 	Long: `Install bravros for Claude Code.
 
 Global install remains: bash install.sh
