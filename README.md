@@ -165,9 +165,13 @@ hard constraint in a skill and nowhere else.
 
 **The agent cannot authorize its own dangerous actions.** That's the design, not a policy note.
 
-- **Production merges need you.** `main` is protected by branch rules plus a `pre-push` hook that
-  refuses `refs/heads/main`. Promotion stops for a token minted in a separate terminal — the
-  running session cannot mint it, so "the agent merged to production on its own" has no path.
+- **Production merges need you.** `main` is protected by GitHub branch rules and a `pre-push` hook
+  that refuses `refs/heads/main`. That pair is the control that actually holds, because branch
+  protection lives on a server the agent does not run on. Layered on top, `bravros promote unlock`
+  refuses to mint a token when it detects an agent session, so a session cannot casually
+  self-authorize. **Know the limit:** the token is an unsigned JSON file on disk — a guardrail
+  against accidents and drive-by self-approval, not a cryptographic barrier. Branch protection is
+  what stands between an agent and production; the token is what stops it happening by mistake.
 - **Deletion preserves first.** `discard`, `trash`, and `clean-untracked` copy into `.trash/`
   before removing anything, and are reversible. Permanently destroying content that git has never
   seen requires a single-use token, again minted out of band.
