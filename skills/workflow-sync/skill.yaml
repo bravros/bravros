@@ -9,7 +9,7 @@ metadata:
     description: Sincroniza um projeto existente com a configuração de workflow mais recente — hooks, GitHub Action e template de sync do banco.
   es:
     name: workflow-sync
-    description: Sincroniza un proyecto existente con la configuración de flujo de trabajo más reciente: githooks, GitHub Action y plantilla de sincronización de BD.
+    description: Sincroniza un proyecto existente con la configuración de flujo de trabajo más reciente — githooks, GitHub Action y plantilla de sincronización de BD.
 body: |
   INTENT: Sync an existing project with the latest workflow setup — hooks, GitHub Action, and DB sync template.
 
