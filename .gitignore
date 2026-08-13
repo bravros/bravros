@@ -20,6 +20,7 @@
 .env
 .env.*
 !.env.example
+go.work
 
 # Internal planning — NEVER publish. This repo is public.
 # Root-anchored so templates/.planning/ (a shipped template) is unaffected.

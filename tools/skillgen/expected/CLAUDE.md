@@ -2,7 +2,7 @@
 
 This file contains the instructions for the Bravros agent toolkit.
 
-## Skill: bravros-commit
+## Skill: commit
 Commit staged changes with emoji+type conventions and formatting.
 
 # commit
