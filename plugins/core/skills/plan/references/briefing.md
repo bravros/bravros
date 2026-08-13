@@ -1,0 +1,64 @@
+# Detailed Instructions & Context for `/plan`
+
+Read this document on demand for complete execution details, review rules, recording conventions, and flags.
+
+INTENT: produce ONE folder — `.planning/P-NNNN-<slug>/` — that `/orchestrate` executes with zero
+translation, reviewed in the same run. No second skill, no second session. Folder shape:
+[`references/dossier-template.md`](file:///Users/skaisser/Sites/bravros/skills/plan/references/dossier-template.md) — read it before writing.
+
+## 1 — Reserve identity
+
+`uv run scripts/planning-events/fold.py` prints the live status table; a subject already covering
+this territory → surface it and ask before writing a near-duplicate. Then
+`PLAN_ID=$(bravros nextid reserve plan)` (atomic across worktrees; abort before the folder exists
+→ `bravros nextid release $PLAN_ID`) and `mkdir -p .planning/P-NNNN-<slug>/`.
+
+## 2 — Interview only where readings diverge
+
+Ask nothing you can read. Where two viable approaches genuinely fork, AskUserQuestion; a deep
+multi-round fork → `/interview-me`. Write the answers into the README as **closed decisions**,
+alongside the only-we-know context — constraints, traps, what is canonical and NOT changing — so
+`/orchestrate` never relitigates them. `/plan B-NNNN` (or a bare number) → read
+`.planning/backlog/B-NNNN-*.md` as context and link it in the brief.
+
+## 3 — Write the dossier, then review it inline
+
+`README.md` = identity frontmatter + brief + phases + `## Acceptance`; every phase gets a
+`Touches:` line of real paths, checkbox tasks, and a `Verify:` command. Then review your own
+output before calling it ready — graphify first (`graphify query "..."`), grep second:
+
+- Every path named exists. No phase depends on a later phase's output. Two phases touching one
+  file are ordered, not parallel. A "verify + fix" phase splits into verify-only then fix.
+- A wrong load-bearing premise → **STOP** and tell the operator. Never paper over it.
+- One tier marker per phase heading — `### Phase N: Name [S]`. **Marker IS the model** (`[H]`
+  mechanical, `[S]` reasoning, `[O]` architecture; table in `skills/CLAUDE.md`).
+- A `cli/` path in any `Touches:` → `## Acceptance` must demand a freshly built scratch binary
+  running the affected verb with output pasted (`skills/shared/smoke-gate.md`).
+
+## 4 — Record, commit, hand off
+
+Two appends (born + reviewed) — the events ARE the state change — then one commit:
+
+```bash
+E() { echo '{"ts":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","id":"e_'"$(date +%s)_$RANDOM"'","kind":"'"$1"'","subject":"'"$2"'"'"$3"',"by":"agent:plan"}' >> .planning/events.jsonl; }
+E created  "$PLAN_ID" ""
+E reviewed "$PLAN_ID" ',"verdict":"approved"'
+E promoted "B-NNNN"   ""        # only for /plan B-NNNN — the B- file stays put
+bravros commit "📋 plan: add P-NNNN <slug>" .planning/
+```
+
+Autonomous lock (`.planning/.auto-*-lock`) or `--auto`: print
+`STATUS: plan-ready. NEXT: orchestrate` and return — no prompts. Otherwise announce, then give
+the operator exactly one next step: `/orchestrate .planning/P-NNNN-<slug>/`.
+
+<!-- announce-template: "Plano {NUM} criado e revisado, pronto para orquestração." -->
+```bash
+bravros ha say --force "Plano <NUM> criado e revisado, pronto para orquestração. Ramo <fragmento>, projeto <repo>." studio >/dev/null 2>&1 || true
+```
+
+## Flags
+
+- `--auto`: skip all prompts (used by `/auto-pr`).
+- `--worktree`: plan inside an isolated git worktree — follow
+  [`references/worktree-extension.md`](file:///Users/skaisser/Sites/bravros/skills/plan/references/worktree-extension.md) (also
+  `BRAVROS_WORKTREE=true`). `/worktree destroy` tears down; `/finish` never removes a worktree.

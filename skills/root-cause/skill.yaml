@@ -1,0 +1,33 @@
+category: sdlc
+icon: search
+metadata:
+  en:
+    name: root-cause
+    description: Investigate bugs with parallel subagents, then certify the root cause with runtime proof before handing off. Use on `/root-cause` for read-only diagnosis that routes to /quick, backlog, or /plan.
+  br:
+    name: root-cause
+    description: Investigar bugs com subagentes paralelos e certificar a causa raiz com prova de execução antes do handoff. Use em `/root-cause` para diagnóstico somente leitura roteado para /quick, backlog ou /plan.
+  es:
+    name: root-cause
+    description: Investigar errores con subagentes paralelos y certificar la causa raíz con prueba de ejecución antes de la transferencia. Use en `/root-cause` para diagnóstico de solo lectura guiado a /quick, backlog o /plan.
+body: |
+  Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/root-cause/references/briefing.md) on demand for detailed context and instructions.
+
+  INTENT: prove a root cause with runtime evidence, then hand the fix elsewhere. Investigation produces a hypothesis; only certification makes it a diagnosis. Nothing certifiable → say so plainly (`UNCERTIFIED`), never ship a guess.
+
+  HARD CONSTRAINTS:
+  - **NEVER modifies application code.** Writes only inside reserved `$DEBUG_DIR`.
+  - **Certification is the gate.** Cap: 3 rounds / 3 parallel agents per round.
+  - **Laravel probes via `php artisan` one-shots** (`tinker --execute`, `db:table`, `route:list`, `storage/logs/laravel.log`).
+  - **The hand-off is the operator's decision** — always `AskUserQuestion`.
+
+  ## Flow
+
+  1. Materialize engine: `mkdir -p .claude/workflows && cp -f ~/.claude/skills/root-cause/scripts/root-cause-investigate.js .claude/workflows/root-cause-investigate.js`
+  2. Reserve dir: `DEBUG_DIR=$(bravros nextid reserve debug --slug "$SLUG"); DEBUG_ID=$(basename "$DEBUG_DIR" | grep -oE 'D-[0-9]+')`
+  3. Build lead list & run parallel engine:
+     ```
+     Workflow({ name: 'root-cause-investigate', args: { debug_dir: DEBUG_DIR, bug: ARGUMENTS, category, stack, repro?, leads, boost, max_rounds: 3 } })
+     ```
+  4. Write `diagnosis.md` + `report.md` in `$DEBUG_DIR`. Commit: `bravros commit "🔍 debug: $DEBUG_ID investigation for $SLUG" <files>`.
+  5. Route via `AskUserQuestion` (decision matrix: `references/investigation-guide.md`). Backlog route: ID via `bravros nextid`.

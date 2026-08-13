@@ -1,0 +1,6 @@
+{
+  "description": "Bravros SDLC category plugin for agent toolkits.",
+  "license": "MIT",
+  "name": "bravros-sdlc",
+  "version": "0.1.0"
+}

@@ -1,0 +1,14 @@
+category: design
+icon: layout
+metadata:
+  en:
+    name: premium-website
+    description: Eliminates generic AI slop from React/Next.js frontends with premium typography, color calibration, and motion choreography. Triggers on /premium-website or requests for anti-slop design.
+  br:
+    name: website-premium
+    description: Elimina o visual genérico de IA de frontends React/Next.js com tipografia premium, calibração de cores e coreografia de movimento. Disparado por /premium-website ou solicitações de design anti-slop.
+  es:
+    name: sitio-web-premium
+    description: Elimina el diseño genérico de IA en frontends React/Next.js con tipografía premium, calibración de color y coreografía de movimiento. Se activa con /premium-website o solicitudes de diseño anti-slop.
+body: |
+  Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/premium-website/references/briefing.md) on demand for detailed context and instructions.

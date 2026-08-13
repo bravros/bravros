@@ -1,0 +1,25 @@
+category: tools
+icon: git-fork
+metadata:
+  en:
+    name: update-hooks
+    description: Update git hooks in an existing project to the latest version.
+  br:
+    name: update-hooks
+    description: Atualiza os githooks em um projeto existente para a versão mais recente.
+  es:
+    name: update-hooks
+    description: Actualiza los githooks en un proyecto existente a la versión más reciente.
+body: |
+  INTENT: Update git hooks in an existing project to the latest version.
+
+  ## Process
+
+  ### 1. Check Prerequisites
+  - Verify we're in a git repository
+  - Check if `.bravros/hooks/` exists (if not, suggest `/start`)
+
+  ### 2. Update Hooks
+  ```bash
+  bravros init --skip-workflows --skip-staging-branch
+  ```

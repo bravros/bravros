@@ -1,0 +1,6 @@
+{
+  "description": "Bravros TOOLS category plugin for agent toolkits.",
+  "license": "MIT",
+  "name": "bravros-tools",
+  "version": "0.1.0"
+}

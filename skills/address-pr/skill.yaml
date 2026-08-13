@@ -1,0 +1,30 @@
+category: sdlc
+icon: git-pull-request-check
+metadata:
+  en:
+    name: address-pr
+    description: Fetch PR review comments, implement the fixes, and push.
+  br:
+    name: address-pr
+    description: Busca comentários de revisão do PR, implementa as correções e faz o push.
+  es:
+    name: address-pr
+    description: Obtiene los comentarios de revisión del PR, implementa las correcciones y realiza el push.
+body: |
+  Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/address-pr/references/briefing.md) on demand for detailed context and instructions.
+
+  INTENT: Read latest PR review (GitHub bot + local), implement fixes, push, stamp, and route next step.
+
+  1. **PR Target**: `$ARGUMENTS` if numeric, else `PR=$(gh pr view --json number -q .number)`.
+  2. **Fetch Review**:
+     - GitHub latest bot comment (`claude` or `[bot]`).
+     - Local newest `.planning/pr-reviews/${PR}-*.md`. See `references/fetch-review-data.md`.
+  3. **Fix**: Apply all fixes (blockers -> code issues -> style -> suggestions). Touch only review-named files. Verify sibling occurrences.
+  4. **Push & Stamp**:
+     - Run `/ship` with `🐛 fix: address PR #XX review feedback`.
+     - Watch CI: `gh pr checks "$PR" --watch --fail-fast`.
+     - Stamp: `bravros pr-review "$PR" --write-stamp`.
+  5. **Route**:
+     - Re-review (⚠️) if blockers fixed, logic/control flow changed, tests modified, or security files touched.
+     - Optional (✅) if style/formatting, typos/comments, simple additions.
+     - Interactive: Invoke `Skill({skill: "pr-review"})` on ⚠️ or present merge decision on ✅ (`/finish`).

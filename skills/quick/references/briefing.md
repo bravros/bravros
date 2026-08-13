@@ -1,0 +1,40 @@
+# Quick: Fast Task Execution
+
+Quick task execution. No plan, no team, no worktree, no subagents. Just do it and commit.
+`$ARGUMENTS` is the task description.
+
+## Process
+
+0. **Auto-branch on debug handoff.** `/root-cause` passes `debug: D-NNNN` (bare ID) in
+   `$ARGUMENTS`. If present and currently on `main`/`homolog`:
+   ```bash
+   SLUG=$(ls .planning/debug/ 2>/dev/null | grep "^${DEBUG_ID}-" | sed -E 's/^D-[0-9]+-//; s/-(open|complete)$//' || echo "quick-fix")
+   git switch -c "fix/${SLUG}"
+   ```
+   Commit convention for debug handoffs: append the bare ID — `fix: <description> (D-NNNN)`.
+   Never reference a path.
+1. **Branch safety** — on `main` (or `master`), announce and ask before touching any file:
+   create `fix/quick-<slug>` (recommended) / switch to `homolog` / stay on main (operator
+   accepts the risk).
+   <!-- announce-template: "Atenção: trabalhando na produção, aguardando escolha de ramo. Ramo {BRANCH}, projeto {PROJECT}." -->
+   ```bash
+   bravros ha say --force "Atenção: trabalhando na produção, aguardando escolha de ramo. Ramo <fragmento>, projeto <repo>." studio >/dev/null 2>&1 || true
+   ```
+2. **Clarify** only if genuinely ambiguous; confirm the approach in one line.
+3. **Implement** the minimal change requested — do not refactor, clean up, or improve
+   surrounding code.
+4. **Verify** with targeted tests on what you touched. Full suite: hand the operator the
+   command for a separate tab — never run it yourself.
+5. **Commit** via `/commit` — message says what changed and why, not which file was touched.
+6. **Ask next** — done / create a PR (`/pr`) / keep going on the branch:
+   <!-- announce-template: "Tarefa concluída, aguardando instrução. Ramo {BRANCH}, projeto {PROJECT}." -->
+   ```bash
+   bravros ha say --force "Tarefa concluída, aguardando instrução. Ramo <fragmento>, projeto <repo>." studio >/dev/null 2>&1 || true
+   ```
+
+## Rules
+
+- Never commit directly on `main` — branch first (Step 1).
+- `/quick` is the path for confident, contained fixes — scope is the operator's call. Want a
+  planning pass? Run `/plan` instead.
+- Use `/ship` to commit and push in one move.

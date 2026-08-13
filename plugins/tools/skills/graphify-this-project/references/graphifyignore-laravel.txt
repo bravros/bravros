@@ -1,0 +1,214 @@
+###############################################################################
+# .graphifyignore — Laravel project template
+# Copy this file to your project root as `.graphifyignore`.
+###############################################################################
+
+###############################################################################
+# Laravel / PHP
+###############################################################################
+/vendor
+/auth.json
+.phpactor.json
+.phpunit.result.cache
+/.phpunit.cache
+Homestead.json
+Homestead.yaml
+bootstrap/cache/*.php
+
+###############################################################################
+# Frontend / Node
+###############################################################################
+/node_modules
+/public/build
+/public/hot
+/public/storage
+npm-debug.log
+yarn-error.log
+.pnpm-debug.log
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.npm
+
+###############################################################################
+# Environment & secrets
+###############################################################################
+.env
+.env.*
+!.env.example
+/storage/*.key
+
+###############################################################################
+# Storage (runtime generated)
+###############################################################################
+/storage/pail
+/storage/debugbar
+/storage/media-library
+storage/logs/*.log
+storage/app/public
+
+###############################################################################
+# Testing & coverage
+###############################################################################
+/coverage
+clover.xml
+.phpstan/
+
+###############################################################################
+# Editor & IDE
+###############################################################################
+/.fleet
+/.idea
+/.nova
+/.vscode
+/.zed
+*.swp
+*.swo
+*~
+.sublime-project
+.sublime-workspace
+
+###############################################################################
+# OS
+###############################################################################
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+###############################################################################
+# Misc / project-specific
+###############################################################################
+.db-sync.env
+database/backups/
+.playwright-mcp/
+*.tmp
+*.bak
+.cc-scan/
+
+###############################################################################
+# Bravros SDLC pipeline state
+###############################################################################
+.planning/.auto-pr-lock
+.planning/.batch-decisions.json
+.planning/.review-stamp*
+
+###############################################################################
+# Graphify own outputs
+###############################################################################
+graphify-out/
+.graphifyignore
+after-merge.md
+
+###############################################################################
+# Laravel cached / runtime artifacts (graphify-specific)
+###############################################################################
+/storage/framework/
+/storage/framework/cache/
+/storage/framework/sessions/
+/storage/framework/views/
+/storage/framework/testing/
+/bootstrap/cache/
+/storage/logs/
+/storage/app/livewire-tmp/
+/storage/app/private/
+/storage/clockwork/
+/storage/telescope/
+/storage/horizon/
+*.cache
+*.compiled.php
+
+###############################################################################
+# Lock files & generated artifacts (noisy, not useful in graph)
+###############################################################################
+composer.lock
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+bun.lockb
+
+###############################################################################
+# Local databases & dumps
+###############################################################################
+*.sqlite
+*.sqlite-journal
+*.sqlite3
+database/database.sqlite
+database/*.sqlite
+*.sql
+*.dump
+
+###############################################################################
+# Database scaffolding (CRITICAL — schema deltas + boilerplate, not architecture)
+# - Migrations: filenames collide with model labels (e.g. orders_table vs Order)
+#   and contribute only up()/down() nodes. Use `database-schema` (Boost) or
+#   the migration-audit skill for schema/ordering questions.
+# - Factories/seeders: test-harness boilerplate, low architectural signal.
+###############################################################################
+database/migrations/
+database/migrations-backup/        # squash-migrations refactor leaves this — actively used by SyncSquashedMigrations command, but not architectural
+database/migrations_backup/
+database/migrations.bak/
+database/factories/
+database/seeders/
+
+###############################################################################
+# Research / superseded docs (not living architecture)
+# Adjust to your project's directory layout.
+###############################################################################
+frontend-copy/                  # if you keep cloned reference sites for design comparison
+docs/legacy/                    # explicitly superseded docs (use docs/refs/ as truth)
+
+###############################################################################
+# VCS internals
+###############################################################################
+.git/
+.gitkeep
+
+###############################################################################
+# Build / dist outputs
+###############################################################################
+/dist
+/build
+/public/mix-manifest.json
+/public/css
+/public/js
+
+###############################################################################
+# Tests (entire directory — opinion: tests aren't part of production architecture)
+# Tests pollute community labels (every Pest test becomes a node), inflate
+# god_nodes (TestCase, RefreshDatabase show up at the top), and bloat the
+# graph. If you NEED test→feature semantic links, comment this out and only
+# exclude the snapshot/artifact subfolders below.
+###############################################################################
+tests/
+tests/__snapshots__/
+tests/Browser/screenshots/
+tests/Browser/console/
+tests/.pest/
+
+###############################################################################
+# Misc binary / media that shouldn't enter the knowledge graph
+###############################################################################
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.svg
+*.ico
+*.pdf
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.mp4
+*.mov
+*.woff
+*.woff2
+*.ttf
+*.eot

@@ -1,0 +1,34 @@
+category: sdlc
+icon: flame
+metadata:
+  en:
+    name: hotfix
+    description: Emergency hotfix deploy — commit, push homolog, PR to main, merge now. Use on `/hotfix <description>`.
+  br:
+    name: hotfix
+    description: Implantação de correção urgente em produção — commit, push para homolog, PR para main e merge imediato. Use com `/hotfix <descrição>`.
+  es:
+    name: hotfix
+    description: Despliegue de corrección urgente en producción — commit, push a homolog, PR a main y merge inmediato. Usar con `/hotfix <descripción>`.
+body: |
+  Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/hotfix/references/briefing.md) on demand for detailed context and instructions.
+
+  INTENT: ship an urgent production fix now, bypassing the plan workflow. Flow: commit → push/merge into homolog → PR homolog→main → merge → sync back. `$ARGUMENTS` is the description — ask if empty.
+
+  ## Hard constraints
+
+  - **Running `/hotfix` IS approval for merge-to-main** — emergency exemption (no `AskUserQuestion` checkpoints).
+  - **Autopr lock gate**: If `bravros autopr status` reports lock present, refuse to merge until cleared (`bravros autopr clear-lock`).
+  - **Merge-lock skipped**: Documented exception per merge flow.
+  - **NEVER delete homolog branch. NEVER skip PR** (main is protected).
+  - If targeted tests fail, STOP and ask.
+
+  ## Flow Summary
+
+  1. Refuse on `main`/`master`. Strip issue ref (`#42`) for description, carry as `Closes #42` in PR.
+  2. Format changed files → `bravros commit "🩹 hotfix: <description>" <changed files only>`.
+  3. Push; merge to `homolog` & push if not on homolog → `gh pr create --base main --head homolog --title "🩹 hotfix: <description>"`.
+  4. Autopr gate → `gh pr merge "$PR_NUMBER" --merge` → verify state == `MERGED`.
+  5. Sync `homolog` from `main` (`git checkout homolog && git pull && git fetch origin main && git merge --ff-only origin/main`).
+  6. Plan closure: resolve `P-NNNN`, append completed event to `.planning/events.jsonl`, `bravros commit`.
+  7. Announce (PT-BR) via `bravros ha say --force ... studio`.

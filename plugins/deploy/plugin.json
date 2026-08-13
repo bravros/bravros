@@ -1,0 +1,6 @@
+{
+  "description": "Bravros DEPLOY category plugin for agent toolkits.",
+  "license": "MIT",
+  "name": "bravros-deploy",
+  "version": "0.1.0"
+}

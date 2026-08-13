@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -126,6 +127,35 @@ type SkillMeta struct {
 	Name        string `yaml:"name"`
 	Category    string `yaml:"category"`
 	Description string `yaml:"description"`
+	Core        bool   `yaml:"core"`
+}
+
+type SkillItem struct {
+	Meta SkillMeta
+	Body string
+	Path string
+	Dir  string
+}
+
+func copyDir(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0755)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, 0644)
+	})
 }
 
 func main() {
@@ -135,11 +165,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	var skills []struct {
-		Meta SkillMeta
-		Body string
-		Path string
-	}
+	var skills []SkillItem
 
 	err := filepath.WalkDir(skillsDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -169,14 +195,39 @@ func main() {
 			return fmt.Errorf("unmarshal frontmatter in %s: %w", path, err)
 		}
 
-		skills = append(skills, struct {
-			Meta SkillMeta
-			Body string
-			Path string
-		}{
+		dir := filepath.Dir(path)
+		yamlPath := filepath.Join(dir, "skill.yaml")
+		if _, err := os.Stat(yamlPath); err == nil {
+			yamlData, err := os.ReadFile(yamlPath)
+			if err == nil {
+				var sy struct {
+					Category string `yaml:"category"`
+					Metadata map[string]struct {
+						Name        string `yaml:"name"`
+						Description string `yaml:"description"`
+					} `yaml:"metadata"`
+				}
+				if err := yaml.Unmarshal(yamlData, &sy); err == nil {
+					if sy.Category != "" {
+						meta.Category = sy.Category
+					}
+					if enMeta, ok := sy.Metadata["en"]; ok {
+						if enMeta.Name != "" {
+							meta.Name = enMeta.Name
+						}
+						if enMeta.Description != "" {
+							meta.Description = enMeta.Description
+						}
+					}
+				}
+			}
+		}
+
+		skills = append(skills, SkillItem{
 			Meta: meta,
 			Body: strings.TrimSpace(parts[2]),
 			Path: path,
+			Dir:  dir,
 		})
 
 		return nil
@@ -187,7 +238,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Generate files for each host
+	// 1. Generate aggregated always-on instructions files for each host
 	hosts := []string{"claude", "gemini", "agents", "cursor"}
 	for _, host := range hosts {
 		var buf bytes.Buffer
@@ -242,4 +293,89 @@ func main() {
 
 		fmt.Printf("Successfully generated %s\n", outputFilename)
 	}
+
+	// 2. Packaging splits: core plugin + 6 category plugins under plugins/
+	categories := []string{"sdlc", "design", "web", "deploy", "content", "tools"}
+
+	// Core vs Category assignments
+	coreSkills := []SkillItem{}
+	categorySkills := map[string][]SkillItem{}
+	for _, cat := range categories {
+		categorySkills[cat] = []SkillItem{}
+	}
+
+	for _, s := range skills {
+		if s.Meta.Core {
+			coreSkills = append(coreSkills, s)
+		} else {
+			cat := strings.ToLower(s.Meta.Category)
+			if cat == "" {
+				cat = "tools" // default fallback
+			}
+			categorySkills[cat] = append(categorySkills[cat], s)
+		}
+	}
+
+	// Clear out and recreate plugins directory
+	pluginsDir := "plugins"
+	_ = os.RemoveAll(pluginsDir)
+	_ = os.MkdirAll(pluginsDir, 0755)
+
+	// Deploy Core plugin
+	corePluginDir := filepath.Join(pluginsDir, "core")
+	_ = os.MkdirAll(filepath.Join(corePluginDir, "skills"), 0755)
+	for _, s := range coreSkills {
+		err := copyDir(s.Dir, filepath.Join(corePluginDir, "skills", s.Meta.Name))
+		if err != nil {
+			fmt.Printf("Error copying core skill %s: %v\n", s.Meta.Name, err)
+			os.Exit(1)
+		}
+	}
+
+	// Construct core dependencies (only for categories with actual skills)
+	deps := map[string]string{}
+	for cat, list := range categorySkills {
+		if len(list) > 0 {
+			deps["bravros-"+cat] = "plugins/" + cat
+		}
+	}
+
+	coreManifest := map[string]interface{}{
+		"name":         "bravros",
+		"description":  "Bravros core agent toolkit: plan, build, test, and ship autonomously.",
+		"version":      "0.1.0",
+		"license":      "MIT",
+		"dependencies": deps,
+	}
+	coreManifestBytes, _ := json.MarshalIndent(coreManifest, "", "  ")
+	_ = os.WriteFile(filepath.Join(corePluginDir, "plugin.json"), coreManifestBytes, 0644)
+
+	// Deploy Category plugins
+	for cat, list := range categorySkills {
+		if len(list) == 0 {
+			continue // skip empty plugins
+		}
+
+		catPluginDir := filepath.Join(pluginsDir, cat)
+		_ = os.MkdirAll(filepath.Join(catPluginDir, "skills"), 0755)
+
+		for _, s := range list {
+			err := copyDir(s.Dir, filepath.Join(catPluginDir, "skills", s.Meta.Name))
+			if err != nil {
+				fmt.Printf("Error copying category skill %s: %v\n", s.Meta.Name, err)
+				os.Exit(1)
+			}
+		}
+
+		catManifest := map[string]interface{}{
+			"name":        "bravros-" + cat,
+			"description": "Bravros " + strings.ToUpper(cat) + " category plugin for agent toolkits.",
+			"version":     "0.1.0",
+			"license":     "MIT",
+		}
+		catManifestBytes, _ := json.MarshalIndent(catManifest, "", "  ")
+		_ = os.WriteFile(filepath.Join(catPluginDir, "plugin.json"), catManifestBytes, 0644)
+	}
+
+	fmt.Printf("Successfully structured core and category plugins under plugins/\n")
 }

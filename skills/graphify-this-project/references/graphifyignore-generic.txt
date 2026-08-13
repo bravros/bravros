@@ -1,0 +1,107 @@
+###############################################################################
+# .graphifyignore — generic / unknown stack template
+# Copy to your project root as `.graphifyignore` and trim/extend as needed.
+###############################################################################
+
+# Dependency / vendor directories
+node_modules/
+vendor/
+target/
+.cargo/
+.gradle/
+.maven/
+__pycache__/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Build outputs
+dist/
+build/
+out/
+.next/
+.nuxt/
+.output/
+public/build/
+public/hot/
+*.bundle.js
+*.min.js
+*.min.css
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+secrets/
+
+# Test artifacts
+coverage/
+.coverage
+htmlcov/
+*.lcov
+playwright-report/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+.fleet/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+
+# Lock files (noisy in graph, regenerable from manifest)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+bun.lockb
+composer.lock
+Cargo.lock
+poetry.lock
+Pipfile.lock
+
+# Local databases & dumps
+*.sqlite
+*.sqlite-journal
+*.sqlite3
+*.sql
+*.dump
+
+# Graphify own outputs
+graphify-out/
+.graphifyignore
+
+# VCS internals
+.git/
+.gitkeep
+.gitignore
+
+# Binary media
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.svg
+*.ico
+*.pdf
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.mp4
+*.mov
+*.mp3
+*.wav
+*.woff
+*.woff2
+*.ttf
+*.eot

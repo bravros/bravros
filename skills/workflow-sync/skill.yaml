@@ -1,0 +1,42 @@
+category: tools
+icon: RefreshCw
+metadata:
+  en:
+    name: workflow-sync
+    description: Sync an existing project with the latest workflow setup — hooks, GitHub Action, and DB sync template.
+  br:
+    name: workflow-sync
+    description: Sincroniza um projeto existente com a configuração de workflow mais recente — hooks, GitHub Action e template de sync do banco.
+  es:
+    name: workflow-sync
+    description: Sincroniza un proyecto existente con la configuración de flujo de trabajo más reciente: githooks, GitHub Action y plantilla de sincronización de BD.
+body: |
+  INTENT: Sync an existing project with the latest workflow setup — hooks, GitHub Action, and DB sync template.
+
+  ## What Gets Updated
+
+  | File | Action |
+  |------|--------|
+  | `.bravros/hooks/commit-msg` | Overwrite with latest |
+  | `.bravros/hooks/pre-push` | Overwrite with latest |
+  | `.github/workflows/claude.yml` | Overwrite with latest |
+  | `sync-db.sh` | Overwrite if exists |
+  | `.db-sync.env.example` | Overwrite if exists |
+  | `CLAUDE.md` | **Skip** — project-specific |
+  | `.gitignore` | Append missing entries only |
+
+  ## Process
+
+  ### 1. Check Prerequisites
+  Verify git repository and `.bravros/hooks/` exists.
+
+  ### 2. Update Git Hooks
+  ```bash
+  bravros init --skip-staging-branch --skip-workflows
+  ```
+
+  ### 3. Update GitHub Action
+  ```bash
+  mkdir -p .github/workflows
+  cp ~/.claude/templates/.github/workflows/claude.yml .github/workflows/claude.yml
+  ```

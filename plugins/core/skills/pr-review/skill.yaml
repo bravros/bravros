@@ -1,0 +1,24 @@
+category: sdlc
+icon: git-pull-request-arrow
+metadata:
+  en:
+    name: pr-review
+    description: Post @claude review comment on the current PR and ask what's next. Use on `/pr-review` to trigger the GitHub Actions review workflow.
+  br:
+    name: pr-review
+    description: Publica um comentário de revisão com @claude no PR atual e pergunta o que fazer a seguir. Use `/pr-review` para disparar o workflow de revisão do GitHub Actions.
+  es:
+    name: pr-review
+    description: Publica un comentario de revisión con @claude en el PR actual y pregunta qué hacer a continuación. Usa `/pr-review` para activar el flujo de trabajo de revisión de GitHub Actions.
+body: |
+  Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/pr-review/references/briefing.md) on demand for detailed context and instructions.
+
+  INTENT: post ONE verbatim `@claude` comment; the GitHub Action reviews asynchronously (~2–5 min) and posts back to the PR. This skill never reviews, never polls, never merges.
+
+  1. **Determine PR Number**: Use `$ARGUMENTS` if numeric, else `gh pr view --json number -q .number`. If none, STOP ("create one with /pr first").
+  2. **Branch Check**: If behind base branch, rebase and `git push --force-with-lease` first. If conflicts occur in interactive mode ask; in autonomous mode proceed and note it.
+  3. **Post Comment**: Execute the byte-exact `gh pr comment` command containing `@claude review this PR...` and the mandatory visible sentinel lines (`BRAVROS-VERDICT: approved` / `BRAVROS-VERDICT: changes-requested`).
+  4. **Post-Action**:
+     - Autonomous (`.planning/.auto-*-lock` matches): print `STATUS: review-triggered. NEXT: wait for stamp` and return.
+     - Interactive: announce and instruct the user to run `/address-pr` when review finishes.
+  5. **Notification**: Announce via `bravros ha say` if configured.
