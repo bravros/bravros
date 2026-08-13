@@ -1,6 +1,5 @@
 {
   "name": "bravros",
-  "version": "0.1.0",
   "description": "Bravros core agent toolkit: plan, build, test, and ship autonomously.",
   "homepage": "https://github.com/bravros/bravros",
   "repository": "https://github.com/bravros/bravros",
