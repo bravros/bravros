@@ -2,6 +2,7 @@ package deploy
 
 import (
 	"bufio"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -714,6 +715,15 @@ func copyFile(src, dst string) error {
 		return err
 	}
 
+	base := filepath.Base(dst)
+	if base == "settings.json" || base == "mcp.json" {
+		return mergeJSON(src, dst)
+	}
+
+	return copyFileRaw(src, dst)
+}
+
+func copyFileRaw(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {
 		return err
@@ -733,6 +743,61 @@ func copyFile(src, dst string) error {
 
 	_, err = io.Copy(out, in)
 	return err
+}
+
+func mergeJSON(src, dst string) error {
+	// If dst does not exist, just copy the raw file to preserve exact bytes and formatting
+	if _, err := os.Stat(dst); os.IsNotExist(err) {
+		return copyFileRaw(src, dst)
+	}
+
+	// Write backup if dst exists
+	backupPath := dst + ".bak"
+	data, err := os.ReadFile(dst)
+	if err == nil {
+		_ = os.WriteFile(backupPath, data, 0644)
+	}
+
+	srcData, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+
+	var srcMap map[string]interface{}
+	if err := json.Unmarshal(srcData, &srcMap); err != nil {
+		return fmt.Errorf("parse source JSON %s: %w", src, err)
+	}
+
+	dstMap := make(map[string]interface{})
+	if _, err := os.Stat(dst); err == nil {
+		dstData, err := os.ReadFile(dst)
+		if err == nil {
+			_ = json.Unmarshal(dstData, &dstMap)
+		}
+	}
+
+	mergeMaps(dstMap, srcMap)
+
+	mergedData, err := json.MarshalIndent(dstMap, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(dst, mergedData, 0644)
+}
+
+func mergeMaps(dst, src map[string]interface{}) {
+	for k, v := range src {
+		if vMap, ok := v.(map[string]interface{}); ok {
+			if dstVal, exists := dst[k]; exists {
+				if dstMap, ok := dstVal.(map[string]interface{}); ok {
+					mergeMaps(dstMap, vMap)
+					continue
+				}
+			}
+		}
+		dst[k] = v
+	}
 }
 
 // detectOrphans walks the prunable subtrees under targetDir and returns

@@ -1,6 +1,7 @@
 package deploy
 
 import (
+	"encoding/json"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -794,5 +795,71 @@ func TestDeployLockedFileSkippedNotFatal(t *testing.T) {
 	}
 	if string(after) != "# Plan v2" {
 		t.Errorf("templates/plan.md = %q, want %q — deploy stopped at the locked file", after, "# Plan v2")
+	}
+}
+
+func TestDeployJSONMerge(t *testing.T) {
+	src := setupTestRepo(t)
+	target := filepath.Join(t.TempDir(), ".claude")
+	_ = os.MkdirAll(filepath.Join(target, "config"), 0755)
+
+	// 1. Write original destination settings
+	dstSettings := filepath.Join(target, "settings.json")
+	origDst := `{"key3": "val3", "nested": {"key4": "val4"}}`
+	if err := os.WriteFile(dstSettings, []byte(origDst), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. Write source settings (template)
+	srcSettings := filepath.Join(src, "config", "settings.json")
+	origSrc := `{"key1": "val1", "nested": {"key2": "val2"}}`
+	if err := os.WriteFile(srcSettings, []byte(origSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 3. Deploy
+	if _, err := Deploy(DeployOpts{SourceDir: src, TargetDir: target, Force: true}); err != nil {
+		t.Fatalf("Deploy failed: %v", err)
+	}
+
+	// 4. Verify backup was written
+	bakPath := dstSettings + ".bak"
+	bakData, err := os.ReadFile(bakPath)
+	if err != nil {
+		t.Fatalf("backup file settings.json.bak was not written: %v", err)
+	}
+	if string(bakData) != origDst {
+		t.Errorf("backup content = %q, want %q", bakData, origDst)
+	}
+
+	// 5. Verify merged content
+	mergedData, err := os.ReadFile(dstSettings)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var mergedMap map[string]interface{}
+	if err := json.Unmarshal(mergedData, &mergedMap); err != nil {
+		t.Fatalf("parse merged JSON: %v", err)
+	}
+
+	// Expect key1 and key3 to exist
+	if mergedMap["key1"] != "val1" {
+		t.Errorf("expected key1 = val1, got %v", mergedMap["key1"])
+	}
+	if mergedMap["key3"] != "val3" {
+		t.Errorf("expected key3 = val3, got %v", mergedMap["key3"])
+	}
+
+	// Expect nested to have key2 and key4
+	nested, ok := mergedMap["nested"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected nested map, got %v", mergedMap["nested"])
+	}
+	if nested["key2"] != "val2" {
+		t.Errorf("expected nested key2 = val2, got %v", nested["key2"])
+	}
+	if nested["key4"] != "val4" {
+		t.Errorf("expected nested key4 = val4, got %v", nested["key4"])
 	}
 }
