@@ -6,7 +6,7 @@ description: Emergency hotfix deploy — commit, push homolog, PR to main, merge
 
 # hotfix
 
-Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/hotfix/references/briefing.md) on demand for detailed context and instructions.
+Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 INTENT: ship an urgent production fix now, bypassing the plan workflow. Flow: commit → push/merge into homolog → PR homolog→main → merge → sync back. `$ARGUMENTS` is the description — ask if empty.
 

@@ -5,7 +5,7 @@ description: Create, destroy, list or sync git worktrees for any project — Her
 
 # /worktree — parallel-worktree manager
 
-Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/worktree/references/briefing.md) on demand for detailed context and instructions.
+Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 Parallel checkouts without colliding `.test` domains, Redis keys, sessions or queue jobs.
 Laravel repos additionally get a Herd URL, isolated `.env`, and optionally a cloned DB.

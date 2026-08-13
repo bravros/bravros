@@ -5,7 +5,7 @@ description: Investigate bugs with parallel subagents, then certify the root cau
 
 # Root Cause — investigate, verify, certify
 
-Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/root-cause/references/briefing.md) on demand for detailed context and instructions.
+Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 INTENT: prove a root cause with runtime evidence, then hand the fix elsewhere. Investigation produces a hypothesis; only certification makes it a diagnosis. Nothing certifiable → say so plainly (`UNCERTIFIED`), never ship a guess.
 

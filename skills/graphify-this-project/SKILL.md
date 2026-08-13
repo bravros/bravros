@@ -6,7 +6,7 @@ trigger: /graphify-this-project
 
 # /graphify-this-project
 
-> Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/graphify-this-project/references/briefing.md) on demand for detailed context and instructions.
+> Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 INTENT: end-to-end graphify setup, **in-project model** — `graphify-out/graph.json` committed to THIS repo (travels via `git pull`), named communities, tracked post-merge refresh hooks, union-merge driver, queried via the **user-scoped `graphify` MCP server** (registered ONCE per machine) with the CLI as backup.
 

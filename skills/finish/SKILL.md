@@ -6,7 +6,7 @@ description: Complete a feature — merge the approved PR, record plan completio
 
 # finish
 
-Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/finish/references/briefing.md) on demand for detailed context and instructions.
+Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 INTENT: land this feature — merge the PR into its base, record completion in `.planning/events.jsonl`, route the promotion-to-main decision. Git/project operation only; never touches application code.
 
@@ -19,4 +19,4 @@ INTENT: land this feature — merge the PR into its base, record completion in `
 5. **Sync & Clean**: Fast-forward local branches and sweep review stamps.
 6. **Main Route**: Route homolog→main decision with operator confirmation.
 
-Refer to [`references/flow.md`](file:///Users/skaisser/Sites/bravros/skills/finish/references/flow.md) for full shell script flow details.
+Refer to [`references/flow.md`](references/flow.md) for full shell script flow details.

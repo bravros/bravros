@@ -6,7 +6,7 @@ trigger: /graphify-status
 
 # /graphify-status
 
-> Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/graphify-status/references/briefing.md) on demand for detailed context and instructions.
+> Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 One table, every graphify project on the machine, answering a single question: **does `graphify query` return real names, or is it still handing back `Community 417`?**
 

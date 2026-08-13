@@ -8,7 +8,7 @@ description: Quick task execution without a full plan — just do it and commit.
 Quick task execution without a full plan — just do it and commit.
 
 > [!IMPORTANT]
-> Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/quick/references/briefing.md) on demand for detailed context and instructions.
+> Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 ## Overview
 

@@ -5,7 +5,7 @@ description: Stress-test a plan or design via a round-by-round interview — ask
 
 # Interview Me
 
-Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/interview-me/references/briefing.md) on demand for detailed context and instructions.
+Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 Stress-test plans or designs by mapping unresolved choices into a **design tree** and interviewing the user round-by-round over the decision **frontier**.
 

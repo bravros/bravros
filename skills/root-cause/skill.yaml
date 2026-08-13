@@ -11,7 +11,7 @@ metadata:
     name: root-cause
     description: Investigar errores con subagentes paralelos y certificar la causa raíz con prueba de ejecución antes de la transferencia. Use en `/root-cause` para diagnóstico de solo lectura guiado a /quick, backlog o /plan.
 body: |
-  Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/root-cause/references/briefing.md) on demand for detailed context and instructions.
+  Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
   INTENT: prove a root cause with runtime evidence, then hand the fix elsewhere. Investigation produces a hypothesis; only certification makes it a diagnosis. Nothing certifiable → say so plainly (`UNCERTIFIED`), never ship a guess.
 

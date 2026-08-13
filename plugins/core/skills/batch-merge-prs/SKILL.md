@@ -6,7 +6,7 @@ description: Verify N PRs, address review feedback, ordered-merge to the staging
 
 # batch-merge-prs
 
-Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/batch-merge-prs/references/briefing.md) on demand for detailed context and instructions.
+Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 INTENT: take N open PRs from open → verified → merged on the staging branch → linked issue/backlog closed per merge → full suite handed to operator. Staging is `homolog` unless project CLAUDE.md states otherwise. Run from repo root.
 

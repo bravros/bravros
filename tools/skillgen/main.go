@@ -109,7 +109,14 @@ func LintSkill(path, content string) error {
 		{regexp.MustCompile(`\bAgent\s*\(`), "Agent("},
 		{regexp.MustCompile(`\bmcp__`), "mcp__"},
 		{regexp.MustCompile(`~/\.claude\b`), "~/.claude"},
-		{regexp.MustCompile(`(?i)\bkaisser\b`), "kaisser"},
+		// No word boundaries: `\bkaisser\b` does NOT match inside "skaisser", which is
+		// how 49 `file:///Users/skaisser/...` links shipped past this lint on 2026-08-13.
+		{regexp.MustCompile(`(?i)kaisser`), "kaisser/skaisser"},
+		// Absolute local paths are broken on every machine but the author's, and they
+		// leak the author's username into a public repo.
+		{regexp.MustCompile(`file://`), "absolute file:// URL"},
+		{regexp.MustCompile(`/Users/[^/\s]+/`), "absolute /Users/ path"},
+		{regexp.MustCompile(`/home/[^/\s]+/`), "absolute /home/ path"},
 	}
 
 	lines := strings.Split(content, "\n")
@@ -158,10 +165,48 @@ func copyDir(src, dst string) error {
 	})
 }
 
+// LintTree lints every text file under skills/, not just SKILL.md. references/ and
+// skill.yaml ship to users exactly like the skill body does, so they need the same gate.
+func LintTree(skillsDir string) error {
+	lintable := map[string]bool{".md": true, ".yaml": true, ".yml": true, ".sh": true, ".txt": true}
+	var violations []string
+	err := filepath.WalkDir(skillsDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !lintable[strings.ToLower(filepath.Ext(path))] {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("read file %s: %w", path, err)
+		}
+		// Collect rather than fail fast: a partial list reads like "one bug" when it is
+		// a systemic gap, and the operator needs the whole surface to plan the fix.
+		if lintErr := LintSkill(path, string(data)); lintErr != nil {
+			violations = append(violations, lintErr.Error())
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if len(violations) > 0 {
+		return fmt.Errorf("%d file(s) contain forbidden tokens:\n  %s",
+			len(violations), strings.Join(violations, "\n  "))
+	}
+	return nil
+}
+
 func main() {
 	skillsDir := "skills"
 	if _, err := os.Stat(skillsDir); os.IsNotExist(err) {
 		fmt.Printf("Error: skills directory not found\n")
+		os.Exit(1)
+	}
+
+	if err := LintTree(skillsDir); err != nil {
+		fmt.Printf("Lint error: %v\n", err)
 		os.Exit(1)
 	}
 

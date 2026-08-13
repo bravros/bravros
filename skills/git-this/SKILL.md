@@ -6,7 +6,7 @@ description: Bootstrap a private GitHub repo for the current folder and wire the
 
 # /git-this — bootstrap a private GitHub repo from the current folder
 
-Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/git-this/references/briefing.md) on demand for detailed context and instructions.
+Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 Creates `<owner>/<folder>` (private), wires `origin`, scaffolds `CLAUDE.md` declaring the
 direct-main policy for personal/scratch repos. Owner: `gh api user -q .login`.

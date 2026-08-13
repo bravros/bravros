@@ -7,7 +7,7 @@ description: Runs Claude Code's built-in /doctor health check, then audits the w
 
 Runs standard `claude doctor` health check and audits workspace context against Anthropic's 6 context-engineering shifts.
 
-Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/doctor-plus/references/briefing.md) on demand for detailed context and instructions.
+Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 ## Key Workflow Summary
 

@@ -5,7 +5,7 @@ description: "Eliminates generic AI slop from React/Next.js frontends with premi
 
 # premium-website — anti-slop design system router
 
-Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/premium-website/references/briefing.md) on demand for detailed context and instructions.
+Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 Overrides default LLM design biases (Inter font, purple gradients, centered 3-card layouts, neon glows, fake "John Doe" data) with a curated system.
 

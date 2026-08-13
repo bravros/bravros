@@ -1,64 +1,76 @@
 name: Release CLI
 
+# Builds and publishes a release when a vX.Y.Z tag lands.
+#
+# This MUST go through GoReleaser. The previous version of this workflow was a
+# plain `go build` matrix that uploaded three bare binaries, which produced a
+# v0.1.0 release with no `checksums.txt`, no `checksums.txt.minisig`, and no
+# `.tar.gz` archives. install.sh curls all three with `curl -f` and dies on the
+# first 404, so every `curl | sh` install failed. See .goreleaser.yml for the
+# archive names, the checksum file, and the minisign `signs:` block that
+# install.sh's pinned pubkey verifies against.
+#
+# Required secrets on this repository:
+#   MINISIGN_SECRET_KEY  — signs checksums.txt (raw minisign format, no outer base64)
+#   HOMEBREW_TAP_TOKEN   — lets the brews: block push to bravros/homebrew-tap
+# Both currently live on bravros/private and must be copied here.
+
 on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
-  build:
+  release:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - goos: darwin
-            goarch: arm64
-          - goos: darwin
-            goarch: amd64
-          - goos: linux
-            goarch: amd64
     steps:
       - uses: actions/checkout@v4
+        with:
+          # GoReleaser needs full history and tags to compute the changelog.
+          fetch-depth: 0
 
       - uses: actions/setup-go@v5
         with:
           go-version-file: cli/go.mod
           cache-dependency-path: cli/go.sum
 
-      - name: Build
+      # The signs: block shells out to `minisign`; it is not on the runner by default.
+      - name: Install minisign
+        run: sudo apt-get update -qq && sudo apt-get install -y minisign
+
+      - name: Fail fast if signing key is absent
         env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
         run: |
-          cd cli
-          VERSION="${GITHUB_REF_NAME#v}"
-          go build -ldflags="-s -w -X github.com/bravros/bravros/cli/cmd.Version=${VERSION}" \
-            -o ../bravros-${{ matrix.goos }}-${{ matrix.goarch }} .
+          if [ -z "${MINISIGN_SECRET_KEY}" ]; then
+            echo "::error::MINISIGN_SECRET_KEY is not set on this repository."
+            echo "Publishing unsigned artifacts would break install.sh, which verifies"
+            echo "checksums.txt.minisig against a pinned pubkey. Copy the secret from"
+            echo "bravros/private before tagging a release."
+            exit 1
+          fi
 
-      - uses: actions/upload-artifact@v4
+      - uses: goreleaser/goreleaser-action@v6
         with:
-          name: bravros-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: bravros-${{ matrix.goos }}-${{ matrix.goarch }}
+          version: '~> v2'
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          merge-multiple: true
-
-      - name: Make binaries executable
-        run: chmod +x bravros-*
-
-      - name: Create release
-        uses: softprops/action-gh-release@v2
-        with:
-          generate_release_notes: true
-          files: bravros-*
+      - name: Verify published artifacts match what install.sh fetches
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          for a in checksums.txt checksums.txt.minisig bravros-darwin-arm64.tar.gz; do
+            gh release view "${GITHUB_REF_NAME}" --json assets \
+              --jq '.assets[].name' | grep -qx "$a" \
+              || { echo "::error::release is missing $a — install.sh will 404"; exit 1; }
+          done
+          echo "All install.sh-required assets present."

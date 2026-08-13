@@ -5,7 +5,7 @@ description: Scan project and generate/audit CLAUDE.md files with stack auto-det
 
 # Context — generate & audit CLAUDE.md files
 
-Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/context/references/briefing.md) on demand for detailed context and instructions.
+Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 INTENT: detect the stack, then generate/audit a tree of **lean** CLAUDE.md files via parallel `claudemd-author` workers — one per directory cluster. `$ARGUMENTS` = a directory path or flag.
 

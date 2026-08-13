@@ -6,7 +6,7 @@ description: Post @claude review comment on the current PR and ask what's next. 
 
 # pr-review
 
-Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/pr-review/references/briefing.md) on demand for detailed context and instructions.
+Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 INTENT: post ONE verbatim `@claude` comment; the GitHub Action reviews asynchronously (~2–5 min)
 and posts back to the PR. This skill never reviews, never polls, never merges.

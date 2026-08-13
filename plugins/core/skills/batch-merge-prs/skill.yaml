@@ -11,7 +11,7 @@ metadata:
     name: batch-merge-prs
     description: Verifica N PRs, atiende los comentarios de revisión, realiza la combinación ordenada en la rama de homologación (nunca main), cierra los issues/pendientes vinculados por combinación y entrega la suite de pruebas completa. Use en /batch-merge-prs.
 body: |
-  Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/batch-merge-prs/references/briefing.md) on demand for detailed context and instructions.
+  Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
   INTENT: take N open PRs from open → verified → merged on the staging branch → linked issue/backlog closed per merge → full suite handed to operator. Staging is `homolog` unless project CLAUDE.md states otherwise. Run from repo root.
 

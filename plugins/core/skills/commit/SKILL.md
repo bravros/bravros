@@ -23,3 +23,4 @@ REPO FACT — the only accepted `<emoji> <type>` pairs:
 🔀 merge · 🔍 debug · 🔙 revert · 🌐 i18n
 
 Use $ARGUMENTS as context for the commit message if provided.
+

@@ -6,7 +6,7 @@ description: Fast `homolog → main` merge for committed, pushed work. Trigger �
 
 # promote
 
-> **CRITICAL:** Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/promote/references/briefing.md) on demand for detailed context and instructions.
+> **CRITICAL:** Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 INTENT: Promote accumulated `homolog` work to production (`homolog → main`). Calm-day merges only (`/hotfix` for incidents, `/finish` for feature completion).
 

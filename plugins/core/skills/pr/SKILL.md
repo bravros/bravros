@@ -10,7 +10,7 @@ description: Create a Pull Request with plan context and base branch detection.
 INTENT: ship everything (`/ship`), open the PR against the right base, hand off to review.
 
 > [!IMPORTANT]
-> Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/pr/references/briefing.md) on demand for detailed context and instructions.
+> Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 HARD CONSTRAINTS:
 - PRs NEVER target `main` directly (`feature/* → homolog → main`).

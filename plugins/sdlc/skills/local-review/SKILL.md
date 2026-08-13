@@ -3,7 +3,7 @@ name: local-review
 description: Run a local PR review without the @claude GitHub Action.
 ---
 
-Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/local-review/references/briefing.md) on demand for detailed context and instructions.
+Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 # local-review
 

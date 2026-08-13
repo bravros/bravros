@@ -2,14 +2,34 @@
   "name": "bravros-marketplace",
   "description": "Bravros host-neutral agent toolkit marketplace",
   "owner": {
-    "name": "Bravros Team",
+    "name": "Bravros",
     "url": "https://github.com/bravros"
   },
   "plugins": [
     {
       "name": "bravros",
-      "source": ".",
-      "description": "Bravros core agent toolkit"
+      "source": "./plugins/core",
+      "description": "Bravros core: plan, commit, ship, review, and the SDLC essentials."
+    },
+    {
+      "name": "bravros-sdlc",
+      "source": "./plugins/sdlc",
+      "description": "Extended SDLC skills: audits, triage sweeps, and release tooling."
+    },
+    {
+      "name": "bravros-design",
+      "source": "./plugins/design",
+      "description": "Design and frontend skills."
+    },
+    {
+      "name": "bravros-deploy",
+      "source": "./plugins/deploy",
+      "description": "Deployment and infrastructure skills."
+    },
+    {
+      "name": "bravros-tools",
+      "source": "./plugins/tools",
+      "description": "Standalone tool integrations."
     }
   ]
 }

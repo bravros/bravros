@@ -9,9 +9,9 @@ metadata:
     description: Orquestra a implementação a partir de uma pasta de dossiê em .planning — os subagentes escrevem o código, a sessão lê, despacha por nível de modelo, verifica diffs e faz commits por fase. Use com /orchestrate [pasta] ou "implemente a partir desta pasta .planning".
   es:
     name: orquestar
-    description: Orquesta la implementación desde una carpeta de dossier en .planning: los subagentes escriben el código, la sesión lee, despacha por nivel de modelo, verifica diffs y realiza commits por fase. Use con /orchestrate [carpeta] o "implementa desde esta carpeta .planning".
+    description: Orquesta la implementación desde una carpeta de dossier en .planning — los subagentes escriben el código, la sesión lee, despacha por nivel de modelo, verifica diffs y realiza commits por fase. Use con /orchestrate [carpeta] o "implementa desde esta carpeta .planning".
 body: |
-  Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/orchestrate/references/briefing.md) on demand for detailed context and instructions.
+  Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
   You are the ORCHESTRATOR. Subagents write the product code; you read, decompose, dispatch, verify diffs, and keep the task list as the single source of truth. Never write product code directly.
 

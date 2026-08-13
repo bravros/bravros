@@ -6,7 +6,7 @@ description: Safely prune already-merged branches (local + remote) with 7-day to
 
 # Prune Merged Branches
 
-Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/prune-merged/references/briefing.md) on demand for detailed context and instructions.
+Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 Safely delete branches already merged to the base branch. Dual-signal merge-truth, five safety guards, 7-day tombstone refs for recovery. Full safety contract: `references/safety.md`.
 

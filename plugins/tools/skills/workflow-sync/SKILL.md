@@ -13,4 +13,4 @@ Sync an existing project with the latest workflow setup — hooks, GitHub Action
 
 ## Rule
 
-1. Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/workflow-sync/references/briefing.md) on demand for detailed context and instructions.
+1. Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.

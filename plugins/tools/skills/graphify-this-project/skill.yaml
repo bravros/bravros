@@ -9,7 +9,7 @@ metadata:
     description: Configura um grafo de conhecimento graphify para o projeto atual — graph.json commitado no próprio projeto, extração AST + rotulagem externa, hooks de atualização rastreados, driver de merge por união e superfície de consulta MCP no escopo do usuário. Use em `/graphify-this-project`.
   es:
     name: graphify-this-project
-    description: Configura un grafo de conocimiento graphify para el proyecto actual: graph.json en el repositorio, extracción AST + etiquetado externo, hooks de actualización rastreados, controlador de fusión por unión y superficie de consulta MCP a nivel de usuario. Usar en `/graphify-this-project`.
+    description: Configura un grafo de conocimiento graphify para el proyecto actual; graph.json en el repositorio, extracción AST + etiquetado externo, hooks de actualización rastreados, controlador de fusión por unión y superficie de consulta MCP a nivel de usuario. Usar en `/graphify-this-project`.
 body: |
   # /graphify-this-project
 

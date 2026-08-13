@@ -16,4 +16,4 @@ bash $S --fix      # report + repair bash $S --json   # machine-readable
 
 ## Rule
 
-1. Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/verify-install/references/briefing.md) on demand for detailed context and instructions.
+1. Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.

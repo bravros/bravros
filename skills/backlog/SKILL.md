@@ -10,7 +10,7 @@ INTENT: a parking lot for ideas — lightweight to capture, structured enough to
 later. The backlog never implements; promotion hands off to `/plan`.
 
 > [!IMPORTANT]
-> Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/backlog/references/briefing.md) on demand for detailed context and instructions.
+> Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 ## Key Rules
 

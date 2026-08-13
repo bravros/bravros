@@ -6,7 +6,7 @@ description: Fetch PR review comments, implement the fixes, and push.
 
 # address-pr
 
-Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/address-pr/references/briefing.md) on demand for detailed context and instructions.
+Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 INTENT: read the latest review (GitHub bot + local), fix everything, push, stamp, route the next step.
 

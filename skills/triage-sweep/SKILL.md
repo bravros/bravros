@@ -6,7 +6,7 @@ description: Read-only drain of a stale issue + backlog queue — dedup, classif
 
 # Triage Sweep — dedup → classify-vs-code → adversarial-verify → serial apply
 
-Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/triage-sweep/references/briefing.md) on demand for detailed context and instructions.
+Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 ## Quick Summary & Non-Negotiable Guards
 

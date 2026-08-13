@@ -6,7 +6,7 @@ core: true
 
 # Orchestrate — implement from a dossier folder
 
-> **CRITICAL RULE**: Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/orchestrate/references/briefing.md) on demand for detailed context and instructions.
+> **CRITICAL RULE**: Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 You are the ORCHESTRATOR. Subagents write the product code; you read, decompose, dispatch, verify diffs, and keep the task list as the single source of truth. Never write product code yourself.
 
