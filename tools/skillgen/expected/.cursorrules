@@ -7,7 +7,7 @@ Fetch PR review comments, implement the fixes, and push.
 
 # address-pr
 
-Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/address-pr/references/briefing.md) on demand for detailed context and instructions.
+Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 INTENT: read the latest review (GitHub bot + local), fix everything, push, stamp, route the next step.
 
@@ -110,7 +110,7 @@ Fully autonomous the workflow system pipeline — plan to PR, zero user interven
 
 INTENT: one command, one merge-ready PR. Stages delegate to `/plan` (which reviews inline) → `/orchestrate` → `/pr` → review loop, all with `--auto`.
 
-Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/auto-pr/references/briefing.md) on demand for detailed context and instructions.
+Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 ## Key Constraints & Execution Summary
 
@@ -119,7 +119,7 @@ Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/auto-pr/reference
 3. **NEVER merge to main.** `/promote` with out-of-band token is the only path.
 4. **Lock before Stage 1:** `bravros autopr force-clear --stale-after 21600 && bravros autopr set-lock --skill auto-pr`.
 5. **Review loop sentinel:** Uses `BRAVROS-VERDICT: approved` or `BRAVROS-VERDICT: changes-requested`.
-6. **Worktree isolation:** Refer to [worktree-mode.md](file:///Users/skaisser/Sites/bravros/skills/auto-pr/references/worktree-mode.md).
+6. **Worktree isolation:** Refer to [worktree-mode.md](references/worktree-mode.md).
 
 ---
 
@@ -132,7 +132,7 @@ INTENT: a parking lot for ideas — lightweight to capture, structured enough to
 later. The backlog never implements; promotion hands off to `/plan`.
 
 > [!IMPORTANT]
-> Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/backlog/references/briefing.md) on demand for detailed context and instructions.
+> Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 ## Key Rules
 
@@ -156,7 +156,7 @@ Verify N PRs, address review feedback, ordered-merge to the staging branch (neve
 
 # batch-merge-prs
 
-Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/batch-merge-prs/references/briefing.md) on demand for detailed context and instructions.
+Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 INTENT: take N open PRs from open → verified → merged on the staging branch → linked issue/backlog closed per merge → full suite handed to operator. Staging is `homolog` unless project AGENT.md states otherwise. Run from repo root.
 
@@ -207,8 +207,6 @@ REPO FACT — the only accepted `<emoji> <type>` pairs:
 
 Use $ARGUMENTS as context for the commit message if provided.
 
-See file:///Users/skaisser/Sites/bravros/x.md
-
 ---
 
 ## Skill: bravros-context
@@ -216,7 +214,7 @@ Scan project and generate/audit AGENT.md files with stack auto-detection and Con
 
 # Context — generate & audit AGENT.md files
 
-Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/context/references/briefing.md) on demand for detailed context and instructions.
+Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 INTENT: detect the stack, then generate/audit a tree of **lean** AGENT.md files via parallel `claudemd-author` workers — one per directory cluster. `$ARGUMENTS` = a directory path or flag.
 
@@ -248,7 +246,7 @@ Runs the AI CLI's built-in /doctor health check, then audits the workspace again
 
 Runs standard `claude doctor` health check and audits workspace context against the AI provider's 6 context-engineering shifts.
 
-Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/doctor-plus/references/briefing.md) on demand for detailed context and instructions.
+Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 ## Key Workflow Summary
 
@@ -273,7 +271,7 @@ Complete a feature — merge the approved PR, record plan completion, route the 
 
 # finish
 
-Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/finish/references/briefing.md) on demand for detailed context and instructions.
+Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 INTENT: land this feature — merge the PR into its base, record completion in `.workflow/events.jsonl`, route the promotion-to-main decision. Git/project operation only; never touches application code.
 
@@ -286,7 +284,7 @@ INTENT: land this feature — merge the PR into its base, record completion in `
 5. **Sync & Clean**: Fast-forward local branches and sweep review stamps.
 6. **Main Route**: Route homolog→main decision with operator confirmation.
 
-Refer to [`references/flow.md`](file:///Users/skaisser/Sites/bravros/skills/finish/references/flow.md) for full shell script flow details.
+Refer to [`references/flow.md`](references/flow.md) for full shell script flow details.
 
 ---
 
@@ -295,7 +293,7 @@ Bootstrap a private GitHub repo for the current folder and wire the origin remot
 
 # /git-this — bootstrap a private GitHub repo from the current folder
 
-Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/git-this/references/briefing.md) on demand for detailed context and instructions.
+Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 Creates `<owner>/<folder>` (private), wires `origin`, scaffolds `AGENT.md` declaring the
 direct-main policy for personal/scratch repos. Owner: `gh api user -q .login`.
@@ -324,7 +322,7 @@ Report knowledge-graph label coverage across every graphify-enabled project on t
 
 # /graphify-status
 
-> Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/graphify-status/references/briefing.md) on demand for detailed context and instructions.
+> Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 One table, every graphify project on the machine, answering a single question: **does `graphify query` return real names, or is it still handing back `Community 417`?**
 
@@ -357,7 +355,7 @@ Set up a graphify knowledge graph for the current project — in-project committ
 
 # /graphify-this-project
 
-> Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/graphify-this-project/references/briefing.md) on demand for detailed context and instructions.
+> Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 INTENT: end-to-end graphify setup, **in-project model** — `graphify-out/graph.json` committed to THIS repo (travels via `git pull`), named communities, tracked post-merge refresh hooks, union-merge driver, queried via the **user-scoped `graphify` MCP server** (registered ONCE per machine) with the CLI as backup.
 
@@ -388,7 +386,7 @@ Emergency hotfix deploy — commit, push homolog, PR to main, merge now. Use on 
 
 # hotfix
 
-Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/hotfix/references/briefing.md) on demand for detailed context and instructions.
+Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 INTENT: ship an urgent production fix now, bypassing the plan workflow. Flow: commit → push/merge into homolog → PR homolog→main → merge → sync back. `$ARGUMENTS` is the description — ask if empty.
 
@@ -417,7 +415,7 @@ Stress-test a plan or design via a round-by-round interview — ask the whole fr
 
 # Interview Me
 
-Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/interview-me/references/briefing.md) on demand for detailed context and instructions.
+Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 Stress-test plans or designs by mapping unresolved choices into a **design tree** and interviewing the user round-by-round over the decision **frontier**.
 
@@ -445,7 +443,7 @@ Stress-test plans or designs by mapping unresolved choices into a **design tree*
 ## Skill: bravros-local-review
 Run a local PR review without the @claude GitHub Action.
 
-Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/local-review/references/briefing.md) on demand for detailed context and instructions.
+Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 # local-review
 
@@ -471,7 +469,7 @@ Store, read, inject, and rotate secrets via the 1Password CLI (op). Enforces op:
 
 # onepass — secrets live in 1Password, code holds only `op://` references
 
-> Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/onepass/references/briefing.md) on demand for detailed context and instructions.
+> Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 ## Step 0 — Preflight (every invocation)
 
@@ -498,7 +496,7 @@ bash ~/.bravros/scripts/announce.sh "Autenticação do 1Password necessária. Ag
 
 Plaintext secret in committed file · duplicate items · hard delete without `--archive` · rotating without revoking · echoing raw tokens in chat.
 
-Reference docs: [op-cli-reference.md](file:///Users/skaisser/Sites/bravros/skills/onepass/references/op-cli-reference.md), [auth-setup.md](file:///Users/skaisser/Sites/bravros/skills/onepass/references/auth-setup.md), [briefing.md](file:///Users/skaisser/Sites/bravros/skills/onepass/references/briefing.md).
+Reference docs: [op-cli-reference.md](references/op-cli-reference.md), [auth-setup.md](references/auth-setup.md), [briefing.md](references/briefing.md).
 
 ---
 
@@ -507,7 +505,7 @@ Orchestrate implementation from a .planning dossier folder — subagents write t
 
 # Orchestrate — implement from a dossier folder
 
-> **CRITICAL RULE**: Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/orchestrate/references/briefing.md) on demand for detailed context and instructions.
+> **CRITICAL RULE**: Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 You are the ORCHESTRATOR. Subagents write the product code; you read, decompose, dispatch, verify diffs, and keep the task list as the single source of truth. Never write product code yourself.
 
@@ -530,7 +528,7 @@ Create a reviewed .planning dossier folder — phases, tier markers, acceptance 
 
 # plan
 
-Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/plan/references/briefing.md) on demand for detailed context and instructions.
+Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 INTENT: Produce ONE reviewed folder `.workflow/P-NNNN-<slug>/` for zero-translation execution by `/orchestrate`.
 
@@ -539,7 +537,7 @@ INTENT: Produce ONE reviewed folder `.workflow/P-NNNN-<slug>/` for zero-translat
 1. **Reserve identity**: Check status table via `fold.py`, reserve `PLAN_ID=$(bravros nextid reserve plan)` (or release on abort), create `.workflow/P-NNNN-<slug>/`.
 2. **Interview**: Ask only diverging questions. Save closed decisions & canonical constraints in `README.md`.
 3. **Write & Review**:
-   - Write `README.md` following [`dossier-template.md`](file:///Users/skaisser/Sites/bravros/skills/plan/references/dossier-template.md).
+   - Write `README.md` following [`dossier-template.md`](references/dossier-template.md).
    - Review inline (validate path existence, tier markers `[H]/[S]/[O]`, dependencies, and CLI smoke tests).
 4. **Record & Handoff**:
    - Append `created` and `reviewed` events to `.workflow/events.jsonl`.
@@ -548,7 +546,7 @@ INTENT: Produce ONE reviewed folder `.workflow/P-NNNN-<slug>/` for zero-translat
 
 ## Flags
 - `--auto`: Skip interactive prompts.
-- `--worktree`: Execute within an isolated worktree via [`worktree-extension.md`](file:///Users/skaisser/Sites/bravros/skills/plan/references/worktree-extension.md).
+- `--worktree`: Execute within an isolated worktree via [`worktree-extension.md`](references/worktree-extension.md).
 
 ---
 
@@ -560,7 +558,7 @@ Create a Pull Request with plan context and base branch detection.
 INTENT: ship everything (`/ship`), open the PR against the right base, hand off to review.
 
 > [!IMPORTANT]
-> Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/pr/references/briefing.md) on demand for detailed context and instructions.
+> Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 HARD CONSTRAINTS:
 - PRs NEVER target `main` directly (`feature/* → homolog → main`).
@@ -585,7 +583,7 @@ Post @claude review comment on the current PR and ask what's next. Use on `/pr-r
 
 # pr-review
 
-Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/pr-review/references/briefing.md) on demand for detailed context and instructions.
+Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 INTENT: post ONE verbatim `@claude` comment; the GitHub Action reviews asynchronously (~2–5 min)
 and posts back to the PR. This skill never reviews, never polls, never merges.
@@ -609,7 +607,7 @@ Eliminates generic AI slop from React/Next.js frontends with premium typography,
 
 # premium-website — anti-slop design system router
 
-Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/premium-website/references/briefing.md) on demand for detailed context and instructions.
+Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 Overrides default LLM design biases (Inter font, purple gradients, centered 3-card layouts, neon glows, fake "John Doe" data) with a curated system.
 
@@ -630,7 +628,7 @@ Fast `homolog → main` merge for committed, pushed work. Trigger — `/promote`
 
 # promote
 
-> **CRITICAL:** Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/promote/references/briefing.md) on demand for detailed context and instructions.
+> **CRITICAL:** Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 INTENT: Promote accumulated `homolog` work to production (`homolog → main`). Calm-day merges only (`/hotfix` for incidents, `/finish` for feature completion).
 
@@ -657,7 +655,7 @@ Safely prune already-merged branches (local + remote) with 7-day tombstone recov
 
 # Prune Merged Branches
 
-Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/prune-merged/references/briefing.md) on demand for detailed context and instructions.
+Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 Safely delete branches already merged to the base branch. Dual-signal merge-truth, five safety guards, 7-day tombstone refs for recovery. Full safety contract: `references/safety.md`.
 
@@ -701,7 +699,7 @@ Quick task execution without a full plan — just do it and commit.
 Quick task execution without a full plan — just do it and commit.
 
 > [!IMPORTANT]
-> Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/quick/references/briefing.md) on demand for detailed context and instructions.
+> Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 ## Overview
 
@@ -717,7 +715,7 @@ Investigate bugs with parallel subagents, then certify the root cause with runti
 
 # Root Cause — investigate, verify, certify
 
-Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/root-cause/references/briefing.md) on demand for detailed context and instructions.
+Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 INTENT: prove a root cause with runtime evidence, then hand the fix elsewhere. Investigation produces a hypothesis; only certification makes it a diagnosis. Nothing certifiable → say so plainly (`UNCERTIFIED`), never ship a guess.
 
@@ -797,7 +795,7 @@ Read-only drain of a stale issue + backlog queue — dedup, classify each item v
 
 # Triage Sweep — dedup → classify-vs-code → adversarial-verify → serial apply
 
-Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/triage-sweep/references/briefing.md) on demand for detailed context and instructions.
+Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 ## Quick Summary & Non-Negotiable Guards
 
@@ -832,7 +830,7 @@ Update git hooks in an existing project to the latest version from ~/.agent_conf
 
 ## Rule
 
-1. Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/update-hooks/references/briefing.md) on demand for detailed context and instructions.
+1. Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 ---
 
@@ -851,7 +849,7 @@ bash $S --fix      # report + repair bash $S --json   # machine-readable
 
 ## Rule
 
-1. Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/verify-install/references/briefing.md) on demand for detailed context and instructions.
+1. Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 ---
 
@@ -868,7 +866,7 @@ Sync an existing project with the latest workflow setup — hooks, GitHub Action
 
 ## Rule
 
-1. Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/workflow-sync/references/briefing.md) on demand for detailed context and instructions.
+1. Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 ---
 
@@ -877,7 +875,7 @@ Create, destroy, list or sync git worktrees for any project — Herd link+TLS, .
 
 # /worktree — parallel-worktree manager
 
-Read [briefing.md](file:///Users/skaisser/Sites/bravros/skills/worktree/references/briefing.md) on demand for detailed context and instructions.
+Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 Parallel checkouts without colliding `.test` domains, Redis keys, sessions or queue jobs.
 Laravel repos additionally get a Herd URL, isolated `.env`, and optionally a cloned DB.
