@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -103,20 +104,26 @@ func TestFullInit(t *testing.T) {
 		t.Error(".bravros/hooks/pre-push not copied")
 	}
 
-	// Verify .github/workflows/ exists
-	if _, err := os.Stat(filepath.Join(root, ".github", "workflows")); os.IsNotExist(err) {
-		t.Error(".github/workflows/ not created")
-	}
-
-	// Verify staging branch created
-	if !result.StagingBranchCreated {
-		t.Error("expected StagingBranchCreated=true")
+	// init is repo-local: no .github/workflows/, no branch creation.
+	if _, err := os.Stat(filepath.Join(root, ".github")); !os.IsNotExist(err) {
+		t.Error(".github/ must not be created by init")
 	}
 	cmd := exec.Command("git", "branch", "--list", "homolog")
 	cmd.Dir = root
 	out, _ := cmd.Output()
-	if len(out) == 0 {
-		t.Error("homolog branch not created")
+	if len(out) != 0 {
+		t.Error("init must not create the homolog branch")
+	}
+
+	// core.hooksPath must point at the repo-local hooks dir.
+	cmd = exec.Command("git", "config", "--local", "core.hooksPath")
+	cmd.Dir = root
+	out, err = cmd.Output()
+	if err != nil {
+		t.Fatalf("reading core.hooksPath failed: %v", err)
+	}
+	if strings.TrimSpace(string(out)) != ".bravros/hooks" {
+		t.Errorf("core.hooksPath = %q, want .bravros/hooks", strings.TrimSpace(string(out)))
 	}
 }
 
@@ -127,10 +134,8 @@ func TestSkipFlags(t *testing.T) {
 	os.WriteFile(filepath.Join(root, "go.mod"), []byte("module test\n\ngo 1.21\n"), 0644)
 
 	result, err := Init(InitOpts{
-		Root:              root,
-		SkipHooks:         true,
-		SkipWorkflows:     true,
-		SkipStagingBranch: true,
+		Root:      root,
+		SkipHooks: true,
 	})
 	if err != nil {
 		t.Fatalf("Init failed: %v", err)
@@ -139,21 +144,10 @@ func TestSkipFlags(t *testing.T) {
 	if result.HooksInstalled {
 		t.Error("expected HooksInstalled=false with --skip-hooks")
 	}
-	if result.WorkflowsCreated != nil {
-		t.Error("expected WorkflowsCreated=nil with --skip-workflows")
-	}
-	if result.StagingBranchCreated {
-		t.Error("expected StagingBranchCreated=false with --skip-staging-branch")
-	}
 
 	// Verify hooks dir NOT created
 	if _, err := os.Stat(filepath.Join(root, ".bravros", "hooks")); !os.IsNotExist(err) {
 		t.Error(".bravros/hooks should not exist with --skip-hooks")
-	}
-
-	// Verify workflows dir NOT created
-	if _, err := os.Stat(filepath.Join(root, ".github", "workflows")); !os.IsNotExist(err) {
-		t.Error(".github/workflows should not exist with --skip-workflows")
 	}
 
 	// Config and planning should still be created
@@ -169,7 +163,7 @@ func TestInstallHooksRerunPreservesTrackedCustomHook(t *testing.T) {
 	root := setupTestRepo(t)
 	setupHooksTemplates(t)
 
-	if _, err := installHooks(root); err != nil {
+	if _, _, err := installHooks(root); err != nil {
 		t.Fatalf("initial installHooks failed: %v", err)
 	}
 
@@ -190,7 +184,7 @@ func TestInstallHooksRerunPreservesTrackedCustomHook(t *testing.T) {
 		t.Fatalf("git commit hooks failed: %v", err)
 	}
 
-	if _, err := installHooks(root); err != nil {
+	if _, _, err := installHooks(root); err != nil {
 		t.Fatalf("second installHooks failed: %v", err)
 	}
 
@@ -224,8 +218,7 @@ func TestAlreadyInitialized(t *testing.T) {
 	os.WriteFile(filepath.Join(root, ".bravros", "config.json"), []byte(`{"staging_branch": "homolog"}`), 0644)
 
 	result, err := Init(InitOpts{
-		Root:              root,
-		SkipStagingBranch: true,
+		Root: root,
 	})
 	if err != nil {
 		t.Fatalf("Init failed: %v", err)
@@ -247,11 +240,9 @@ func TestStackOverride(t *testing.T) {
 	os.WriteFile(filepath.Join(root, "go.mod"), []byte("module test\n\ngo 1.21\n"), 0644)
 
 	result, err := Init(InitOpts{
-		Root:              root,
-		StackOverride:     "laravel",
-		SkipHooks:         true,
-		SkipWorkflows:     true,
-		SkipStagingBranch: true,
+		Root:          root,
+		StackOverride: "laravel",
+		SkipHooks:     true,
 	})
 	if err != nil {
 		t.Fatalf("Init failed: %v", err)
@@ -275,10 +266,8 @@ func TestConfigGeneratedCorrectly(t *testing.T) {
 }`), 0644)
 
 	result, err := Init(InitOpts{
-		Root:              root,
-		SkipHooks:         true,
-		SkipWorkflows:     true,
-		SkipStagingBranch: true,
+		Root:      root,
+		SkipHooks: true,
 	})
 	if err != nil {
 		t.Fatalf("Init failed: %v", err)
@@ -297,5 +286,80 @@ func TestConfigGeneratedCorrectly(t *testing.T) {
 	content := string(data)
 	if len(content) == 0 {
 		t.Error("config.json is empty")
+	}
+}
+
+// TestInitWritesConfigInEmptyRepo covers the README contract: init always leaves a
+// .bravros/config.json behind, including in a repo where stack detection finds
+// nothing (the plain-WriteConfig early-exit used to skip the file entirely).
+func TestInitWritesConfigInEmptyRepo(t *testing.T) {
+	root := setupTestRepo(t)
+	setupHooksTemplates(t)
+
+	result, err := Init(InitOpts{Root: root, SkipHooks: true})
+	if err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	if !result.ConfigWritten {
+		t.Error("expected ConfigWritten=true in an empty repo")
+	}
+
+	data, err := os.ReadFile(filepath.Join(root, ".bravros", "config.json"))
+	if err != nil {
+		t.Fatalf(".bravros/config.json not created in an empty repo: %v", err)
+	}
+	if !strings.Contains(string(data), `"$schema"`) {
+		t.Errorf("config.json is missing the $schema key: %s", data)
+	}
+}
+
+// TestInitInstallsEmbeddedHooks proves init needs nothing but the binary: with no
+// HooksSourceOverride it installs both canonical hooks from the embedded templates.
+func TestInitInstallsEmbeddedHooks(t *testing.T) {
+	root := setupTestRepo(t)
+
+	result, err := Init(InitOpts{Root: root})
+	if err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	if !result.HooksInstalled {
+		t.Error("expected HooksInstalled=true")
+	}
+
+	for _, name := range []string{"commit-msg", "pre-push"} {
+		info, err := os.Stat(filepath.Join(root, ".bravros", "hooks", name))
+		if err != nil {
+			t.Fatalf(".bravros/hooks/%s not installed: %v", name, err)
+		}
+		if info.Mode().Perm()&0o111 == 0 {
+			t.Errorf(".bravros/hooks/%s is not executable (mode %v)", name, info.Mode().Perm())
+		}
+	}
+}
+
+// TestInitWritesNothingOutsideRepo is the regression test for the critical bug:
+// init used to deploy into the user's ~/.claude/. With HOME pointed at an empty
+// temp dir, a full init must leave that directory untouched.
+func TestInitWritesNothingOutsideRepo(t *testing.T) {
+	root := setupTestRepo(t)
+
+	fakeHome := t.TempDir()
+	t.Setenv("HOME", fakeHome)
+	t.Setenv("BRAVROS_CONFIG_DIR", filepath.Join(fakeHome, ".claude"))
+
+	if _, err := Init(InitOpts{Root: root}); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+
+	entries, err := os.ReadDir(fakeHome)
+	if err != nil {
+		t.Fatalf("reading fake HOME failed: %v", err)
+	}
+	if len(entries) != 0 {
+		var names []string
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		t.Errorf("init wrote outside the repo — HOME contains %v", names)
 	}
 }
