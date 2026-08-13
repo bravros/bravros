@@ -94,4 +94,4 @@ But `--missing-only` is *only* a gap-fill. It never revisits an existing name, s
 
 ### Spot-checking a label via MCP
 
-To sanity-check what a named community actually contains, one MCP call beats opening `graph.json`: `mcp__graphify__get_community {community_id, project_path: "<abs repo path>"}` lists its nodes; `mcp__graphify__graph_stats` gives the per-project totals this table is computed from.
+To sanity-check what a named community actually contains, one MCP call beats opening `graph.json`: `mcp_graphify__get_community {community_id, project_path: "<abs repo path>"}` lists its nodes; `mcp_graphify__graph_stats` gives the per-project totals this table is computed from.

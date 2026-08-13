@@ -1,6 +1,6 @@
 # Update Hooks: Refresh Git Hooks
 
-Update git hooks in an existing project to the latest version from ~/.claude/templates.
+Update git hooks in an existing project to the latest version from ~/.bravros/templates.
 
 ## Model Requirement
 

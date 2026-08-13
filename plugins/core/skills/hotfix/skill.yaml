@@ -17,7 +17,7 @@ body: |
 
   ## Hard constraints
 
-  - **Running `/hotfix` IS approval for merge-to-main** — emergency exemption (no `AskUserQuestion` checkpoints).
+  - **Running `/hotfix` IS approval for merge-to-main** — emergency exemption (no `ask_question` checkpoints).
   - **Autopr lock gate**: If `bravros autopr status` reports lock present, refuse to merge until cleared (`bravros autopr clear-lock`).
   - **Merge-lock skipped**: Documented exception per merge flow.
   - **NEVER delete homolog branch. NEVER skip PR** (main is protected).

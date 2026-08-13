@@ -30,4 +30,4 @@ body: |
   1. **Dry-run:** `bravros branch prune --base <detected-base>` — lists candidates with source attribution. Dry-run is the default; only `--apply` deletes.
   2. **User review — MANDATORY.** Show full output then ask "Proceed with deletion?". Never continue without explicit yes.
   3. **Apply:** `bravros branch prune --apply --base <detected-base>`.
-  4. **Report:** deleted count, log location (`~/.claude/logs/branch-prune.log`), recovery instructions.
+  4. **Report:** deleted count, log location (`~/.bravros/logs/branch-prune.log`), recovery instructions.

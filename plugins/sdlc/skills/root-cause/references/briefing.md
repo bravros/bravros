@@ -12,11 +12,11 @@ Prove a root cause with runtime evidence, then hand the fix elsewhere. Investiga
 - **Certification is the gate.** A diagnosis needs one of three proofs — reproduce + state match, counterfactual, or unbroken evidence chain (cookbook: `references/certification.md`). Cap: 3 rounds / 3 parallel agents per round, then report `UNCERTIFIED` honestly and recommend deeper investigation, not a fix.
 - **Laravel probes via `php artisan` one-shots** (`tinker --execute`, `db:table`, `route:list`, `storage/logs/laravel.log`). Boost MCP is optional — its tool schemas cost tokens artisan doesn't; never require or install it. `php artisan --version` broken at repo root → STOP, that IS the incident.
 - **graphify is a lead source, never a verdict** — a confident graph hit still goes through verification; source code always wins.
-- **The hand-off is the operator's decision** — always `AskUserQuestion`, never assume.
+- **The hand-off is the operator's decision** — always `ask_question`, never assume.
 
 ## Detailed Workflow Steps
 
-1. Materialize the engine: `mkdir -p .claude/workflows && cp -f ~/.claude/skills/root-cause/scripts/root-cause-investigate.js .claude/workflows/root-cause-investigate.js`
+1. Materialize the engine: `mkdir -p .claude/workflows && cp -f ~/.bravros/skills/root-cause/scripts/root-cause-investigate.js .claude/workflows/root-cause-investigate.js`
 2. Reserve the dir (never hand-`mkdir` — reservation prevents ID collisions across worktrees):
    ```bash
    SLUG=$(echo "$ARGUMENTS" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/-\+/-/g' | cut -c1-40 | sed 's/-$//')
@@ -31,7 +31,7 @@ Prove a root cause with runtime evidence, then hand the fix elsewhere. Investiga
    ```
    Each round: parallel lens agents (code-tracer, blast-radius-mapper, repro-verifier) verify leads against real source → one falsifiable hypothesis → an adversarial agent certifies or refutes it with runtime evidence. The parallel fan-out exists because one agent anchors on its first plausible cause; independent lenses are what surface the refutation. Returns `{ rounds, certified, root_cause, confidence, hypothesis, certification, findings_files, notes }`.
 5. Write `diagnosis.md` + `report.md` in `$DEBUG_DIR` (schemas: `references/report-template.md`; the **Proof of Root Cause** transcript is mandatory — paste real runtime output, or the refutation trail if `UNCERTIFIED`). Then `bravros commit "🔍 debug: $DEBUG_ID investigation for $SLUG" <files>`; `DEBUG_COMMIT=$(git rev-parse HEAD)`.
-6. Announce, then route via `AskUserQuestion` (decision matrix + handoff payload + receiver contract: `references/investigation-guide.md`). Backlog route = write the `B-NNNN` file per `.planning/CONVENTIONS.md` (`bravros nextid` for the id, one `created` event appended to `.planning/events.jsonl`) carrying root cause + proof + `debug: $DEBUG_ID`. `UNCERTIFIED` → recommend backlog-for-deeper-investigation; surface `/quick` last or not at all.
+6. Announce, then route via `ask_question` (decision matrix + handoff payload + receiver contract: `references/investigation-guide.md`). Backlog route = write the `B-NNNN` file per `.planning/CONVENTIONS.md` (`bravros nextid` for the id, one `created` event appended to `.planning/events.jsonl`) carrying root cause + proof + `debug: $DEBUG_ID`. `UNCERTIFIED` → recommend backlog-for-deeper-investigation; surface `/quick` last or not at all.
    <!-- announce-template: "Investigação concluída, aguardando decisão sobre o próximo passo. Projeto {PROJECT}." -->
    ```bash
    bravros ha say --force "Investigação concluída, aguardando decisão sobre o próximo passo. Projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio >/dev/null 2>&1 || true

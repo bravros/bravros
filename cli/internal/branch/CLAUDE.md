@@ -1,8 +1,8 @@
 # cli/internal/branch — Branch Lifecycle Package
 
-This package implements the branch lifecycle helpers backing `kaisser branch prune`
+This package implements the branch lifecycle helpers backing `bravros branch prune`
 (the engine behind the manual-only `/prune-merged` skill — the legacy
-`kaisser prune-merged-branches` verb is retired).
+`bravros prune-merged-branches` verb is retired).
 The core entry point is `PruneBranch(branch string, opts PruneOpts) PruneDecision`.
 
 ## Prune invariants
@@ -57,7 +57,7 @@ Guards execute in this order; the first match causes a skip:
    set is parsed ONCE via `WorktreeBranches()` in `runBranchPrune` and injected through
    `PruneOpts.WorktreeBranches`; a listing error aborts the whole run. Skipped branches are
    reported `SKIPPED-WORKTREE`; teardown is owned by `/worktree destroy`
-   (`kaisser worktree cleanup <path>`)
+   (`bravros worktree cleanup <path>`)
 7. **I4** Merge OR-gate (git-merged OR gh-PR-merged-and-SHA-ancestor-and-tip-unmoved)
 8. **I9** PR-state classification of the refusals — `rejected` (every PR CLOSED) continues to
    deletion by default; `in-flight` / `stray-tip` / `no-pr` / `unknown` are kept

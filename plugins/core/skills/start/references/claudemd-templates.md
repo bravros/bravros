@@ -2,7 +2,7 @@
 
 Generate the project CLAUDE.md as: title (`# [Project Name] — Claude Code Instructions`) +
 a stack-specific `## Tech Stack` / `## Development` section filled from detection + the
-**shared tail** below. For Laravel, prefer the fast path: copy `~/.claude/templates/CLAUDE.md`.
+**shared tail** below. For Laravel, prefer the fast path: copy `~/.bravros/templates/CLAUDE.md`.
 
 ## Shared tail (identical for every stack — our conventions, not derivable)
 
@@ -33,7 +33,7 @@ Format: `<emoji> <type>: <description>` (present tense, lowercase)
 <!-- Add project-specific patterns, architecture decisions, or gotchas here -->
 ```
 
-## Laravel (fast path: `~/.claude/templates/CLAUDE.md`)
+## Laravel (fast path: `~/.bravros/templates/CLAUDE.md`)
 
 House stack facts the model can't guess: PHP via **Herd Pro** (local URL is
 `[project-folder].test`, HTTPS), TALL stack (Tailwind + Alpine + Livewire), MySQL via

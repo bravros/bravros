@@ -4,7 +4,7 @@
 
 ## Overview
 
-`kaisser` is a Go CLI binary that powers the Kaisser SDLC. It provides audit enforcement, git context, PR helpers, Home Assistant integration, and more.
+`bravros` is a Go CLI binary that powers the Bravros SDLC. It provides audit enforcement, git context, PR helpers, Home Assistant integration, and more.
 
 - **Module:** `github.com/bravros/bravros/cli`
 - **Go version:** See `go.mod`
@@ -34,9 +34,9 @@ outright** in P-0187 — no reduced rule count, no successor package. See
 
 ## StackConfig & lockfile heuristic
 
-`internal/config.StackConfig` holds detected per-project stack info written into `.kaisser.yml`. It now includes `NodePackageManager` (npm / pnpm / bun / yarn) populated by `stack.DetectNodePackageManager`.
+`internal/config.StackConfig` holds detected per-project stack info written into `.bravros.yml`. It now includes `NodePackageManager` (npm / pnpm / bun / yarn) populated by `stack.DetectNodePackageManager`.
 
-Lockfile priority (kaisser ships the full set; bravros is missing pnpm/bun/yarn — sync back on next DRY pass):
+Lockfile priority (bravros ships the full set; bravros is missing pnpm/bun/yarn — sync back on next DRY pass):
 
 | Lockfile | Package manager |
 |---|---|
@@ -46,21 +46,21 @@ Lockfile priority (kaisser ships the full set; bravros is missing pnpm/bun/yarn 
 | `package-lock.json` | `npm` |
 | *(none, but `package.json` present)* | `npm` (default) |
 
-`internal/worktree.SetupFull` (the `kaisser worktree setup-full` verb) dispatches installs off `StackConfig.NodePackageManager`. When you add a new Node PM, update `DetectNodePackageManager` + the staleness lockfile slice in `internal/stack.checkStaleness` + this table.
+`internal/worktree.SetupFull` (the `bravros worktree setup-full` verb) dispatches installs off `StackConfig.NodePackageManager`. When you add a new Node PM, update `DetectNodePackageManager` + the staleness lockfile slice in `internal/stack.checkStaleness` + this table.
 
 ## Development Commands
 
 Standard Go tooling from `cli/` (`go build ./...`, `go test ./...`, `go test -run TestName ./internal/audit/`, `go vet ./...`). The only non-obvious invocation is the version-stamped local build:
 
 ```bash
-cd cli && go build -ldflags="-s -w -X github.com/bravros/bravros/cli/cmd.Version=v1.9.5" -o ../bin/kaisser .
+cd cli && go build -ldflags="-s -w -X github.com/bravros/bravros/cli/cmd.Version=v1.9.5" -o ../bin/bravros .
 ```
 
 ## Local Build Rules
 
 - **Always use `-ldflags` with version** when building for `bin/` or `~/.claude/bin/` — never `go build -o` without it
 - **Version tag format**: `-X github.com/bravros/bravros/cli/cmd.Version=v1.9.5` — the `v` prefix is stripped at print time, so always include it for consistency with git tags
-- **Never commit `bin/kaisser`** — releases ship via tag-push only (`release.yml` cross-compiles all 3 platform binaries) and manually committed binaries break selfupdate's drift detection. For in-session iteration, build a separate `kaisser-dev` binary instead of overwriting the live one
+- **Never commit `bin/bravros`** — releases ship via tag-push only (`release.yml` cross-compiles all 3 platform binaries) and manually committed binaries break selfupdate's drift detection. For in-session iteration, build a separate `bravros-dev` binary instead of overwriting the live one
 
 ## Deploy (portable repo → `~/.claude/`)
 
@@ -68,16 +68,16 @@ Two paths after editing skills/configs in this repo:
 
 | Command | When |
 |---|---|
-| `kaisser deploy` | Fast. Copies the portable repo to `~/.claude/` without running health checks. Use during active work. Supports `--filter <csv>` to override the `skills.enabled` allowlist per-invocation; `--dry-run` to preview. |
+| `bravros deploy` | Fast. Copies the portable repo to `~/.claude/` without running health checks. Use during active work. Supports `--filter <csv>` to override the `skills.enabled` allowlist per-invocation; `--dry-run` to preview. |
 | `bash install.sh` | Full install. Runs dependency checks, 1Password auth, MCP platform filtering (removes Herd/BrowserMCP on Linux), and macOS-only setup. Use for first install or after a `selfupdate`. |
 
-**`kaisser selfupdate`** (alias: `kaisser update`) — drift detector. If drift is detected it runs `install.sh` automatically; otherwise it's a silent no-op. Fires on SessionStart hook.
+**`bravros selfupdate`** (alias: `bravros update`) — drift detector. If drift is detected it runs `install.sh` automatically; otherwise it's a silent no-op. Fires on SessionStart hook.
 
 **Detector tiers (4m6).** The default run checks three *cheap* signals only — git HEAD drift (`HasOriginMainUpdates` via `merge-base`), CLI version drift (`detectCliStale` via `git describe`), and commit-msg hook SHA drift (`detectHookDrift`). The two *expensive* signals — per-skill manifest-SHA drift (each enabled skill's tree is walked + hashed) and `scripts/` drift — run only under `--deep`. They are redundant on the common path: any skill or script edit pushed to main lands as a new `origin/main` commit, so the git-HEAD signal already fires and triggers `install.sh`. `--deep` covers the rare case where the deployed runtime drifted WITHOUT a new main commit (manual `~/.claude` edit, partial deploy, manifest loss).
 
 **Clobber guard (WS6).** The working-tree overlay `git checkout origin/main -- .` runs ONLY when HEAD is strictly an ancestor of `origin/main` (clean catch-up / fast-forward — `selfupdate.IsBehindOriginMain`). On a diverged or ahead HEAD (e.g. homolog or a feature branch carrying committed-but-not-yet-on-main work), the overlay is skipped so local commits' content is never reverted into a staged reversion. `install.sh` still runs on a diverged HEAD for any skill/CLI/hook drift — only the destructive overlay is gated.
 
-Skill-drift signal is manifest-SHA-based (P-0138): under `--deep`, any change inside a skill (file added, removed, content modified, regardless of which file or mtime) triggers redeploy on next SessionStart. The manifest lives at `~/.claude/skills/.deploy-manifest.json` and is written by `install.sh` via `kaisser deploy`. Missing manifest → forces a fresh `install.sh` run.
+Skill-drift signal is manifest-SHA-based (P-0138): under `--deep`, any change inside a skill (file added, removed, content modified, regardless of which file or mtime) triggers redeploy on next SessionStart. The manifest lives at `~/.claude/skills/.deploy-manifest.json` and is written by `install.sh` via `bravros deploy`. Missing manifest → forces a fresh `install.sh` run.
 
 ### Deploy manifest
 
@@ -102,7 +102,7 @@ This is the validated path (proven end-to-end during P-0129 / v3.26.1, 2026-05-0
    - Pushes the new tag to origin.
 4. **`release.yml` fires** on the tag push. It cross-compiles 3 binaries and publishes the GitHub Release.
 5. Total wall-clock time: ~1-2 minutes after the main merge completes.
-6. Users pick up the new binary on next `kaisser selfupdate` — which auto-fires via the SessionStart hook.
+6. Users pick up the new binary on next `bravros selfupdate` — which auto-fires via the SessionStart hook.
 
 You don't run any `git tag` / `git push origin v*` commands during normal flow.
 
@@ -175,7 +175,7 @@ sleep 8 && gh run list --workflow=release.yml --limit=1
 gh release view "$NEW_VERSION"   # should show 3 binaries
 ```
 
-That's it. Users running `kaisser selfupdate` get the new binary on their next session.
+That's it. Users running `bravros selfupdate` get the new binary on their next session.
 
 ### Common gotchas
 
@@ -183,11 +183,11 @@ That's it. Users running `kaisser selfupdate` get the new binary on their next s
 - **Don't tag from a pre-squash feat-branch commit.** Squash-merging a feature PR creates a brand-new commit on the base branch; the original feat-branch commits are orphaned once the branch is deleted. Tag the squash-merge commit instead.
 - **Tag pushes ARE allowed from a `main` checkout.** The local pre-push hook only blocks branch pushes to main (`refs/heads/main`); it explicitly permits tag pushes (`refs/tags/*`). If you see "Direct push to main is not allowed!" while pushing a tag, your hook is out of date — pull main and re-deploy.
 - **Don't manually create the GitHub Release.** Pushing the tag is enough — the Action builds binaries, creates the Release, attaches assets, and generates release notes automatically.
-- **Don't commit `bin/kaisser` for releases.** It's a local dev build only; users get binaries from the GitHub Release assets via `install.sh`.
+- **Don't commit `bin/bravros` for releases.** It's a local dev build only; users get binaries from the GitHub Release assets via `install.sh`.
 
 ### Recovering from a wrong-commit tag
 
-If a tag was pushed against the wrong commit (e.g. a pre-squash feat commit), the cleanest fix is to bump the patch version and tag again from the correct commit. **Don't move an existing tag** — the published Release + binaries are immutable from the user's perspective and editing them invalidates `kaisser selfupdate`'s drift detector.
+If a tag was pushed against the wrong commit (e.g. a pre-squash feat commit), the cleanest fix is to bump the patch version and tag again from the correct commit. **Don't move an existing tag** — the published Release + binaries are immutable from the user's perspective and editing them invalidates `bravros selfupdate`'s drift detector.
 
 ```bash
 # Wrong: v3.15.0 tagged at e63417b (orphan feat commit)
@@ -208,7 +208,7 @@ gh release view vX.Y.Z --json tagName,assets -q '.assets[].name'  # asset names 
 
 ### Rule: Don't reference unreleased CLI flags
 
-Never reference a `kaisser` CLI flag in `settings.json`, hook commands, or skill files until the release containing that flag is tagged AND the GitHub Action has published the binary. install.sh prefers a local `cli/kaisser-${OS}-${ARCH}` binary if present, but most users get the binary from the GitHub release — those users will hit a flag-not-found error on every hook fire until they run `selfupdate`.
+Never reference a `bravros` CLI flag in `settings.json`, hook commands, or skill files until the release containing that flag is tagged AND the GitHub Action has published the binary. install.sh prefers a local `cli/bravros-${OS}-${ARCH}` binary if present, but most users get the binary from the GitHub release — those users will hit a flag-not-found error on every hook fire until they run `selfupdate`.
 
 Safe order:
 1. Add the flag to `cli/cmd/<x>.go`, commit + tag + push (Action ships the binary).
@@ -231,13 +231,13 @@ Preserve this pattern when modifying `cli/internal/plan/backlog.go`:
 
 1. **`backlogIDRe` must accept both bare-digit and B-prefixed filenames.** The canonical regex is `^(?:B-)?(\d{3,4})` — do NOT narrow it back to `^(\d{3,4})`. `normalizeBacklogID` strips `B-` before `Atoi` and zero-pads to 4 digits.
 
-> **Note (B-0141, 2026-04-27 / superseded by P-0116, 2026-05-05):** The `gcStalePlaceholders` function and the entire `*-.placeholder` reservation mechanism were removed in P-0092 because consumer skills ignored the placeholders and called `kaisser nextid` again, producing orphans. **Reinstated in P-0116** with mandatory consumer-side reuse: `ReservePlaceholder`/`ReleasePlaceholder` in `meta.go` and a new `kaisser nextid reserve <entity>` verb. Consumer skills now MUST rename the placeholder into the final filename rather than calling `nextid` a second time. The new placeholder filename is `<id>.placeholder` (no trailing hyphen — `numberedFileRe` extended to match). No automatic TTL/GC: `kaisser nextid release <ID>` is the explicit cleanup verb.
+> **Note (B-0141, 2026-04-27 / superseded by P-0116, 2026-05-05):** The `gcStalePlaceholders` function and the entire `*-.placeholder` reservation mechanism were removed in P-0092 because consumer skills ignored the placeholders and called `bravros nextid` again, producing orphans. **Reinstated in P-0116** with mandatory consumer-side reuse: `ReservePlaceholder`/`ReleasePlaceholder` in `meta.go` and a new `bravros nextid reserve <entity>` verb. Consumer skills now MUST rename the placeholder into the final filename rather than calling `nextid` a second time. The new placeholder filename is `<id>.placeholder` (no trailing hyphen — `numberedFileRe` extended to match). No automatic TTL/GC: `bravros nextid release <ID>` is the explicit cleanup verb.
 
-> **Note (P-0149, 2026-05-16):** Entity definitions are now centralized in a canonical `EntityDef` registry — `cli/internal/plan/entity.go` (`AllEntities`, `EntityByName`, `EntityByPrefix`, `AllPrefixes`). `nextid reserve/release`, `graph.go`'s prefix list, and the deprecated all-entities `nextid` JSON command all derive `{dir, prefix}` from the registry instead of hardcoded maps — add a new entity in one place. Each `EntityDef` carries a `kind`: `file` (plan/backlog/report/user_report — the placeholder-rename flow above applies) or `directory` (the `debug` entity, prefix `D-`, dir `.planning/debug`). For `kind: directory`, `kaisser nextid reserve debug --slug <slug>` creates the `D-NNNN-<slug>-open/` directory **directly** — no `.placeholder` file, no consumer-side rename. Stage transitions (`-open/` → `-complete/`) run inside the CLI via `advanceEntity` / `kaisser finish` (never a raw `mv` — keeps audit Rule 16 satisfied); `findEntityFileByID` resolves a bare `D-NNNN` to its directory regardless of stage suffix.
+> **Note (P-0149, 2026-05-16):** Entity definitions are now centralized in a canonical `EntityDef` registry — `cli/internal/plan/entity.go` (`AllEntities`, `EntityByName`, `EntityByPrefix`, `AllPrefixes`). `nextid reserve/release`, `graph.go`'s prefix list, and the deprecated all-entities `nextid` JSON command all derive `{dir, prefix}` from the registry instead of hardcoded maps — add a new entity in one place. Each `EntityDef` carries a `kind`: `file` (plan/backlog/report/user_report — the placeholder-rename flow above applies) or `directory` (the `debug` entity, prefix `D-`, dir `.planning/debug`). For `kind: directory`, `bravros nextid reserve debug --slug <slug>` creates the `D-NNNN-<slug>-open/` directory **directly** — no `.placeholder` file, no consumer-side rename. Stage transitions (`-open/` → `-complete/`) run inside the CLI via `advanceEntity` / `bravros finish` (never a raw `mv` — keeps audit Rule 16 satisfied); `findEntityFileByID` resolves a bare `D-NNNN` to its directory regardless of stage suffix.
 
-> **Note (P-0172, 2026-05-27):** Phase 4 of P-0170 is complete. `kaisser meta` now calls `plan.ResolveWriteRoot()` instead of the (now-deleted) `plan.ResolvePlanningRoot()`, so `kaisser meta --field plan_file` from inside a linked worktree returns the **calling worktree's** path rather than the primary clone's. The B-0208 redirect that this reverses was a since-superseded fix — see `.planning/debug/D-0004-kaisser-meta-plan-file-worktree-path-open/report.md` for the runtime evidence that motivated the reversal.
+> **Note (P-0172, 2026-05-27):** Phase 4 of P-0170 is complete. `bravros meta` now calls `plan.ResolveWriteRoot()` instead of the (now-deleted) `plan.ResolvePlanningRoot()`, so `bravros meta --field plan_file` from inside a linked worktree returns the **calling worktree's** path rather than the primary clone's. The B-0208 redirect that this reverses was a since-superseded fix — see `.planning/debug/D-0004-bravros-meta-plan-file-worktree-path-open/report.md` for the runtime evidence that motivated the reversal.
 
-> **Note (P-0180, 2026-07-02):** The `plan` entity is now dual-kind (`cli/internal/plan/entity.go` — `EntityDef.AllowsDirectory` / `IsDualKind()`): a plan is either a single `.planning/NNNN-slug.md` file (unchanged, `Kind` stays `EntityKindFile`) OR a `.planning/P-NNNN-<slug>/` folder whose canonical entry file is `PLAN.md` (fallback order: `PLAN.md` → id-prefixed `*.md` → `TASKLIST.md` → first frontmatter-bearing `.md`, resolved via `plan.ResolvePlanEntryFile` in `resolve.go`). Every file-only plan consumer (`FindPlanFile`, `ParsePlanHeader`, `CheckPlanCheckStatus`, the lint filename check, `scanWorktreeFS`/`scanBranchTree`) routes through this one resolver instead of ad-hoc per-call-site folder logic. `kaisser nextid reserve plan --slug <slug>` creates the folder-plan (`.planning/P-NNNN-<slug>/` + seeded `PLAN.md`) via `plan.ReservePlanDir` (mirrors `ReserveDebugDir`); `kaisser nextid reserve plan` **without** `--slug` is unchanged — it reserves a single-file `<id>.placeholder` (so `/plan`, which reserves with no slug, keeps its file-based flow). **Folder-plan id resolution:** `FindPlanFile` hands consumers the resolved entry file (`…/PLAN.md`), whose basename carries no id, so `ParsePlanHeader`/`CheckPlanCheckStatus` recover the plan number from the PARENT directory basename via the shared `planNumFromPath` helper (`meta.go`). `kaisser finish` / `kaisser plan advance` renames a folder-plan `P-NNNN-<slug>/` → `P-NNNN-<slug>-complete/` via `AdvancePlanDir` (mirrors `AdvanceDebugDir`); single-file plans keep the `-complete.md` rename unchanged. Audit rules 6/20 exempt anything at `.planning/<subdir>/**` (depth ≥ 2) from the plan-template gate — see `cli/internal/audit/CLAUDE.md` § "Plan-folders and the depth exemption".
+> **Note (P-0180, 2026-07-02):** The `plan` entity is now dual-kind (`cli/internal/plan/entity.go` — `EntityDef.AllowsDirectory` / `IsDualKind()`): a plan is either a single `.planning/NNNN-slug.md` file (unchanged, `Kind` stays `EntityKindFile`) OR a `.planning/P-NNNN-<slug>/` folder whose canonical entry file is `PLAN.md` (fallback order: `PLAN.md` → id-prefixed `*.md` → `TASKLIST.md` → first frontmatter-bearing `.md`, resolved via `plan.ResolvePlanEntryFile` in `resolve.go`). Every file-only plan consumer (`FindPlanFile`, `ParsePlanHeader`, `CheckPlanCheckStatus`, the lint filename check, `scanWorktreeFS`/`scanBranchTree`) routes through this one resolver instead of ad-hoc per-call-site folder logic. `bravros nextid reserve plan --slug <slug>` creates the folder-plan (`.planning/P-NNNN-<slug>/` + seeded `PLAN.md`) via `plan.ReservePlanDir` (mirrors `ReserveDebugDir`); `bravros nextid reserve plan` **without** `--slug` is unchanged — it reserves a single-file `<id>.placeholder` (so `/plan`, which reserves with no slug, keeps its file-based flow). **Folder-plan id resolution:** `FindPlanFile` hands consumers the resolved entry file (`…/PLAN.md`), whose basename carries no id, so `ParsePlanHeader`/`CheckPlanCheckStatus` recover the plan number from the PARENT directory basename via the shared `planNumFromPath` helper (`meta.go`). `bravros finish` / `bravros plan advance` renames a folder-plan `P-NNNN-<slug>/` → `P-NNNN-<slug>-complete/` via `AdvancePlanDir` (mirrors `AdvanceDebugDir`); single-file plans keep the `-complete.md` rename unchanged. Audit rules 6/20 exempt anything at `.planning/<subdir>/**` (depth ≥ 2) from the plan-template gate — see `cli/internal/audit/CLAUDE.md` § "Plan-folders and the depth exemption".
 
 ## Key Conventions
 
@@ -252,14 +252,14 @@ When you add, rename, or change a CLI verb / flag / output shape under `cli/cmd/
 
 | You changed | Also update |
 |---|---|
-| New verb or sub-command | [`../example-kaisser-cli.md`](../example-kaisser-cli.md) — single-source skill-author reference |
-| Flag added/renamed | [`../example-kaisser-cli.md`](../example-kaisser-cli.md) (flag table for that verb) |
-| Output shape changed | [`../example-kaisser-cli.md`](../example-kaisser-cli.md) (Sample output block) |
-| Verb removed | Delete its section in [`../example-kaisser-cli.md`](../example-kaisser-cli.md) + remove from Quick Index |
+| New verb or sub-command | [`../example-bravros-cli.md`](../example-bravros-cli.md) — single-source skill-author reference |
+| Flag added/renamed | [`../example-bravros-cli.md`](../example-bravros-cli.md) (flag table for that verb) |
+| Output shape changed | [`../example-bravros-cli.md`](../example-bravros-cli.md) (Sample output block) |
+| Verb removed | Delete its section in [`../example-bravros-cli.md`](../example-bravros-cli.md) + remove from Quick Index |
 | Any of the above | Plus [`../docs/CLI.md`](../docs/CLI.md) index + the right [`../docs/cli/<group>.md`](../docs/cli/) deep-dive |
 
-`example-kaisser-cli.md` is the canonical CLI surface for skill authors — if it's stale, skills break. Treat it like a public API contract.
+`example-bravros-cli.md` is the canonical CLI surface for skill authors — if it's stale, skills break. Treat it like a public API contract.
 
-`kaisser audit-docs` (the CI drift-linter for `docs/cli/*.md` flag tables) was retired with the
+`bravros audit-docs` (the CI drift-linter for `docs/cli/*.md` flag tables) was retired with the
 audit engine in P-0187 — there is no automated docs-code sync check anymore. Verify manually
 against `cli/cmd/*.go` `Use:`/flag definitions before merging a CLI-surface PR.

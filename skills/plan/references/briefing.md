@@ -15,7 +15,7 @@ this territory → surface it and ask before writing a near-duplicate. Then
 
 ## 2 — Interview only where readings diverge
 
-Ask nothing you can read. Where two viable approaches genuinely fork, AskUserQuestion; a deep
+Ask nothing you can read. Where two viable approaches genuinely fork, ask_question; a deep
 multi-round fork → `/interview-me`. Write the answers into the README as **closed decisions**,
 alongside the only-we-know context — constraints, traps, what is canonical and NOT changing — so
 `/orchestrate` never relitigates them. `/plan B-NNNN` (or a bare number) → read

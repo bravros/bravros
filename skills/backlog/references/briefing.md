@@ -49,7 +49,7 @@ PRIMARY_BRANCH=$(cd "$BACKLOG_ROOT" && git branch --show-current)
    <!-- announce-template: "Item pendente possivelmente duplicado, aguardando decisão. Ramo {BRANCH}, projeto {PROJECT}." -->
    `bravros ha say --force "Item pendente possivelmente duplicado, aguardando decisão. Ramo <fragmento>, projeto <repo>." studio >/dev/null 2>&1 || true`
 2. Infer `type` (+ `severity`/`source` when it's a fix or incident); confirm in one
-   `AskUserQuestion`. Titles: `<type>: short description` — parentheses, em-dashes, and
+   `ask_question`. Titles: `<type>: short description` — parentheses, em-dashes, and
    10-word titles produce awkward slugs.
    <!-- announce-template: "Novo item pendente aguardando confirmação. Ramo {BRANCH}, projeto {PROJECT}." -->
    `bravros ha say --force "Novo item pendente aguardando confirmação. Ramo <fragmento>, projeto <repo>." studio >/dev/null 2>&1 || true`

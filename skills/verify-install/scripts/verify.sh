@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================================================
 # Bravros SDLC — installation health check
-# Compares the source repo against the deployed runtime (~/.claude).
+# Compares the source repo against the deployed runtime (~/.bravros).
 # Usage: bash verify.sh [--fix] [--json] [--auto]
 # ============================================================================
 
@@ -201,7 +201,7 @@ else
     fi
 fi
 
-# Skills and hooks invoke `bravros` bare, so ~/.claude/bin must be persisted in a
+# Skills and hooks invoke `bravros` bare, so ~/.bravros/bin must be persisted in a
 # shell RC — an exported PATH in the current shell does not survive.
 PATH_RC_FOUND=""
 for _rc in "$HOME/.zshrc" "$HOME/.zprofile" "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile"; do
@@ -211,8 +211,8 @@ done
 if [ -n "$PATH_RC_FOUND" ]; then
     pass "bravros PATH" "persisted in $(basename "$PATH_RC_FOUND")"
 else
-    fail "bravros PATH" "~/.claude/bin not in any shell RC" "bash $PORTABLE_REPO/install.sh"
-    auto_line "PATH: ~/.claude/bin absent from every shell RC"
+    fail "bravros PATH" "~/.bravros/bin not in any shell RC" "bash $PORTABLE_REPO/install.sh"
+    auto_line "PATH: ~/.bravros/bin absent from every shell RC"
     if should_fix; then
         case "${SHELL:-}" in
             */zsh)  _RC="$HOME/.zshrc" ;;
@@ -401,7 +401,7 @@ HOOK_SRC="$PORTABLE_REPO/templates/.githooks/commit-msg"
 if [ ! -f "$HOOK_TEMPLATE" ]; then
     fail "commit-msg template" "MISSING" "bash $PORTABLE_REPO/install.sh"
     auto_line "HOOK_TEMPLATE: missing"
-elif ! grep -E -q '(bravros|kaisser)-managed-commit-msg-hook' "$HOOK_TEMPLATE" 2>/dev/null; then
+elif ! grep -q 'bravros-managed-commit-msg-hook' "$HOOK_TEMPLATE" 2>/dev/null; then
     fail "commit-msg template" "canonical marker absent" "bravros hooks update --force"
     auto_line "HOOK_TEMPLATE: marker absent — bravros hooks update --force"
 elif [ -f "$HOOK_SRC" ] && [ "$(md5_of "$HOOK_SRC")" != "$(md5_of "$HOOK_TEMPLATE")" ]; then
@@ -444,7 +444,7 @@ for _pair in "hooks:*.sh" "hooks:*.py" "scripts:*.sh" "scripts:*.py"; do
 done
 
 # MCP servers — every key in config/mcp.json is bravros-managed and must be
-# registered in the live runtime state (~/.claude.json).
+# registered in the live runtime state (~/.bravros.json).
 _CLAUDE_JSON="$HOME/.claude.json"
 _MCP_CONFIG="$PORTABLE_REPO/config/mcp.json"
 if command -v jq &>/dev/null && [ -f "$_CLAUDE_JSON" ] && [ -f "$_MCP_CONFIG" ]; then
@@ -465,7 +465,7 @@ fi
 # ============================================================================
 # 5. TOOLCHAIN (delegated — never duplicated here)
 # ============================================================================
-# `bravros doctor --quick` owns gh/jq/curl/git + ~/.claude presence, secret-free.
+# `bravros doctor --quick` owns gh/jq/curl/git + ~/.bravros presence, secret-free.
 # Re-implementing those checks here is how the two drift apart.
 header "Toolchain"
 

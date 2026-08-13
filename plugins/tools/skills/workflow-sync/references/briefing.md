@@ -36,7 +36,7 @@ bravros init --skip-staging-branch --skip-workflows
 ### 3. Update GitHub Action
 ```bash
 mkdir -p .github/workflows
-cp ~/.claude/templates/.github/workflows/claude.yml .github/workflows/claude.yml
+cp ~/.bravros/templates/.github/workflows/claude.yml .github/workflows/claude.yml
 ```
 
 ### 4. Update sync-db.sh (if exists)

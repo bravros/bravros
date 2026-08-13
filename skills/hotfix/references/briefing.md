@@ -4,7 +4,7 @@ INTENT: ship an urgent production fix now, bypassing the plan workflow. Flow: co
 
 ## Hard constraints
 
-- **Running `/hotfix` IS the approval for merge-to-main** — the emergency-path exemption: no `AskUserQuestion` checkpoints between commit and merge. The exemption covers approval only, never the gates below.
+- **Running `/hotfix` IS the approval for merge-to-main** — the emergency-path exemption: no `ask_question` checkpoints between commit and merge. The exemption covers approval only, never the gates below.
 - **The autopr lock is the one hard gate that remains.** If `bravros autopr status` reports the lock present, refuse to merge — an autonomous `/auto-pr` session holds the repo and the hotfix must not punch through it. The user clears it explicitly: `bravros autopr clear-lock` from a separate terminal, then re-run `/hotfix`.
 - **Merge-lock is intentionally skipped** — documented here per [`../shared/merge-flow.md`](../shared/merge-flow.md): one emergency at a time; lock-wait latency is not acceptable in an incident. Every other part of the merge recipe still applies.
 - **NEVER delete the homolog branch after merge. NEVER skip the PR** — main is protected; there is no direct-push path.
@@ -12,7 +12,7 @@ INTENT: ship an urgent production fix now, bypassing the plan workflow. Flow: co
 
 ## Traps (incident-derived)
 
-- **Pick the targeted-test slice from the graph, not the diff**: `mcp__graphify__query_graph {question: "who calls <ChangedSymbol>"}` and run the callers' tests too — a hotfix ships straight to `main` with no review loop, so the unseen caller is the whole risk. Graph empty → fall back to `grep -rl "<ChangedClassName>" tests/`.
+- **Pick the targeted-test slice from the graph, not the diff**: `mcp_graphify__query_graph {question: "who calls <ChangedSymbol>"}` and run the callers' tests too — a hotfix ships straight to `main` with no review loop, so the unseen caller is the whole risk. Graph empty → fall back to `grep -rl "<ChangedClassName>" tests/`.
 - `git fetch origin main --quiet` BEFORE building the PR body's `origin/main..homolog` range — a stale `origin/main` is as wrong as local main (B-0338).
 - Verify the merge via PR `state` == `MERGED`, never `mergeStateStatus` — the latter is a pre-merge hint, unreliable once the PR is merged.
 - Plan-closure fallback matches a plan file by branch slug — **guard against an empty slug**: without the guard the glob matches ANY active plan and could close an unrelated one.

@@ -26,7 +26,7 @@ template (Merged / Closed won't-do / Parked / Verification / Nits / Tests, "do n
    deep verifier + two refute lenses per PR + a barrier merge-planner returning `merge_order`
    / `close_superseded` / `fix_then_merge` / `park` / `needs_human`. Every agent prompt must
    state READ-ONLY (a Bash-enabled subagent once ran `git worktree remove` and destroyed
-   work) and must forbid `mcp__mercadolivre__*` (hangs workflows for hours). A backgrounded
+   work) and must forbid `mcp_mercadolivre__*` (hangs workflows for hours). A backgrounded
    Workflow wraps its return under `.result` — `jq '.result.plan'`, not `jq '.plan'`.
 3. **Build.** Merge each green head `--no-ff` in `merge_order`. `.planning/`-only conflicts →
    `--theirs` (base wins; metadata, not code); code conflict → stop and resolve with intent.
@@ -50,8 +50,8 @@ jarvis moves KPG issues to *In Review* on PR-create but never advances them on m
 sweep is what lands them in Done:
 
 ```bash
-~/.claude/scripts/linear-sweep.sh from-batch <batchPR#> --repo <paylog|afterpay> --dry-run
-~/.claude/scripts/linear-sweep.sh from-batch <batchPR#> --repo <paylog|afterpay> --cancel "KPG-N KPG-M"
+~/.bravros/scripts/linear-sweep.sh from-batch <batchPR#> --repo <paylog|afterpay> --dry-run
+~/.bravros/scripts/linear-sweep.sh from-batch <batchPR#> --repo <paylog|afterpay> --cancel "KPG-N KPG-M"
 ```
 
 Uses `@schpet/linear-cli` (one-time `linear auth login --workspace kpgsa`). Its

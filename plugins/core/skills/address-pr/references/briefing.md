@@ -36,7 +36,7 @@ Then unconditionally: `bravros pr-review "$PR" --write-stamp` — the ONE stamp 
 
 - **Autonomous:** print `STATUS: fixes-pushed. NEXT: review`, return.
 - **⚠️ matched (interactive): invoke `Skill({skill: "pr-review"})` immediately — state which condition fired, do NOT ask.** Announcing the recommendation instead of acting on it is the exact failure this branch prevents. Only two skip conditions: already auto-triggered this invocation, or the stale-review gate owns the wait. "Bot already approved" / "small change" are NOT skips.
-- **✅ only (interactive): ask ONCE for the whole remaining path** — the single merge-decision handoff. Only a skill that just ran its own AskUserQuestion may pass `--merge-main`/`--no-main`:
+- **✅ only (interactive): ask ONCE for the whole remaining path** — the single merge-decision handoff. Only a skill that just ran its own ask_question may pass `--merge-main`/`--no-main`:
   - Merge to homolog, then main → `Skill({skill: "finish", args: "--merge-main"})` — a pre-authorization, not a guarantee: `/finish` still stops on failing CI, conflicts, or an autonomous lock. Say so in the option text.
   - Merge to homolog only → `Skill({skill: "finish", args: "--no-main"})`
   - Re-review anyway → `Skill({skill: "pr-review"})` · Done for now → stop.

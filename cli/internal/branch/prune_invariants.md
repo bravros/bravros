@@ -117,12 +117,12 @@ pushing to.
 ## I6: Active-Command Blocking
 
 **Statement.** If `/tmp/agent-audit-$CLAUDE_SESSION_ID/active-command` exists and is not
-bypassed via `KAISSER_BRANCH_PRUNE_BYPASS_ACTIVE_CMD=1`, `PruneBranch` skips ALL branches.
+bypassed via `BRAVROS_BRANCH_PRUNE_BYPASS_ACTIVE_CMD=1`, `PruneBranch` skips ALL branches.
 
 **Enforcement.** `prune.go`, Guard 5 in `PruneBranch` — `HasActiveCommand()` checks for the marker file.
 Returns early with `SkipReason = SkipActiveCommand`.
 
-**Test bypass.** Set `KAISSER_BRANCH_PRUNE_BYPASS_ACTIVE_CMD=1` in tests (via `t.Setenv`).
+**Test bypass.** Set `BRAVROS_BRANCH_PRUNE_BYPASS_ACTIVE_CMD=1` in tests (via `t.Setenv`).
 This env var is read inside `HasActiveCommand()`.
 
 **Test reference.** `TestInvariant_I6_ActiveCommandBlocking` in `prune_invariants_test.go`.
@@ -175,7 +175,7 @@ swallowed) in `prune_invariants_test.go`; `TestPruneBranch_Apply_SkipsAndPreserv
 `TestPruneBranch_DryRun_DoesNotTouchWorktree` in `prune_test.go`.
 
 **Rationale.** Worktree teardown is owned solely by `/worktree destroy` (the sanctioned
-`kaisser worktree cleanup <path>` path), which does the proper teardown (Herd unlink + TLS cert +
+`bravros worktree cleanup <path>` path), which does the proper teardown (Herd unlink + TLS cert +
 Redis-prefix flush) that prune cannot. A force-removing prune left Herd links, certs, and Redis
 keys dangling and nuked an in-use worktree after `/finish`. The old guard also failed OPEN on a
 git error and was gated on `loc.HasLocal`, so a listing hiccup or a remote-only misclassification

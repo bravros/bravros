@@ -7,7 +7,7 @@ The deterministic reconcile in `scripts/reconcile-global-claude.py` handles only
 marker-delimited block. It cannot tell *stale duplicated toolkit prose* from *genuine
 personal config* in the region outside the markers — that judgment needs a model.
 
-1. Read `~/.claude/CLAUDE.md` and `~/.claude/templates/global-CLAUDE.md`.
+1. Read `~/.bravros/CLAUDE.md` and `~/.bravros/templates/global-CLAUDE.md`.
 2. In the pre-marker (personal) region: **keep** genuinely personal content —
    language/tone preferences, personal rules, machine-specific TTS / 1Password /
    home-automation setup. **Propose removing** content that merely duplicates the

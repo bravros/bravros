@@ -19,15 +19,15 @@ body: |
   - **NEVER modifies application code.** Writes only inside reserved `$DEBUG_DIR`.
   - **Certification is the gate.** Cap: 3 rounds / 3 parallel agents per round.
   - **Laravel probes via `php artisan` one-shots** (`tinker --execute`, `db:table`, `route:list`, `storage/logs/laravel.log`).
-  - **The hand-off is the operator's decision** — always `AskUserQuestion`.
+  - **The hand-off is the operator's decision** — always `ask_question`.
 
   ## Flow
 
-  1. Materialize engine: `mkdir -p .claude/workflows && cp -f ~/.claude/skills/root-cause/scripts/root-cause-investigate.js .claude/workflows/root-cause-investigate.js`
+  1. Materialize engine: `mkdir -p .claude/workflows && cp -f ~/.bravros/skills/root-cause/scripts/root-cause-investigate.js .claude/workflows/root-cause-investigate.js`
   2. Reserve dir: `DEBUG_DIR=$(bravros nextid reserve debug --slug "$SLUG"); DEBUG_ID=$(basename "$DEBUG_DIR" | grep -oE 'D-[0-9]+')`
   3. Build lead list & run parallel engine:
      ```
      Workflow({ name: 'root-cause-investigate', args: { debug_dir: DEBUG_DIR, bug: ARGUMENTS, category, stack, repro?, leads, boost, max_rounds: 3 } })
      ```
   4. Write `diagnosis.md` + `report.md` in `$DEBUG_DIR`. Commit: `bravros commit "🔍 debug: $DEBUG_ID investigation for $SLUG" <files>`.
-  5. Route via `AskUserQuestion` (decision matrix: `references/investigation-guide.md`). Backlog route: ID via `bravros nextid`.
+  5. Route via `ask_question` (decision matrix: `references/investigation-guide.md`). Backlog route: ID via `bravros nextid`.

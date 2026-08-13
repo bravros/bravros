@@ -6,7 +6,7 @@ INTENT: one command, one merge-ready PR. Stages delegate to `/plan` (which revie
 ## Hard constraints
 
 1. **Only runs when the user EXPLICITLY typed /auto-pr.** Never substitute it for an interactive skill.
-2. **Zero AskUserQuestion.** Compact and continue on context pressure; the pipeline must complete.
+2. **Zero ask_question.** Compact and continue on context pressure; the pipeline must complete.
 3. **NEVER merge to main.** `/promote` with its out-of-band token is the only path. Stop after the PR unless `--auto-merge` was passed.
 4. **STATUS lines are breadcrumbs, not exits** (B-0173) — as a subagent, run every remaining stage locally in one uninterrupted invocation; the parent sends no continuation messages.
 5. **Marker-less review approval writes NO stamp — by design.** Do not retry. Surface the escape hatch: operator runs `bravros pr-review unlock` from a separate terminal (this session cannot mint the token), then `bravros pr-review "$PR_NUM" --write-stamp`.
@@ -33,5 +33,5 @@ After `/pr`, run the trigger → wait → fix loop per `references/review-loop.m
 
 ```bash
 # <!-- announce-template: "Fluxo automático finalizado. Revisão pronta no repositório. Projeto {PROJECT}." -->
-bash ~/.claude/scripts/announce.sh "Fluxo automático finalizado. Revisão pronta no repositório. Projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio >/dev/null 2>&1 || true
+bash ~/.bravros/scripts/announce.sh "Fluxo automático finalizado. Revisão pronta no repositório. Projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio >/dev/null 2>&1 || true
 ```

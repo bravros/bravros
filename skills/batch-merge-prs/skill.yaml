@@ -25,7 +25,7 @@ body: |
 
   ## Flow
 
-  1. **Verify (parallel, read-only).** `mkdir -p .claude/workflows && cp -f ~/.claude/skills/batch-merge-prs/scripts/verify-prs.js .claude/workflows/` then run `Workflow({name:'verify-prs', args:{staging_branch, bot:'claude', guards:[…], prs:[…]}})`.
+  1. **Verify (parallel, read-only).** `mkdir -p .claude/workflows && cp -f ~/.bravros/skills/batch-merge-prs/scripts/verify-prs.js .claude/workflows/` then run `Workflow({name:'verify-prs', args:{staging_branch, bot:'claude', guards:[…], prs:[…]}})`.
      Verdicts: clean → queue · needs-changes → fix-agent per PR, re-verify · superseded → close · blocked → stop. `deep` mode on free tree only.
   2. **Merge (SERIAL, ascending, one standalone call per PR).** Follow `skills/shared/merge-flow.md`. Re-check mergeability per PR. Default `--merge`. Conflict recovery & per-merge closeout: `references/merge-loop.md`.
   3. **Hand off suite — never deploy.** Operator runs suite in terminal. Staging regressions post-batch belong to the batch.

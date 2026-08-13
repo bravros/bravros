@@ -15,7 +15,7 @@ unfamiliar folder.
 - No argument → list candidate dossier folders in `./.planning/` (and the workspace
   `.planning/` one level up, if this is a workspace child repo), skipping ones already
   marked done (`-complete` suffix or a `SHIPPED.md` inside), then ask which one via
-  AskUserQuestion.
+  ask_question.
 
 Read **every file in the folder, whatever its format** — `.md`, `.jsonl`, `.sql`, `.txt`,
 anything — before dispatching. The folder will not always be organized: there may be no
@@ -63,7 +63,7 @@ Model tiering (dossier phase markers `[H]/[S]/[O]` map directly):
 | **haiku** | test runs, lint, greps, verification sweeps |
 | **you** | orchestration, diff review, integration decisions |
 
-**The marker IS the model — set `model:` explicitly on EVERY `Agent()` call**
+**The marker IS the model — set `model:` explicitly on EVERY `invoke_subagent()` call**
 (`model: "opus"` for an `[O]` phase, `"sonnet"` for `[S]`, `"haiku"` for `[H]`). Omitting
 `model:` does not pick a sensible tier — it inherits the orchestrator's own session model,
 so every worker silently runs on Fable regardless of the markers you just assigned. This
@@ -109,7 +109,7 @@ partition by ownership.
 
 When the next step forks across two+ viable approaches: write findings + your
 recommendation, fire the Alexa ping, then run `/interview-me` to lock the branches. A single
-self-contained binary is an AskUserQuestion, not an interview.
+self-contained binary is an ask_question, not an interview.
 
 ## Done
 
@@ -124,5 +124,5 @@ bravros ha say --force "Plano {NUM} orquestrado, todas as fases concluídas. Ram
 
 Direct CLI call, not the `announce.sh` wrapper: `HASS_TOKEN` now comes from the macOS
 keychain via `~/.zshenv`, so the wrapper's 1Password hydration is dead weight here —
-0.29s instead of 0.80s. Mute is honored either way (both read `~/.claude/.mute`).
+0.29s instead of 0.80s. Mute is honored either way (both read `~/.bravros/.mute`).
 Redirect stdout: the CLI prints `Sent to studio: …`.

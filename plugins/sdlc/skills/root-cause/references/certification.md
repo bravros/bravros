@@ -36,7 +36,7 @@ No MCP schema overhead, same proof power:
 2. Tinker `[Invoice::find(<old>)->total(), Invoice::find(<new>)->total()]` → old omits tax.
 3. Tinker one-shot recomputing the old total with a non-null rate substituted → tax appears. **Counterfactual closed → certified.** Paste all three transcripts into the report.
 
-If `mcp__*boost*__*` tools are already connected they are acceptable equivalents — but never require Boost or ask the user to install it.
+If `mcp_*boost*__*` tools are already connected they are acceptable equivalents — but never require Boost or ask the user to install it.
 
 ## Other stacks
 

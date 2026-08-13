@@ -13,10 +13,10 @@ metadata:
 body: |
   # verify-install
 
-  INTENT: prove the deployed runtime (`~/.claude`) still matches the source repo, and repair it on request. One script owns every check.
+  INTENT: prove the deployed runtime (`~/.bravros`) still matches the source repo, and repair it on request. One script owns every check.
 
   ```bash
-  S=~/.claude/skills/verify-install/scripts/verify.sh
+  S=~/.bravros/skills/verify-install/scripts/verify.sh
   bash $S            # report          bash $S --auto   # SessionStart: silent when healthy
   bash $S --fix      # report + repair bash $S --json   # machine-readable
   ```
@@ -25,23 +25,23 @@ body: |
 
   ## Hard constraints
 
-  - **`ℹ️ INTENTIONAL` is not a failure.** It comes from `~/.claude/.verify-ignore`, which lists checks the operator diverges from on purpose (this machine runs with the hooks stripped out of `settings.json`). Ignored checks never count as failures and `--fix` skips them. Never "repair" one; never suggest deleting the file without asking.
+  - **`ℹ️ INTENTIONAL` is not a failure.** It comes from `~/.bravros/.verify-ignore`, which lists checks the operator diverges from on purpose (this machine runs with the hooks stripped out of `settings.json`). Ignored checks never count as failures and `--fix` skips them. Never "repair" one; never suggest deleting the file without asking.
   - **A locked `settings.json` is healthy, not drift.** `chmod 400` or macOS `chflags uchg` is a deliberate operator lock; `bravros deploy` honours it and so must every fix. `--fix` never writes a locked path.
-  - **`~/.claude/CLAUDE.md` is reconciled on its managed block only** (`# >>> bravros-managed-global >>> … <<<`). Personal content outside the markers is never compared and never touched — a whole-file `cp -f` destroys it. Cleaning that region up is a judgment call: [`references/managed-global-cleanup.md`](references/managed-global-cleanup.md).
+  - **`~/.bravros/CLAUDE.md` is reconciled on its managed block only** (`# >>> bravros-managed-global >>> … <<<`). Personal content outside the markers is never compared and never touched — a whole-file `cp -f` destroys it. Cleaning that region up is a judgment call: [`references/managed-global-cleanup.md`](references/managed-global-cleanup.md).
   - **The skill digest has exactly one implementation:** `bravros deploy skill-sha <dir>` (Go, `deploy.ComputeSkillSHA`). Never re-derive it in bash or python — bash strings are NUL-terminated, so the `relpath\0sha\n` record format is unbuildable in shell and every reimplementation silently diverges.
   - `skills/shared/` is repo-only source material. Finding it *deployed* is an install-hygiene failure, not an orphan.
 
   ## Running it
 
   1. Run the script, show the categorized output.
-  2. Failures → ask before repairing (`AskUserQuestion`: run `--fix` / show manual steps / skip). Explain manually when auto-fix can't help.
+  2. Failures → ask before repairing (`ask_question`: run `--fix` / show manual steps / skip). Explain manually when auto-fix can't help.
   3. `⚠️ ORPHANED` is a warning, not a failure — but always offer `--fix`: a retired skill left on disk still fires its triggers.
   4. Source repo missing → `git clone git@github.com:bravros/bravros.git ~/Sites/bravros` (`~/bravros` on Linux), then `bash install.sh`.
   5. After a fix, re-run to confirm green.
 
   <!-- announce-template: "Falhas de instalação encontradas, aguardando decisão sobre correção automática. Projeto {PROJECT}." -->
   ```bash
-  bash ~/.claude/scripts/announce.sh "Falhas de instalação encontradas, aguardando decisão sobre correção automática. Projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio >/dev/null 2>&1 || true
+  bash ~/.bravros/scripts/announce.sh "Falhas de instalação encontradas, aguardando decisão sobre correção automática. Projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio >/dev/null 2>&1 || true
   ```
 
   ## `--auto` (SessionStart)

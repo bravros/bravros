@@ -7,20 +7,20 @@ know *what* a line of output means, or before adding a check.
 
 | # | Check | Signal | Fix |
 |---|---|---|---|
-| 1 | `~/.claude/bin/bravros` exists, is executable, and `bravros version` runs | binary health | `bash $PORTABLE_REPO/install.sh` |
-| 2 | `~/.claude/bin` persisted in a shell RC | skills and hooks call `bravros` bare; an exported PATH does not survive the session | append the export (auto-fixed) |
-| 3 | `skills/ hooks/ scripts/ templates/ cache/ bin/` present under `~/.claude`, templates non-empty | runtime layout | `mkdir -p` (auto-fixed) |
-| 4 | Deploy manifest present at `~/.claude/skills/.deploy-manifest.json` | absence forces a full re-copy on next deploy | `bravros deploy` |
+| 1 | `~/.bravros/bin/bravros` exists, is executable, and `bravros version` runs | binary health | `bash $PORTABLE_REPO/install.sh` |
+| 2 | `~/.bravros/bin` persisted in a shell RC | skills and hooks call `bravros` bare; an exported PATH does not survive the session | append the export (auto-fixed) |
+| 3 | `skills/ hooks/ scripts/ templates/ cache/ bin/` present under `~/.bravros`, templates non-empty | runtime layout | `mkdir -p` (auto-fixed) |
+| 4 | Deploy manifest present at `~/.bravros/skills/.deploy-manifest.json` | absence forces a full re-copy on next deploy | `bravros deploy` |
 | 5 | Per-skill content digest, source vs deployed | **the drift signal** | `bravros deploy --force --filter <skill>` |
 | 6 | Skill in source but not deployed | missing deploy | same |
 | 7 | Skill deployed but retired from source | orphan — its triggers still fire | `--fix` prunes |
 | 8 | `skills/shared` / `skills/_shared` deployed | install-hygiene failure (repo-only material) | `--fix` removes it |
-| 9 | `~/.claude/CLAUDE.md` managed block vs `home/CLAUDE.md` | managed-block drift | `scripts/reconcile-global-claude.py` |
-| 10 | `~/.claude/settings.json` present + valid JSON; a locked file reports healthy | config presence | restore from `config/settings.json` |
+| 9 | `~/.bravros/CLAUDE.md` managed block vs `home/CLAUDE.md` | managed-block drift | `scripts/reconcile-global-claude.py` |
+| 10 | `~/.bravros/settings.json` present + valid JSON; a locked file reports healthy | config presence | restore from `config/settings.json` |
 | 11 | `templates/.githooks/commit-msg` deployed and carrying the `bravros-managed-commit-msg-hook` marker | commit-format gate | `bravros hooks update --force` |
 | 12 | `hooks/*.{sh,py}` and `scripts/*.{sh,py}`, source vs deployed (md5) | file drift | `cp -f` (auto-fixed) |
-| 13 | Every `mcpServers` key in `config/mcp.json` registered in `~/.claude.json` | MCP registration | `bravros mcp register --from config/mcp.json` |
-| 14 | `bravros doctor --quick --json` | gh / jq / curl / git / `~/.claude` — **delegated, never re-implemented here** | per-check `fix_hint` |
+| 13 | Every `mcpServers` key in `config/mcp.json` registered in `~/.bravros.json` | MCP registration | `bravros mcp register --from config/mcp.json` |
+| 14 | `bravros doctor --quick --json` | gh / jq / curl / git / `~/.bravros` — **delegated, never re-implemented here** | per-check `fix_hint` |
 | 15 | `bravros skills deps --format json`, each `check_cmd` run | missing per-skill dependency | the per-OS `install_cmd_*`, offered never applied |
 
 ## Why the digest is source-vs-deployed
@@ -40,7 +40,7 @@ Silence means healthy. Otherwise, one line per finding:
 
 ```
 BINARY: <missing|not-executable|exec-failed> — <path>
-PATH: ~/.claude/bin absent from every shell RC
+PATH: ~/.bravros/bin absent from every shell RC
 LAYOUT: missing <path>
 MANIFEST: absent — run bravros deploy
 SOURCE_REPO: missing at <path>

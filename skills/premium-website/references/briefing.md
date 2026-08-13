@@ -18,11 +18,11 @@ Packs combine cleanly (e.g. taste + output).
 ## Dev server
 
 NEVER launch the dev server via run_in_background — it times out. The operator prefers
-running dev servers in their own terminal: announce, then AskUserQuestion (run `npx vite --host` vs "I'll start it myself").
+running dev servers in their own terminal: announce, then ask_question (run `npx vite --host` vs "I'll start it myself").
 
 <!-- announce-template: "Prévia do servidor pronta. Aguardando instrução para iniciar. Projeto {PROJECT}." -->
 ```bash
-bash ~/.claude/scripts/announce.sh "Prévia do servidor pronta. Aguardando instrução para iniciar. Projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio >/dev/null 2>&1 || true
+bash ~/.bravros/scripts/announce.sh "Prévia do servidor pronta. Aguardando instrução para iniciar. Projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio >/dev/null 2>&1 || true
 ```
 
 ## Imagery — human-in-the-loop, never an API call

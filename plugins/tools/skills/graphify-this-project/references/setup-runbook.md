@@ -128,13 +128,13 @@ Nothing to wire per project — the **user-scoped MCP server** picks the graph u
 
 Detect the repo's hook convention first: if `.githooks/post-commit` is gitignored → `machine-local` (e.g. paylog: write hooks but do NOT commit them); else `tracked` (default — commit `.githooks/` so the refresh travels via git pull).
 
-**8a — refresh hooks:** copy canonical files from the deployed `~/.claude/scripts/`, write three delegators, set `core.hooksPath`:
+**8a — refresh hooks:** copy canonical files from the deployed `~/.bravros/scripts/`, write three delegators, set `core.hooksPath`:
 
 ```bash
 mkdir -p scripts/graphify .githooks
-cp ~/.claude/scripts/graphify-refresh-hook.sh          scripts/graphify-refresh-hook.sh
-cp ~/.claude/scripts/graphify/apply-labels.py          scripts/graphify/apply-labels.py
-cp ~/.claude/scripts/graphify/strip-framework-verbs.py scripts/graphify/strip-framework-verbs.py
+cp ~/.bravros/scripts/graphify-refresh-hook.sh          scripts/graphify-refresh-hook.sh
+cp ~/.bravros/scripts/graphify/apply-labels.py          scripts/graphify/apply-labels.py
+cp ~/.bravros/scripts/graphify/strip-framework-verbs.py scripts/graphify/strip-framework-verbs.py
 chmod +x scripts/graphify-refresh-hook.sh
 for hk in post-merge post-commit post-checkout; do
     printf '#!/bin/sh\n# Tracked delegator → scripts/graphify-refresh-hook.sh (requires: git config core.hooksPath .githooks)\nexec "$(git rev-parse --show-toplevel)/scripts/graphify-refresh-hook.sh" %s "$@"\n' "$hk" > ".githooks/$hk"
@@ -178,7 +178,7 @@ git config --get merge.graphify.driver >/dev/null || echo "⚠️ merge driver"
 git check-ignore -q graphify-out/graph.json && echo "⚠️ graph.json gitignored — fix .gitignore"
 ```
 
-**Commit:** `graphify-out/{graph.json,community-labels.json,GRAPH_REPORT.md}`; the hook machinery (`.githooks/post-{commit,checkout,merge}`, `scripts/graphify-refresh-hook.sh`, `scripts/graphify/*.py`); `.graphify`, `.graphifyignore`, `.gitattributes`, `.gitignore`; swarm helpers + `graphify-out/labeling/` if generated. Drop `.githooks/post-commit` from the set in a machine-local repo. On-demand LLM refresh later: `bash ~/.claude/skills/graphify-this-project/scripts/extract-deepseek.sh .`
+**Commit:** `graphify-out/{graph.json,community-labels.json,GRAPH_REPORT.md}`; the hook machinery (`.githooks/post-{commit,checkout,merge}`, `scripts/graphify-refresh-hook.sh`, `scripts/graphify/*.py`); `.graphify`, `.graphifyignore`, `.gitattributes`, `.gitignore`; swarm helpers + `graphify-out/labeling/` if generated. Drop `.githooks/post-commit` from the set in a machine-local repo. On-demand LLM refresh later: `bash ~/.bravros/skills/graphify-this-project/scripts/extract-deepseek.sh .`
 
 ## Idempotency
 

@@ -15,7 +15,7 @@ HARD CONSTRAINTS
 
 FLOW
 1. **Verify (parallel, read-only).** `mkdir -p .claude/workflows && cp -f
-   ~/.claude/skills/batch-merge-prs/scripts/verify-prs.js .claude/workflows/` then
+   ~/.bravros/skills/batch-merge-prs/scripts/verify-prs.js .claude/workflows/` then
    `Workflow({name:'verify-prs', args:{staging_branch, bot:'claude', guards:[…], prs:[…]}})`.
    `bot:'claude'` is load-bearing — the @claude Action posts as bare login `claude`, not
    `claude[bot]`; a bot-suffix filter alone silently matches nothing. Verdicts: clean → queue ·

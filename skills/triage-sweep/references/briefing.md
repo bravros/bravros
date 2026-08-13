@@ -15,7 +15,7 @@ INTENT: drain a stale open-issue + pending-backlog queue by establishing, for **
 STAGING=$(grep -E '^staging_branch:' .bravros.yml 2>/dev/null | awk '{print $2}'); STAGING=${STAGING:-homolog}
 git rev-parse --abbrev-ref HEAD        # expect "$STAGING"; tree clean
 git fetch origin --quiet
-mkdir -p .claude/workflows && cp -f ~/.claude/skills/triage-sweep/scripts/triage-sweep.js .claude/workflows/triage-sweep.js
+mkdir -p .claude/workflows && cp -f ~/.bravros/skills/triage-sweep/scripts/triage-sweep.js .claude/workflows/triage-sweep.js
 LABELS=(done dropped dup skip deferred fix-ready)          # keep the ARRAY form — bare-string iteration breaks in zsh
 for l in "${LABELS[@]}"; do gh label create "sweep:$l" 2>/dev/null || true; done
 ```

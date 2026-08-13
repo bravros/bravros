@@ -27,7 +27,7 @@ Save `.planning/pr-reviews/${PR}-<TS>.md`: the frontmatter schema `/address-pr` 
 Unless `--no-post`: `gh pr comment` headed `🤖 **Local Claude Review** (not @claude bot — generated locally via /local-review)` + model/base/short-SHA line — the header is how thread readers tell it from the Action. Post fails → warn, don't abort (the local file is already saved).
 
 - **Autonomous** (`.planning/.auto-*-lock`): print `STATUS: local-review-result. NEXT: finish` (clean) or `NEXT: address-pr` (changes requested), stop.
-- **Interactive — clean:** ask the merge question HERE (the single merge-decision handoff; only a skill that just ran its own AskUserQuestion may pass these flags): merge to homolog then main → `Skill({skill: "finish", args: "--merge-main"})` · homolog only → `--no-main` · second opinion → `/pr-review` · done.
+- **Interactive — clean:** ask the merge question HERE (the single merge-decision handoff; only a skill that just ran its own ask_question may pass these flags): merge to homolog then main → `Skill({skill: "finish", args: "--merge-main"})` · homolog only → `--no-main` · second opinion → `/pr-review` · done.
 - **Interactive — changes requested:** `/address-pr` · let me read it first · second opinion.
 
 ```bash

@@ -23,11 +23,11 @@ This project has a graphify knowledge graph stored **in-project** at
 
 | Situation | MCP (preferred) | CLI backup |
 |---|---|---|
-| "How does X work / what's connected to Y" | `mcp__graphify__query_graph {question: "how does auth flow work?"}` | `graphify query "how does auth flow work?"` |
-| "Show me the path from X to Y" | `mcp__graphify__shortest_path {source: "OrderService", target: "InvoiceService"}` — fuzzy match; `undirected: true` if no directed path | `graphify path OrderService InvoiceService` (exact labels) |
-| "Explain what this file/node does" | `mcp__graphify__get_node {label}` + `get_neighbors {label}` | `graphify explain app/Services/WebhookService.php` |
-| "Show me everything in <community>" | `mcp__graphify__get_community {community_id}` | `graphify query "community order-lifecycle"` |
-| "Who are the most important entities?" | `mcp__graphify__god_nodes` / `graph_stats` | `graphify query "god nodes"` |
+| "How does X work / what's connected to Y" | `mcp_graphify__query_graph {question: "how does auth flow work?"}` | `graphify query "how does auth flow work?"` |
+| "Show me the path from X to Y" | `mcp_graphify__shortest_path {source: "OrderService", target: "InvoiceService"}` — fuzzy match; `undirected: true` if no directed path | `graphify path OrderService InvoiceService` (exact labels) |
+| "Explain what this file/node does" | `mcp_graphify__get_node {label}` + `get_neighbors {label}` | `graphify explain app/Services/WebhookService.php` |
+| "Show me everything in <community>" | `mcp_graphify__get_community {community_id}` | `graphify query "community order-lifecycle"` |
+| "Who are the most important entities?" | `mcp_graphify__god_nodes` / `graph_stats` | `graphify query "god nodes"` |
 
 ### When to skip the graph
 
@@ -40,14 +40,14 @@ This project has a graphify knowledge graph stored **in-project** at
 - **Structure refresh (tracked post-merge hook, free, NO LLM):** the graph is rebuilt on `git merge`/`git pull` on the autocommit branch (default `homolog`, override via `GRAPHIFY_AUTOCOMMIT_BRANCH`) — **not by CI, not on every commit**. The tracked delegator `.githooks/post-merge` execs `scripts/graphify-refresh-hook.sh`, which rebuilds AST structure, re-applies the committed community labels by node identity (`scripts/graphify/apply-labels.py`), strips framework-verb god-nodes (`scripts/graphify/strip-framework-verbs.py`), then **auto-commits + pushes** the refreshed `graphify-out/` so every machine gets it on `git pull`. Requires `git config core.hooksPath .githooks`. The hook suppresses HTML viz — we keep only the searchable `graph.json`.
 - **On-demand semantic refresh (DeepSeek, paid):** re-derives semantic edges + community labels and writes **in-project**:
   ```bash
-  bash ~/.claude/skills/graphify-this-project/scripts/extract-deepseek.sh .
+  bash ~/.bravros/skills/graphify-this-project/scripts/extract-deepseek.sh .
   ```
   Then commit `graphify-out/graph.json` + `graphify-out/community-labels.json` + `graphify-out/GRAPH_REPORT.md`. The committed `graph.json` is the **labeled snapshot** — only the DeepSeek pass re-derives labels; re-run it after a big refactor. Gap-fill labels with `graphify label . --missing-only --no-viz` — **always `--no-viz`**: no HTML artifacts, only the searchable `graph.json`.
 - **Conflict-free merges:** `graph.json` is union-merged via the `merge=graphify` driver (`.gitattributes` + `git config merge.graphify.driver "graphify merge-driver %O %A %B"`), so parallel branches never leave conflict markers — the post-merge hook owns the rebuild.
 
 ### graphifyy version
 
-Pinned machine-wide via `~/.claude/skills/graphify-this-project/references/.graphify-version`
+Pinned machine-wide via `~/.bravros/skills/graphify-this-project/references/.graphify-version`
 (currently **0.9.38**), installed as `uv tool install "graphifyy[mcp]==<pin>"` — the `[mcp]`
 extra ships the user-scoped `graphify-mcp` server. **Every machine must run the same pin**:
 different versions produce structurally different graphs and overwrite each other's committed

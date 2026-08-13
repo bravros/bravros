@@ -2,7 +2,7 @@
 
 > 📊 **Knowledge graph available** — query the graph via `graphify query "<question>"` (CLI, from the repo root) before broad searches in this folder. See [`../../CLAUDE.md`](../../CLAUDE.md#graphify-knowledge-graph--query-this-before-grepping).
 
-Every `kaisser` subcommand lives here as one `.go` file (+ `_test.go`). Flat structure, no subdirectories.
+Every `bravros` subcommand lives here as one `.go` file (+ `_test.go`). Flat structure, no subdirectories.
 
 ## Adding a command
 
@@ -36,7 +36,7 @@ Every `kaisser` subcommand lives here as one `.go` file (+ `_test.go`). Flat str
 | Git operations | `cli/internal/git` |
 | GitHub API | `cli/internal/github` |
 | Plan/backlog id + entity resolution | `cli/internal/plan` |
-| Config / `.kaisser.yml` | `cli/internal/config` |
+| Config / `.bravros.yml` | `cli/internal/config` |
 | Stack detection (internal only — no `detect-stack` verb) | `cli/internal/stack` |
 | Home Assistant | `cli/internal/ha` |
 
@@ -55,13 +55,13 @@ Full module path for all imports:
 import "github.com/bravros/bravros/cli/internal/git"
 ```
 
-Module name is `claude-cli` for backwards compat; the binary is `kaisser`.
+Module name is `claude-cli` for backwards compat; the binary is `bravros`.
 
 ## Command Authoring Notes
 
 ### init
 
-- **Precedence:** positional arg > `--portable-repo` flag > `$KAISSER_PORTABLE_REPO` env > cwd
+- **Precedence:** positional arg > `--portable-repo` flag > `$BRAVROS_PORTABLE_REPO` env > cwd
 - **Bootstrap source:** always use the resolved path from the precedence chain, never cwd
 - **Invalid path:** when `--portable-repo` is set but the path is not a valid claude config repo, exit non-zero with a clear stderr error (loud failure, not silent skip)
 

@@ -8,7 +8,7 @@ Map the plan as a **design tree**: every decision branches into the decisions th
 
 These five gates ARE the skill. Breaking any one is a failure, not a style choice.
 
-1. **Ask by rounds — the whole frontier per round, one `AskUserQuestion` call.** Batch only *independent* questions: a question whose answer depends on another question still open in this round belongs to a *later* round, never this one. `AskUserQuestion` takes up to 4 questions per call; a frontier larger than 4 keeps its most upstream 4 and rolls the rest forward (they're still frontier next round). The upfront bulleted list (core loop step 3) is a *preview so the user can catch what you missed* — it is NOT the questions.
+1. **Ask by rounds — the whole frontier per round, one `ask_question` call.** Batch only *independent* questions: a question whose answer depends on another question still open in this round belongs to a *later* round, never this one. `ask_question` takes up to 4 questions per call; a frontier larger than 4 keeps its most upstream 4 and rolls the rest forward (they're still frontier next round). The upfront bulleted list (core loop step 3) is a *preview so the user can catch what you missed* — it is NOT the questions.
 2. **Every question carries a recommendation.** Place your recommended option **first**, append **`(Recommended)`** to its label, and give the one-line why in the framing (*"I'd pick X because …, but —"*). A question with no recommendation dumps the decision back on the user instead of giving them something to say "yes" to.
 3. **Recompute the frontier after every round.** Each round of answers reshapes the tree — settled decisions push the frontier outward, eliminate questions, add new ones, or reword what's ahead. Never march through a fixed list.
 4. **No round cap.** The session is done when the frontier is empty — every branch visited, nothing left silently assumed — or the user says "stop / enough / we're done". Never self-limit to a round or two and wrap up early.
@@ -19,12 +19,12 @@ These five gates ARE the skill. Breaking any one is a failure, not a style choic
 1. **Read the source material** fully — the plan file if one is in scope, otherwise the conversation.
 2. **Build a provisional design tree**: every branch point where the choice isn't locked, an assumption went unconfirmed, or two reasonable engineers would differ. Order by dependency.
 3. **Show the user only the unresolved branches** — short bulleted list, one line each: *"Here's what I want to lock down — flag anything missing or already-decided."*
-4. **Ask round by round**: compute the frontier, resolve its fact-questions yourself (below), put its decision-questions to the user in one `AskUserQuestion` call, then recompute from the answers.
+4. **Ask round by round**: compute the frontier, resolve its fact-questions yourself (below), put its decision-questions to the user in one `ask_question` call, then recompute from the answers.
 5. **Capture decisions as they lock** (see "Docs as you go"), and when the frontier is empty, close out (below).
 
 ## Asking questions
 
-Default to `AskUserQuestion` with 2–4 short, mutually exclusive options per question; question text is one sentence, no preamble. Free-text is the right call when options would be artificial ("paste the error message", "what's the actual table name").
+Default to `ask_question` with 2–4 short, mutually exclusive options per question; question text is one sentence, no preamble. Free-text is the right call when options would be artificial ("paste the error message", "what's the actual table name").
 
 **The `preview` field** renders a side-by-side comparison for code snippets or mockups — use it when the decision hinges on seeing two alternatives together. Gotchas: `preview` is single-select only, and the side-by-side layout works best alone — give a preview question its own single-question call rather than burying it in a full round; the harness auto-injects an "Other" free-type option (never add it yourself); `header` text over 12 characters silently truncates; `multiSelect: true` returns option values as arrays.
 
@@ -32,7 +32,7 @@ Default to `AskUserQuestion` with 2–4 short, mutually exclusive options per qu
 
 Classify each candidate question:
 
-- **User's intent or preference** ("void labels or skip them?") → ask the user. Only this category reaches `AskUserQuestion`.
+- **User's intent or preference** ("void labels or skip them?") → ask the user. Only this category reaches `ask_question`.
 - **How the code currently behaves** → check graphify/code, resolve silently, drop the question.
 - **Unsure which** → look at the code first; if it doesn't settle it, it was an intent question — ask.
 
@@ -41,8 +41,8 @@ Classify each candidate question:
 **Query graphify first whenever the project has it** — a `.graphify` file or `graphify-out/graph.json`. It resolves "how does X work / what touches Y / who calls Z" in one call instead of a grep sweep, which is the difference between resolving a question silently and burning the user's patience mid-interview.
 
 ```
-mcp__graphify__query_graph {question: "<question>"}    — one call, graph stays warm across rounds
-mcp__graphify__shortest_path {source, target}          — fuzzy labels; "how does A reach B"
+mcp_graphify__query_graph {question: "<question>"}    — one call, graph stays warm across rounds
+mcp_graphify__shortest_path {source, target}          — fuzzy labels; "how does A reach B"
 graphify query "<question>"                            — CLI backup (also what a dispatched agent uses)
 ```
 

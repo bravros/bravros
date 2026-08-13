@@ -4,13 +4,13 @@ Reference for `/root-cause` — MCP posture, graphify surface detection, the Ste
 
 ## MCP posture
 
-- **Laravel Boost MCP** — optional. Artisan one-shots are the default probe surface (see `certification.md`); if `mcp__*boost*__*` tools are already connected you MAY use them, but never require or install Boost — its tool schemas and outputs cost tokens artisan doesn't.
+- **Laravel Boost MCP** — optional. Artisan one-shots are the default probe surface (see `certification.md`); if `mcp_*boost*__*` tools are already connected you MAY use them, but never require or install Boost — its tool schemas and outputs cost tokens artisan doesn't.
 - **Sentry MCP** — optional. When present: `search_issues` with the error message/exception class, `search_events` for count/frequency; include the issue URL in findings.
 - Never fail because an MCP is absent — fall back to artisan probes and file-based investigation.
 
 ## Graphify surface detection
 
-Graph present = `graphify-out/graph.json` or a `.graphify` file. Prefer the user-scoped MCP (`mcp__graphify__query_graph {question}`, then `get_neighbors`/`shortest_path` for blast radius; pass `project_path` from outside the repo). CLI backup: `graphify query "<symptom>" --graph graphify-out/graph.json`. A `.graphifyignore` with no graph means config only — use grep/git instead. Graph answers are **leads**: the graph can be stale, incomplete, or mislabelled; the source always wins.
+Graph present = `graphify-out/graph.json` or a `.graphify` file. Prefer the user-scoped MCP (`mcp_graphify__query_graph {question}`, then `get_neighbors`/`shortest_path` for blast radius; pass `project_path` from outside the repo). CLI backup: `graphify query "<symptom>" --graph graphify-out/graph.json`. A `.graphifyignore` with no graph means config only — use grep/git instead. Graph answers are **leads**: the graph can be stale, incomplete, or mislabelled; the source always wins.
 
 ## Routing matrix (which option to recommend first)
 

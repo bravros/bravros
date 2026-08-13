@@ -65,7 +65,7 @@ worktree-held, protected, or attached to an open plan stays put.
 
 - **Within 7 days:** `git update-ref refs/heads/feat/foo refs/tombstones/feat-foo` (slash → dash in tombstone names), optionally `git push origin refs/heads/feat/foo`.
 - **After 7 days:** reflog only — `git reflog | grep <branch>`, checkout the sha, recreate the branch.
-- **Audit trail:** `~/.claude/logs/branch-prune.log` — `[ISO-UTC] repo= branch= action=deleted|skipped|dry-run reason= tombstone=`.
+- **Audit trail:** `~/.bravros/logs/branch-prune.log` — `[ISO-UTC] repo= branch= action=deleted|skipped|dry-run reason= tombstone=`.
 - **GC:** `bravros branch prune --gc` deletes tombstones older than 7 days (reflog timestamp on the tombstone ref); non-blocking, failures logged.
 
 ## Dry-run semantics
