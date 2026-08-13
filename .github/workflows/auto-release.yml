@@ -1,0 +1,184 @@
+# auto-release.yml
+#
+# Purpose: Automatically compute and push a semver tag when cli/ changes land on main.
+#          The existing release.yml workflow then builds the 3 binaries and creates the
+#          GitHub Release — this workflow ONLY decides "should we tag and what version".
+#
+# Trigger:  push to main with paths: ['cli/**']
+#           (GitHub skips this workflow entirely when no cli/ files changed)
+#
+# Skip conditions (evaluated inside the workflow):
+#   1. Latest commit subject contains [skip-release]
+#   2. No conventional-commit type found in commits since last tag (no bump signal)
+#      → dry_run input also available for manual testing via gh workflow run
+#
+# Semver bump rules (commit messages since last vX.Y.Z tag):
+#   BREAKING CHANGE in body  OR  feat!: / fix!: prefix  → major bump
+#   feat: / feat(scope):                                 → minor bump
+#   anything else (fix:, hotfix:, refactor:, perf:, …)  → patch bump
+#   No typed commits found                               → skip (no release)
+#
+# `hotfix:` is treated as a patch-bump synonym for `fix:` — the /hotfix skill
+# emits `🩹 hotfix: <description>` and that should ship a release just like a
+# regular `fix:` commit would. Added in v3.46.1 after a hotfix on v3.46.0 was
+# silently skipped from tagging.
+#
+# Note: commits that bypass conventional-commit style (emoji + type format used in this
+# repo, e.g. "✨ feat: ...") are also matched via the regex because we strip leading
+# emoji/whitespace before matching.
+
+name: Auto Release CLI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'cli/**'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Print computed tag without pushing (true/false)'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: write
+
+jobs:
+  auto-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # PAT needed so the tag push triggers release.yml — tags pushed with the
+          # default GITHUB_TOKEN do not fan out to downstream workflow_dispatch/push triggers.
+          token: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Configure git identity
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Compute semver bump and tag
+        id: semver
+        run: |
+          set -euo pipefail
+
+          # ── 1. Skip if commit message contains [skip-release] ─────────────────
+          COMMIT_SUBJECT=$(git log -1 --format="%s")
+          if echo "$COMMIT_SUBJECT" | grep -qF '[skip-release]'; then
+            echo "skip=true"  >> "$GITHUB_OUTPUT"
+            echo "reason=commit subject contains [skip-release]" >> "$GITHUB_OUTPUT"
+            echo "ℹ️  Skipping release: commit subject contains [skip-release]"
+            exit 0
+          fi
+
+          # ── 2. Find the latest semver tag ──────────────────────────────────────
+          LAST_TAG=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
+          if [ -z "$LAST_TAG" ]; then
+            # No previous tag — start at v0.0.0 so first release becomes v0.0.1
+            LAST_TAG="v0.0.0"
+            COMMITS_RANGE="HEAD"
+          else
+            COMMITS_RANGE="${LAST_TAG}..HEAD"
+          fi
+          echo "last_tag=$LAST_TAG" >> "$GITHUB_OUTPUT"
+
+          # ── 3. Collect commit messages since last tag ──────────────────────────
+          # Strip leading emoji + whitespace before matching conventional-commit prefix.
+          COMMIT_MESSAGES=$(git log "$COMMITS_RANGE" --format="%s%n%b" 2>/dev/null || true)
+          STRIPPED=$(echo "$COMMIT_MESSAGES" | sed 's/^[^a-zA-Z]*//')
+
+          # ── 4. Determine bump level ────────────────────────────────────────────
+          # Load commit-type slugs from the canonical file (single source of truth).
+          # Falls back to a hard-coded list if the file is absent (should never happen on main).
+          CANONICAL_FILE="templates/commit-types.txt"
+          if [ -f "$CANONICAL_FILE" ]; then
+            COMMIT_TYPE_REGEX=$(grep -v '^#' "$CANONICAL_FILE" | grep -v '^[[:space:]]*$' | cut -d'|' -f1 | tr -d ' ' | paste -sd'|' -)
+          else
+            COMMIT_TYPE_REGEX="feat|fix|hotfix|refactor|perf|chore|build|docs|style|test|ci|plan|security|migration|deps|deploy|remove|merge|debug|revert|i18n"
+          fi
+
+          BUMP="none"
+
+          # Major: BREAKING CHANGE in body or ! after type (any canonical type)
+          if echo "$STRIPPED" | grep -qE "^(${COMMIT_TYPE_REGEX})!:" || \
+             echo "$COMMIT_MESSAGES" | grep -qF 'BREAKING CHANGE'; then
+            BUMP="major"
+          # Minor: feat commits
+          elif echo "$STRIPPED" | grep -qE '^feat(\([^)]+\))?:'; then
+            BUMP="minor"
+          # Patch: any typed commit that is not feat (covers all 21 types)
+          elif echo "$STRIPPED" | grep -qE "^(${COMMIT_TYPE_REGEX})(\([^)]+\))?:"; then
+            BUMP="patch"
+          fi
+
+          if [ "$BUMP" = "none" ]; then
+            echo "skip=true"  >> "$GITHUB_OUTPUT"
+            echo "reason=no conventional-commit typed messages found since $LAST_TAG" >> "$GITHUB_OUTPUT"
+            echo "ℹ️  Skipping release: no conventional-commit signal since $LAST_TAG"
+            exit 0
+          fi
+
+          echo "bump=$BUMP" >> "$GITHUB_OUTPUT"
+
+          # ── 5. Parse current version and compute next ─────────────────────────
+          VERSION="${LAST_TAG#v}"
+          MAJOR=$(echo "$VERSION" | cut -d. -f1)
+          MINOR=$(echo "$VERSION" | cut -d. -f2)
+          PATCH=$(echo "$VERSION" | cut -d. -f3)
+
+          case "$BUMP" in
+            major)
+              MAJOR=$((MAJOR + 1))
+              MINOR=0
+              PATCH=0
+              ;;
+            minor)
+              MINOR=$((MINOR + 1))
+              PATCH=0
+              ;;
+            patch)
+              PATCH=$((PATCH + 1))
+              ;;
+          esac
+
+          NEXT_TAG="v${MAJOR}.${MINOR}.${PATCH}"
+          echo "next_tag=$NEXT_TAG" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+          echo "📦 Computed: $LAST_TAG → $NEXT_TAG (bump: $BUMP)"
+
+      - name: Push tag (or dry-run)
+        if: steps.semver.outputs.skip == 'false'
+        env:
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+          NEXT_TAG: ${{ steps.semver.outputs.next_tag }}
+          BUMP: ${{ steps.semver.outputs.bump }}
+          LAST_TAG: ${{ steps.semver.outputs.last_tag }}
+        run: |
+          set -euo pipefail
+
+          COMMIT_SHA=$(git rev-parse HEAD)
+          TAG_MESSAGE="🚀 deploy: auto-release ${NEXT_TAG} (${BUMP} bump from ${LAST_TAG})"
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "🔍 DRY RUN — would create annotated tag: $NEXT_TAG"
+            echo "   Message : $TAG_MESSAGE"
+            echo "   Commit  : $COMMIT_SHA"
+            echo "   Bump    : $BUMP (from $LAST_TAG)"
+            echo "   → release.yml would then build 3 binaries and create GitHub Release"
+          else
+            git tag -a "$NEXT_TAG" "$COMMIT_SHA" -m "$TAG_MESSAGE"
+            git push origin "$NEXT_TAG"
+            echo "✅ Tagged and pushed: $NEXT_TAG"
+            echo "   release.yml will now build binaries and create the GitHub Release"
+          fi
+
+      - name: Report skip reason
+        if: steps.semver.outputs.skip == 'true'
+        run: |
+          echo "⏭️  No release: ${{ steps.semver.outputs.reason }}"

@@ -1,0 +1,113 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Bravros Config Schema",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema URL"
+    },
+    "staging_branch": {
+      "type": "string",
+      "default": "homolog",
+      "description": "Branch to target for PR homologation/staging"
+    },
+    "language": {
+      "type": "string",
+      "default": "auto",
+      "description": "Primary language style or auto-detection"
+    },
+    "monorepo": {
+      "type": "boolean",
+      "description": "Declare if this is a monorepo setup"
+    },
+    "detected_at": {
+      "type": "string",
+      "description": "Timestamp when stack was last auto-detected"
+    },
+    "permanent_branches": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "List of branches git prune should never delete"
+    },
+    "stack": {
+      "$ref": "#/definitions/StackConfig"
+    },
+    "stacks": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/StackConfig"
+      }
+    },
+    "git": {
+      "type": "object",
+      "properties": {
+        "remote": { "type": "string" },
+        "has_ci": { "type": "boolean" },
+        "ci_workflow": { "type": "string" }
+      }
+    },
+    "env": {
+      "type": "object",
+      "properties": {
+        "deployed": { "type": "boolean" },
+        "production": { "type": "string" },
+        "staging": { "type": "string" },
+        "local": { "type": "string" }
+      }
+    },
+    "merge_strategy": {
+      "type": "object",
+      "properties": {
+        "default": { "type": "string" },
+        "into_main": { "type": "string" },
+        "by_base": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "features": {
+      "type": "object",
+      "properties": {
+        "review_stamp_gate": { "type": "boolean" }
+      },
+      "additionalProperties": {
+        "type": "boolean"
+      }
+    },
+    "skills": {
+      "type": "object",
+      "properties": {
+        "preserve": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "enabled": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "StackConfig": {
+      "type": "object",
+      "properties": {
+        "language": { "type": "string" },
+        "framework": { "type": "string" },
+        "test_runner": { "type": "string" },
+        "has_assets": { "type": "boolean" },
+        "language_version": { "type": "string" },
+        "project_type": { "type": "string" },
+        "runtime": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "node_package_manager": { "type": "string" }
+      }
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://bravros.dev/schemas/config.v0.json",
+  "staging_branch": "homolog",
+  "language": "auto",
+  "stack": {
+    "language": "go",
+    "framework": "none",
+    "test_runner": "go test",
+    "project_type": "library"
+  },
+  "git": {},
+  "env": {},
+  "skills": {}
+}

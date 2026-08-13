@@ -1,0 +1,10 @@
+{
+  "$schema": "https://bravros.dev/schemas/config.v0.json",
+  "staging_branch": "homolog",
+  "language": "auto",
+  "stack": {},
+  "git": {},
+  "env": {},
+  "detected_at": "2026-05-08T05:49:49-03:00",
+  "skills": {}
+}

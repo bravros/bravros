@@ -1,0 +1,207 @@
+# Example project configuration for kaisser.
+#
+# This file is generated once by `kaisser init`.
+# It is consumed by skills, audit rules, and CLI verbs to avoid re-detecting the stack.
+# The file is hand-editable, but `detected_at` is auto-managed by the CLI.
+# Copy to .kaisser.yml and uncomment only the options you need.
+
+# staging_branch: Set the default staging/development branch.
+# Default: homolog
+# Common values: homolog, staging, develop
+# Used by plan checks and branch workflows.
+staging_branch: homolog
+
+# language: Project language preference (e.g. for docs, CLI output).
+# Default: auto (auto-detect from environment or use sensible default)
+# Supported values: auto, en, pt-BR, es, fr, de, ja, zh-CN, etc.
+language: auto
+
+# monorepo: Whether this project has multiple stacks in different subdirectories.
+# Default: false (single-stack project)
+# Set to true when apps/web, apps/api, packages/lib all have distinct stacks.
+monorepo: false
+
+# ============================================================================
+# stack: For single-stack projects (monorepo: false), define the root stack here.
+#        Omit this block if you're a pure monorepo with stacks: mapping instead.
+# ============================================================================
+#
+# Example 1: Go CLI project
+# stack:
+#   language: go                    # Programming language: go, php, node, python, rust, etc.
+#   framework: none                 # Web framework: laravel, nextjs, express, django, none, etc.
+#   test_runner: go test            # Test runner: pest, jest, vitest, pytest, go test, none, etc.
+#   has_assets: false               # Whether the project has frontend assets (CSS, JS, images)
+#   language_version: "1.22.0"      # Installed language runtime version (e.g., 1.22.0, 8.2, 20)
+#   project_type: cli               # Project type: api, fullstack, cli, library, middleware, etc.
+#   node_package_manager: ""        # (Node only) npm, pnpm, bun, yarn — derived from lockfile
+#   runtime:                        # Key package versions from lockfile (auto-populated)
+#     cobra: "1.8.0"
+#     yaml: "3.0.1"
+#
+# Example 2: Laravel fullstack project
+# stack:
+#   language: php                   # Programming language
+#   framework: laravel              # Web framework
+#   test_runner: pest               # Test runner (Laravel default)
+#   has_assets: true                # Has frontend (Tailwind, Alpine, Vite, etc.)
+#   language_version: "8.2"         # PHP version
+#   project_type: fullstack         # Full-stack project with API + frontend
+#   node_package_manager: npm       # Asset build tool
+#   runtime:
+#     laravel: "11.0"
+#     pest: "2.28"
+
+stack:
+  language: ""
+  framework: ""
+  test_runner: ""
+  has_assets: false
+  language_version: ""
+  project_type: ""
+
+# ============================================================================
+# stacks: For monorepo projects (monorepo: true), map each subdirectory to its stack.
+#         Omit this block if you're single-stack or using root stack: only.
+# ============================================================================
+#
+# stacks:
+#   apps/web:
+#     language: node
+#     framework: nextjs
+#     test_runner: jest
+#     has_assets: true
+#     language_version: "20"
+#     project_type: fullstack
+#     node_package_manager: npm
+#   apps/api:
+#     language: go
+#     framework: none
+#     test_runner: go test
+#     has_assets: false
+#     language_version: "1.22.0"
+#     project_type: api
+
+# ============================================================================
+# git: Git and CI/CD configuration (auto-detected, usually omitted).
+# ============================================================================
+#
+# git:
+#   remote: git@github.com:owner/repo.git    # Git remote URL (cached to avoid repeated gh API calls)
+#   has_ci: true                              # Whether .github/workflows/ has active CI tests
+#   ci_workflow: tests.yml                    # Primary CI workflow filename
+
+git:
+  remote: ""
+  has_ci: false
+  ci_workflow: ""
+
+# ============================================================================
+# env: Environment and deployment configuration.
+# ============================================================================
+#
+# env:
+#   deployed: true                            # Whether this project has been deployed to production
+#   production: https://app.example.com       # Production URL (replaces the old .deployed marker file)
+#   staging: https://staging.example.com      # Staging/preview URL (optional)
+#   local: https://app.test                   # Local development URL (http://localhost:3000, app.test, etc.)
+
+env:
+  deployed: false
+  production: ""
+  staging: ""
+  local: ""
+
+# ============================================================================
+# permanent_branches: Branches that should never be auto-deleted.
+# ============================================================================
+#
+# When omitted, defaults to: [main, homolog, staging, develop]
+# Rule 30 protects these branches from accidental deletion.
+#
+# permanent_branches:
+#   - main
+#   - homolog
+#   - staging
+
+# ============================================================================
+# skills: Skill deployment and preservation configuration.
+# ============================================================================
+#
+# enabled: Allowlist of skill directory names to deploy.
+#          When non-empty, `kaisser deploy` only copies these skills PLUS
+#          any skill marked `core: true` in its SKILL.md.
+#          When empty or absent, ALL skills deploy (backward-compatible default).
+#
+# preserve: Skills that must survive orphan pruning during deploy.
+#           Use this to protect custom or third-party skills that don't have
+#           `core: true` in their SKILL.md.
+#
+# skills:
+#   enabled:
+#     - plan
+#     - finish
+#     - auto-pr
+#     - laravel-db-diagram
+#     - tdd-review
+#   preserve:
+#     - custom-skill
+#     - graphify
+
+# ============================================================================
+# merge_strategy: How pull requests should be merged at different bases.
+# ============================================================================
+#
+# All fields optional — omitting the entire block defaults to squash everywhere.
+#
+# default: Fallback merge strategy (squash, merge, rebase)
+# into_main: Strategy when PR targets main (usually merge to preserve lineage)
+# by_base: Per-base override map (main: merge, homolog: squash, etc.)
+#
+# merge_strategy:
+#   default: squash
+#   into_main: merge
+#   by_base:
+#     main: merge
+#     homolog: squash
+#     staging: rebase
+
+# ============================================================================
+# features: Feature flags for optional kaisser behaviours.
+# ============================================================================
+
+features:
+  # Require a successful @claude review stamp before merge helpers proceed.
+  review_stamp_gate: false
+
+  # Enable context-economy v2 path in /plan-check (B-0235).
+  # When true, /plan-check Step 1 uses `kaisser plan-check-status --json` +
+  # `kaisser plan-diff --since` instead of `kaisser context --diffs` + full plan Read.
+  # Target: ≥80% input-token reduction on P-0089-sized plans.
+  # Default: false — v1 behavior preserved for one release cycle.
+  plan_check_v2: false
+
+  # Per-rule feature flags (B-0109).
+  # Owner-specific rules default to true (no behavior change for existing users).
+  # Set any to false to disable that rule for non-owner users of this repo.
+  # extra:
+  #   rule_8: true    # Full test suite must use --parallel
+  #   rule_10: true   # Block dangerous commands
+  #   rule_15: true   # Backlog CLI enforcement
+  #   rule_24: true   # Block raw date commands
+  #   rule_25: true   # Block raw basename $(pwd)
+  #   rule_26: true   # Block raw git branch --show-current
+  #
+  # New dormant rules (35-40) default to false — activate only after
+  # companion migrations land (see docs/AUDIT-RULES.md for activation deps).
+  #   rule_35: false  # Block raw git commit -m in skills
+  #   rule_36: false  # Block raw gh pr view --json number in skills
+  #   rule_37: false  # Warn if SDLC skill missing mode: frontmatter
+  #   rule_38: false  # Block ~/Sites/claude literals in .go files
+  #   rule_39: false  # Block hardcoded op://ClaudeCode/ vault paths
+  #   rule_40: false  # Block gh release download --repo skaisser/
+  #
+  # Per-rule debounce overrides (seconds). Default: 60s for rules 18 and 27.
+  # extra_debounce:
+  #   rule_18_debounce: 120  # Project config detection
+  #   rule_27_debounce: 300  # Dangling wikilink warning

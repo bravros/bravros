@@ -9,6 +9,7 @@
 
 # Go build artifacts
 /dist/
+/bin/
 /bravros
 /cli/bravros
 /tools/skillgen/skillgen
