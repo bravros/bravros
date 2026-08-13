@@ -308,6 +308,12 @@ func ownsStatusLine(existing json.RawMessage) (bool, error) {
 // decodeObject returns a JSON object's keys in source order plus their raw
 // values, so a rewrite can preserve the author's key ordering.
 func decodeObject(raw []byte) ([]string, map[string]json.RawMessage, error) {
+	// json.Decoder streams, so a truncated document ends the token loop without
+	// an error. Validate first — a half-written settings.json must fail loudly,
+	// never be silently "recovered" into a rewrite that drops the tail.
+	if !json.Valid(raw) {
+		return nil, nil, fmt.Errorf("invalid JSON")
+	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	tok, err := dec.Token()
 	if err != nil {

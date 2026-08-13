@@ -10,6 +10,7 @@ import (
 
 	"github.com/bravros/bravros/cli/internal/config"
 	"github.com/bravros/bravros/cli/internal/deploy"
+	"github.com/bravros/bravros/cli/internal/managed"
 	"github.com/bravros/bravros/cli/internal/skillhygiene"
 	"github.com/spf13/cobra"
 )

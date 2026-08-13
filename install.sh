@@ -94,6 +94,18 @@ chmod +x "${BIN_DIR}/bravros"
 add_to_path
 ok "Installed"
 
+# Register the SessionStart self-update hook + statusline in ~/.claude/settings.json.
+# `selfupdate` and `statusline` already exist; nothing invoked them because nothing
+# ever wrote them into settings.json. The merge is entry-level — user-owned keys and
+# hooks are preserved, an existing file is backed up, and a re-run is a no-op.
+# NOT part of `bravros init`: that command is repo-local by design.
+info "Registering SessionStart hook + statusline in ~/.claude/settings.json..."
+if "${BIN_DIR}/bravros" config sync --settings-only >/dev/null 2>&1; then
+  ok "settings.json updated"
+else
+  printf '  ! Could not update ~/.claude/settings.json — run for the error:\n    %s config sync --settings-only\n' "${BIN_DIR}/bravros" >&2
+fi
+
 # `bravros init` is per-repository — it writes .bravros/ and sets core.hooksPath.
 # Telling the user to run it straight from wherever they piped curl was the first
 # thing a new install did wrong: it fails outside a git repo.
