@@ -3,6 +3,20 @@
 Loaded by SKILL.md. The gates here are **mandatory**, not optional detail — load this file
 before merging.
 
+## Shell traps that have already broken a merge — read once, obey everywhere
+
+Every one of these was observed live in a single `/finish` run (PR #1919). They cost three
+rounds of improvised bash in the middle of a production merge. The recipes below are written
+to avoid them — **run them as written, do not "simplify"**.
+
+| Trap | What happens | The form to use |
+|---|---|---|
+| `git show "$SHA:app/..."` | zsh expands `:a` as a **parameter modifier** (absolute-path) — the `a` is eaten and cwd is prepended: `fatal: Not a valid object name /…/<sha>pp/...`. Fires on any literal path whose first letter is a modifier (`a c e h l p q r s t u x A P Q`). Braces do NOT help. | Put the path in a variable: `git cat-file blob "$SHA:$f"`. The char after `:` is then `$`, never a modifier. |
+| `git rev-parse "$SHA:$f" \|\| echo ABSENT` | On a missing path `rev-parse` **echoes the argument to stdout** before failing, so the capture holds two lines and every comparison is garbage. | `git rev-parse --verify --quiet "$SHA:$f" \|\| echo ABSENT` |
+| `some-cmd \| tail -5; echo "rc=$?"` | `$?` is **tail's** status, not the command's. A failing CI gate reports `rc=0`. | Never pipe a gate. `some-cmd; RC=$?` then print/inspect separately. |
+| `sleep 25; check` | Bare foreground sleeps are blocked by the agent shell and the call errors out. | `until <check>; do sleep 5; done` |
+| `sed "s\|^\|$f \|"` over a multi-line var | `sed: unescaped newline inside substitute pattern`. | Iterate with `while IFS= read -r f`, emit with `printf`. |
+
 ## Step 1: Resolve PR, base branch, worktree state
 
 ```bash
@@ -24,6 +38,36 @@ BASE_HELD_AT=$(git worktree list --porcelain | awk -v b="branch refs/heads/$BASE
 ```
 
 Approval check: `gh pr view --json reviewDecision -q .reviewDecision`.
+
+### Step 1b: Stamp freshness — a stamp for an older commit is not authorization
+
+`bravros pr-review --write-stamp` is presence-idempotent: it **skips** when a stamp file
+already exists. So on a multi-round `/address-pr` the stamp still records **round 1's**
+`commit_sha` while HEAD has moved on — an approval for code that no longer exists. That is not
+a merge blocker to negotiate with the operator; it is a stale artifact with one sanctioned
+resolution, and `/finish` performs it itself:
+
+```bash
+STAMP=".planning/.review-stamp-${PR_NUMBER}.json"
+if [ -f "$STAMP" ]; then
+  STAMP_SHA=$(grep -o '"commit_sha": *"[^"]*"' "$STAMP" | cut -d'"' -f4)
+  HEAD_SHA=$(git rev-parse HEAD)
+  if [ "$STAMP_SHA" != "$HEAD_SHA" ]; then
+    echo "stale stamp: records $STAMP_SHA, HEAD is $HEAD_SHA — dropping and re-stamping from the latest verdict"
+    rm -f "$STAMP"
+    bravros pr-review "$PR_NUMBER" --write-stamp
+  fi
+fi
+```
+
+**Why deleting it is safe, and why it needs no operator sign-off.** Removing a stamp can only
+ever *remove* authority — the merge gate reads presence, so a missing stamp blocks the merge and
+never permits one. The re-stamp then goes through the one stamp authority, which writes only on
+a fresh `BRAVROS-VERDICT: approved`; a `changes-requested` or marker-less latest review leaves
+the PR correctly unstamped. Never hand-write the replacement, and never `rm` a stamp whose
+`commit_sha` **equals** HEAD — that one is real authorization for exactly this code.
+
+This is exactly how PR #1919 stalled mid-merge and needed a hand-run `rm`.
 
 ## Step 2: Close the plan (events model — no CLI verb)
 
@@ -58,16 +102,72 @@ git push
 
 `PLAN_NUM` (for the announce) = `$PLAN_ID` without the `P-` prefix / leading zeros.
 
+## Step 3: CI — capture the exit code, never pipe the gate
+
+```bash
+gh pr checks "$PR_NUMBER" --watch --fail-fast > /tmp/bravros-checks-$PR_NUMBER.txt 2>&1
+RC=$?
+tail -8 /tmp/bravros-checks-$PR_NUMBER.txt
+echo "checks_rc=$RC"
+```
+
+Redirect to a file and `tail` it **as a separate command** — `gh pr checks … | tail` throws the
+real status away and reports `rc=0` on a red build. Read `RC` as:
+
+| RC | Meaning | Action |
+|---|---|---|
+| `0` | every check passed | proceed |
+| `1` | a check failed — **or** the repo reports no checks at all | grep the output for `no checks reported`: that is a skip, not a failure. Otherwise ask: fix and retry / merge anyway / abort |
+| `8` | still pending | `--watch` should have blocked; treat as pending and re-enter the wait, never as a pass |
+
+### Step 3b: Pre-merge readiness gate — mandatory, and it is not the same as Step 3
+
+Step 3 proves *the checks* went green. This gate proves *GitHub agrees the PR is mergeable now* —
+they diverge whenever a check was added after the watch, a required review lapsed, or the base
+moved. Merging at `UNSTABLE` (PR #1922 did) means merging with a gate still running.
+
+```bash
+gh pr view "$PR_NUMBER" --json mergeable,mergeStateStatus,reviewDecision \
+  -q '"mergeable=\(.mergeable) status=\(.mergeStateStatus) review=\(.reviewDecision)"'
+```
+
+| `mergeStateStatus` | Meaning | Action |
+|---|---|---|
+| `CLEAN` | ready | merge |
+| `UNSTABLE` | mergeable but a check is pending or failed **non-required** | re-enter Step 3's watch; if it stays `UNSTABLE`, name the offending check and **ask** — never merge through it silently |
+| `BLOCKED` | a required review or gate is unsatisfied | stop, report which |
+| `DIRTY` | conflicts | conflict path below |
+| `BEHIND` | base moved | update the branch, re-run Step 3 |
+| `UNKNOWN` | GitHub is still computing mergeability (~5 min after a push/open) | one bounded wait, then decide on `mergeable` alone — **never** a poll loop |
+
+```bash
+until [ "$(gh pr view "$PR_NUMBER" --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ]; do sleep 5; done
+```
+
+Bare `sleep N; <check>` is blocked by the agent shell — always the `until` form. And
+`mergeable=MERGEABLE` alone is **not** the gate: PR #1922 was `MERGEABLE`+`UNSTABLE` and got
+merged with its main-branch protection check still pending.
+
 ## Step 4: Merge — capture, gate, merge, verify
 
-Pre-merge capture for the blob verification:
+Pre-merge capture for the blob verification. One line per path, `"<blob-or-ABSENT> <path>"` —
+`ABSENT` is the correct expectation for a file the feature **deletes or renames away**, and
+comparing it against the merge commit is how that case stays a pass instead of a false alarm:
 
 ```bash
 PRE_MERGE_COMMIT=$(git rev-parse HEAD)
-FEATURE_FILES=$(git diff --name-only "origin/$BASE_BRANCH"..."$PRE_MERGE_COMMIT" \
+BLOBS="/tmp/bravros-blobs-$PR_NUMBER.txt"
+git diff --name-only "origin/$BASE_BRANCH"..."$PRE_MERGE_COMMIT" \
   -- '*.php' '*.ts' '*.tsx' '*.js' '*.jsx' '*.py' '*.go' \
-     ':(exclude)tests/' ':(exclude)test/' ':(exclude)spec/' ':(exclude)__tests__/')
+     ':(exclude)tests/' ':(exclude)test/' ':(exclude)spec/' ':(exclude)__tests__/' \
+| while IFS= read -r f; do
+    printf '%s %s\n' "$(git rev-parse --verify --quiet "$PRE_MERGE_COMMIT:$f" || echo ABSENT)" "$f"
+  done > "$BLOBS"
+cat "$BLOBS"
 ```
+
+`--verify --quiet` is load-bearing (bare `rev-parse` prints the missing path to stdout), and the
+path stays in `$f` so zsh never reads a `:<letter>` modifier — see the trap table at the top.
 
 ### The `--delete-branch` gate
 
@@ -94,6 +194,9 @@ fi
 
 Say out loud which condition suppressed the flag, so the leftover branch is not a surprise.
 
+Step 3b must have passed **and still hold** — re-read `mergeStateStatus` if anything pushed since,
+because the readiness fact expires the moment the branch or base moves:
+
 ```bash
 STRATEGY=$(awk -F': *' '/^merge_strategy:/{print $2}' .bravros.yml 2>/dev/null); STRATEGY=${STRATEGY:-merge}
 bravros merge-lock acquire --timeout 60s --ttl 10m --meta reason=finish --meta pr="$PR_NUMBER"
@@ -104,12 +207,34 @@ bravros merge-lock release
 On conflict: surface the conflicted files, release the lock, stop and ask. Test-only add/add
 conflicts under `tests/` may be auto-resolved with `--theirs`; application-code conflicts never are.
 
-**Post-merge blob verification.** Get the merge commit (`gh pr view --json mergeCommit -q
-.mergeCommit.oid`) and compare each `FEATURE_FILES` blob hash at `PRE_MERGE_COMMIT` vs the
-merge commit. A file matching the *base* rather than the feature means the change was lost —
-ask in normal mode, `exit 1` in `--batch`.
+**Post-merge blob verification.** Run this verbatim. It replaced a prose description of the same
+check, which is what sent PR #1919 through three rounds of broken improvised bash mid-merge:
 
-Confirm `gh pr view "$PR_NUMBER" --json state -q .state` is `MERGED` before reporting success.
+```bash
+MERGE_SHA=$(gh pr view "$PR_NUMBER" --json mergeCommit -q .mergeCommit.oid)
+git fetch origin "$BASE_BRANCH" -q          # the merge commit is not local yet
+FAIL=0
+while IFS=' ' read -r expected f; do
+  [ -n "$f" ] || continue
+  actual=$(git rev-parse --verify --quiet "$MERGE_SHA:$f" || echo ABSENT)
+  if [ "$expected" = "$actual" ]; then
+    printf '  ok       %s\n' "$f"
+  else
+    printf '  MISMATCH %s expected=%s actual=%s\n' "$f" "$expected" "$actual"
+    FAIL=1
+  fi
+done < "$BLOBS"
+echo "verification_fail=$FAIL"
+```
+
+A mismatch means the merge did not carry that change — a feature file whose blob matches *base*
+instead of feature means the change was silently lost. Ask in normal mode, `exit 1` under
+`--batch`. Do **not** wave a mismatch away as a quoting artifact: this recipe has no quoting
+artifacts left, so a mismatch here is real. If you nonetheless need a second opinion, confirm with
+`git ls-tree -r --name-only "$MERGE_SHA" -- <dir>/` rather than another hand-rolled `git show`.
+
+Confirm `gh pr view "$PR_NUMBER" --json state -q .state` is `MERGED` before reporting success,
+then `rm -f "$BLOBS"`.
 
 ## Step 5: Sync local
 
@@ -128,10 +253,30 @@ fi
 
 ## Step 7: main — decision announce + merge
 
+**Step 7 vs `/promote` — both are sanctioned; they are not rivals.** Step 7 is the
+feature-completion path: the operator answered the main question in this session, and the merge
+goes through a **PR against `main`** with its full check suite, which is what "main is PR-gated
+only" requires. `/promote` is the standalone path for work already sitting on homolog with no
+`/finish` in flight, and it needs the out-of-band token because nothing else in that flow proves
+a human is present. A project `CLAUDE.md` that routes promotion through `/promote` is describing
+the standalone case; it does not make Step 7 a bypass, and Step 7 never needs a promote token.
+Say which path you are on, then take it — do not stop mid-merge to reconcile the two.
+
 ```bash
 # <!-- announce-template: "Mesclagem na produção aguarda sua decisão. Projeto {PROJECT}." -->
 bravros ha say --force "Mesclagem na produção aguarda sua decisão. Projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio >/dev/null 2>&1 || true
 ```
+
+First **report the promotion scope** — this merge ships everything accumulated on homolog, not
+just this feature, and the operator answered "merge to main" about their own PR:
+
+```bash
+git fetch origin main homolog -q
+git log --oneline origin/main..origin/homolog
+echo "count: $(git rev-list --count origin/main..origin/homolog)"
+```
+
+Commits from other features in that list → name them before merging.
 
 On "merge to main":
 
@@ -144,7 +289,26 @@ if [ -z "$MAIN_PR" ]; then
   MAIN_PR=$(gh pr list --base main --head homolog --json number -q '.[0].number')
   [ -z "$MAIN_PR" ] && { echo "❌ PR opened but its number could not be resolved"; exit 1; }
 fi
+```
 
+⛔ **The main PR gets its own Step 3 + Step 3b — no exceptions.** Step 3 ran against the *feature*
+PR; a PR opened seconds ago has every check `queued`, and `main` is exactly where a protection
+workflow (`Protect Main Branch`, `check-source-branch`) is most likely to be the gate that matters.
+PR #1922 was merged at `mergeStateStatus=UNSTABLE` with its source-branch check still pending, and
+the run only came back green afterwards — luck, not a gate.
+
+```bash
+gh pr checks "$MAIN_PR" --watch --fail-fast > /tmp/bravros-checks-$MAIN_PR.txt 2>&1
+RC=$?; tail -8 /tmp/bravros-checks-$MAIN_PR.txt; echo "checks_rc=$RC"
+until [ "$(gh pr view "$MAIN_PR" --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ]; do sleep 5; done
+STATUS=$(gh pr view "$MAIN_PR" --json mergeStateStatus -q .mergeStateStatus)
+[ "$STATUS" = "CLEAN" ] || { echo "⚠️  main PR not CLEAN (status=$STATUS, checks_rc=$RC) — stopping"; exit 1; }
+```
+
+A newly created PR whose checks are still `queued` is the *expected* state here — wait it out;
+never read "mergeable=MERGEABLE" as permission to skip the wait.
+
+```bash
 bravros merge-lock acquire --timeout 60s --ttl 10m --meta reason=finish-main --meta pr="$MAIN_PR"
 gh pr merge "$MAIN_PR" --"$STRATEGY" || { bravros merge-lock release; exit 1; }   # never --delete-branch: homolog is permanent
 bravros merge-lock release

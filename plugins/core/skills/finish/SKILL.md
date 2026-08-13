@@ -12,11 +12,13 @@ INTENT: land this feature — merge the PR into its base, record completion in `
 
 ## Quick Summary
 
-1. **Resolve PR & Base**: Determine PR and target base (`homolog` or `main`).
+1. **Resolve PR & Base**: Determine PR and target base (`homolog` or `main`), then drop a **stale review stamp** (Step 1b) — after a multi-round `/address-pr` it still names round 1's commit.
 2. **Close Plan**: Record `completed` event in `.planning/events.jsonl`.
-3. **CI Check**: Ensure checks pass or prompt operator.
+3. **CI Check**: `gh pr checks --watch --fail-fast` **redirected to a file**, then `RC=$?` — never piped. Then the readiness gate: merge only at `mergeStateStatus: CLEAN`.
 4. **Merge & Verify**: Execute merge gate and post-merge blob verification.
 5. **Sync & Clean**: Fast-forward local branches and sweep review stamps.
-6. **Main Route**: Route homolog→main decision with operator confirmation.
+6. **Main Route**: Route homolog→main decision with operator confirmation — the main PR repeats step 3 in full.
 
-Refer to [`references/flow.md`](references/flow.md) for full shell script flow details.
+Refer to [`references/flow.md`](references/flow.md) for full shell script flow details. Its bash
+is copy-paste code, not illustration: a shell-trap table, the stamp-freshness block, the CI and
+readiness gates, and the blob verification all have to run **verbatim**.

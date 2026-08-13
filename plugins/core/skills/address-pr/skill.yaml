@@ -22,7 +22,8 @@ body: |
   3. **Fix**: Apply all fixes (blockers -> code issues -> style -> suggestions). Touch only review-named files. Verify sibling occurrences.
   4. **Push & Stamp**:
      - Run `/ship` with `🐛 fix: address PR #XX review feedback`.
-     - Watch CI: `gh pr checks "$PR" --watch --fail-fast`.
+     - Watch CI: `gh pr checks "$PR" --watch --fail-fast > /tmp/bravros-checks-$PR.txt 2>&1` then `RC=$?` — **never pipe the gate**; `| tail` returns the pipe's status and a red build reads as success.
+     - Round >= 2 only: `--write-stamp` skips when a stamp exists, silently preserving round 1's `commit_sha`. Delete `.planning/.review-stamp-${PR}.json` first *if and only if* its `commit_sha` differs from HEAD (see `references/briefing.md`).
      - Stamp: `bravros pr-review "$PR" --write-stamp`.
   5. **Route**:
      - Re-review (⚠️) if blockers fixed, logic/control flow changed, tests modified, or security files touched.

@@ -19,7 +19,8 @@ PR number: `$ARGUMENTS` if numeric, else `PR=$(get-pr-info --json number -q .num
 2. **Fix**: Apply all fixes (blockers → code issues → style → suggestions). Touch only files named in review.
 3. **Push, Verify, Stamp**:
    - `/ship` with `🐛 fix: address PR #XX review feedback`
-   - `gh pr checks "$PR" --watch --fail-fast`
+   - `gh pr checks "$PR" --watch --fail-fast > /tmp/bravros-checks-$PR.txt 2>&1` then `RC=$?` — **never pipe the gate**; `| tail` returns the pipe's status and a red build reads as success.
+   - **Round ≥ 2 only:** `--write-stamp` skips when a stamp exists, silently preserving round 1's `commit_sha`. Delete `.workflow/.review-stamp-${PR}.json` first *if and only if* its `commit_sha` differs from HEAD (see briefing.md).
    - `bravros pr-review "$PR" --write-stamp`
 4. **Route**:
    - **⚠️ Re-review**: if blockers fixed, logic changed, test behavior modified, or security files touched -> invoke `Skill({skill: "pr-review"})`.
@@ -277,14 +278,16 @@ INTENT: land this feature — merge the PR into its base, record completion in `
 
 ## Quick Summary
 
-1. **Resolve PR & Base**: Determine PR and target base (`homolog` or `main`).
+1. **Resolve PR & Base**: Determine PR and target base (`homolog` or `main`), then drop a **stale review stamp** (Step 1b) — after a multi-round `/address-pr` it still names round 1's commit.
 2. **Close Plan**: Record `completed` event in `.workflow/events.jsonl`.
-3. **CI Check**: Ensure checks pass or prompt operator.
+3. **CI Check**: `gh pr checks --watch --fail-fast` **redirected to a file**, then `RC=$?` — never piped. Then the readiness gate: merge only at `mergeStateStatus: CLEAN`.
 4. **Merge & Verify**: Execute merge gate and post-merge blob verification.
 5. **Sync & Clean**: Fast-forward local branches and sweep review stamps.
-6. **Main Route**: Route homolog→main decision with operator confirmation.
+6. **Main Route**: Route homolog→main decision with operator confirmation — the main PR repeats step 3 in full.
 
-Refer to [`references/flow.md`](references/flow.md) for full shell script flow details.
+Refer to [`references/flow.md`](references/flow.md) for full shell script flow details. Its bash
+is copy-paste code, not illustration: a shell-trap table, the stamp-freshness block, the CI and
+readiness gates, and the blob verification all have to run **verbatim**.
 
 ---
 

@@ -18,7 +18,8 @@ PR number: `$ARGUMENTS` if numeric, else `PR=$(gh pr view --json number -q .numb
 2. **Fix**: Apply all fixes (blockers → code issues → style → suggestions). Touch only files named in review.
 3. **Push, Verify, Stamp**:
    - `/ship` with `🐛 fix: address PR #XX review feedback`
-   - `gh pr checks "$PR" --watch --fail-fast`
+   - `gh pr checks "$PR" --watch --fail-fast > /tmp/bravros-checks-$PR.txt 2>&1` then `RC=$?` — **never pipe the gate**; `| tail` returns the pipe's status and a red build reads as success.
+   - **Round ≥ 2 only:** `--write-stamp` skips when a stamp exists, silently preserving round 1's `commit_sha`. Delete `.planning/.review-stamp-${PR}.json` first *if and only if* its `commit_sha` differs from HEAD (see briefing.md).
    - `bravros pr-review "$PR" --write-stamp`
 4. **Route**:
    - **⚠️ Re-review**: if blockers fixed, logic changed, test behavior modified, or security files touched -> invoke `Skill({skill: "pr-review"})`.

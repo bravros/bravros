@@ -26,7 +26,26 @@ gh gotcha: `gh pr diff` has NO `--stat` — use `--name-only` or `gh pr view --j
 
 ## Push, verify, stamp
 
-`/ship` with `🐛 fix: address PR #XX review feedback`, then `gh pr checks "$PR" --watch --fail-fast`.
+`/ship` with `🐛 fix: address PR #XX review feedback`, then wait on CI — redirected, never piped,
+because `| tail` returns the pipe's status and a red build then reads as success:
+
+```bash
+gh pr checks "$PR" --watch --fail-fast > /tmp/bravros-checks-$PR.txt 2>&1
+RC=$?; tail -8 /tmp/bravros-checks-$PR.txt; echo "checks_rc=$RC"
+```
+
+**Round ≥ 2: drop the previous round's stamp first.** `--write-stamp` skips when a stamp file
+already exists, so from the second round on it silently preserves round 1's `commit_sha` — an
+approval for code that no longer exists. That stale record then blocks `/finish`, which is exactly
+how PR #1919 stalled mid-merge and needed a hand-run `rm`. Deleting a stamp only ever *removes*
+authority (the gate reads presence, so a missing stamp blocks and never permits), so this needs no
+operator sign-off — but only ever delete one whose `commit_sha` differs from HEAD:
+
+```bash
+STAMP=".planning/.review-stamp-${PR}.json"
+[ -f "$STAMP" ] && [ "$(grep -o '"commit_sha": *"[^"]*"' "$STAMP" | cut -d'"' -f4)" != "$(git rev-parse HEAD)" ] && rm -f "$STAMP"
+```
+
 Then unconditionally: `bravros pr-review "$PR" --write-stamp` — the ONE stamp authority. It writes only on a sentinel `BRAVROS-VERDICT: approved`; prose approval, `changes-requested`, or no review are safe no-ops. NEVER hand-write `.planning/.review-stamp-*` files. Prose-only approval blocked? The operator runs `bravros pr-review unlock` in a separate terminal (Claude cannot mint it) — never loop the review to force a marker.
 
 ## Route — severity matrix selects the branch (not advisory)
