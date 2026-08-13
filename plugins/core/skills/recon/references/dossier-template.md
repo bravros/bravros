@@ -1,4 +1,4 @@
-# Dossier template — what `/plan` writes, what `/orchestrate` reads
+# Dossier template — what `/recon` writes, what `/orchestrate` reads
 
 One scope = one folder, `.planning/P-NNNN-<slug>/`. Born once, **never renamed**; no
 `-todo`/`-approved`/`-complete` suffixes, no mutable frontmatter. State folds from

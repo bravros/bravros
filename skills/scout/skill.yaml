@@ -3,13 +3,13 @@ icon: search
 metadata:
   en:
     name: scout
-    description: Scout and pinpoint issues using graphify and code references without code modifications. Suggestions are passed to the orchestrator.
+    description: Investigate a defect with graphify and code references, then certify the root cause with runtime proof. Never modifies code. Runs standalone on `/scout <bug>`, or as the defect arm of `/recon`.
   br:
     name: scout
-    description: Escanear e identificar problemas usando graphify e referências de código sem modificar arquivos. As sugestões são passadas para o orquestrador.
+    description: Investigar um defeito com graphify e referências de código e então certificar a causa raiz com prova de execução. Nunca modifica código. Use em `/scout <defeito>` ou como o braço de defeitos do `/recon`.
   es:
     name: scout
-    description: Escanear e identificar problemas usando graphify y referencias de código sin modificar archivos. Las sugerencias se pasan al orquestador.
+    description: Investigar un defecto con graphify y referencias de código y luego certificar la causa raíz con prueba de ejecución. Nunca modifica código. Use en `/scout <defecto>` o como el brazo de defectos de `/recon`.
 body: |
   Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 

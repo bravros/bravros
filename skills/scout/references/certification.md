@@ -44,4 +44,4 @@ Same principle with the stack's native REPL/test runner (`node --eval`, `python 
 
 ## When certification fails
 
-A failed certification is a *success* — a fake root cause caught before it cost a fix cycle. Hand the next round: the refuted hypothesis, the exact evidence that killed it, and which leads are now excluded. After the round cap without a certified cause, write the report `UNCERTIFIED` with the full history — never let an uncertified hypothesis reach `/quick` or `/plan` dressed as a diagnosis.
+A failed certification is a *success* — a fake root cause caught before it cost a fix cycle. Hand the next round: the refuted hypothesis, the exact evidence that killed it, and which leads are now excluded. After the round cap without a certified cause, write the report `UNCERTIFIED` with the full history — never let an uncertified hypothesis reach `/quick` or `/recon` dressed as a diagnosis.

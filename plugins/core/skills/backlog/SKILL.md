@@ -7,7 +7,7 @@ description: Capture, list, and promote pre-planning ideas. Use `/backlog` to ad
 # backlog
 
 INTENT: a parking lot for ideas — lightweight to capture, structured enough to evaluate
-later. The backlog never implements; promotion hands off to `/plan`.
+later. The backlog never implements; promotion hands off to `/recon`.
 
 > [!IMPORTANT]
 > Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
@@ -23,6 +23,6 @@ later. The backlog never implements; promotion hands off to `/plan`.
 - `/backlog` — list active backlog items
 - `/backlog <number>` — view details of a specific item
 - `/backlog add <text>` — capture a new idea
-- `/backlog promote <number|N-M>` — hand off idea to `/plan`
+- `/backlog promote <number|N-M>` — hand off idea to `/recon`
 - `/backlog done|drop <number>` — complete or cancel an item
 - `/backlog pending group [auto]` — cluster active items into plan-sized groups

@@ -1,6 +1,6 @@
 # /auto-pr — plan → orchestrate → PR → review loop, autonomously
 
-INTENT: one command, one merge-ready PR. Stages delegate to `/plan` (which reviews inline) →
+INTENT: one command, one merge-ready PR. Stages delegate to `/recon` (which reviews inline) →
 `/orchestrate` → `/pr` → review loop, all with `--auto`.
 
 ## Hard constraints

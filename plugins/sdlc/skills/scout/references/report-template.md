@@ -19,7 +19,7 @@ severity: medium        # critical | high | medium | low | info
 confidence: high        # high | medium | low  (low ⇒ UNCERTIFIED)
 project: <project-name from basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")">
 linked_to: ["pending-handoff"]   # Step 7 sets placeholder; receiver updates to B-NNNN | P-NNNN | quick:<branch>
-plan: null              # filled when escalated to /plan
+plan: null              # filled when escalated to /recon
 backlog: null           # filled when added to backlog
 pr: null                # filled when the fix ships
 tags: []
@@ -91,7 +91,7 @@ to the hypothesis.
 <!-- choose based on scope; see investigation-guide.md decision matrix -->
 - [ ] `/quick` — certified small single-file fix
 - [ ] `/backlog` — certified simple fix, schedule later
-- [ ] `/plan` — 3+ files or architectural implications
+- [ ] `/recon` — 3+ files or architectural implications
 - [ ] Leave as-is — investigation is the permanent record
 ~~~
 
@@ -169,10 +169,10 @@ Use bare IDs — never encode a stage suffix into a link:
 
 ## Escalate Routing
 
-When the user chooses **Escalate to /plan**:
+When the user chooses **Escalate to /recon**:
 
 1. Read this report's `root_cause`, `severity`, **Proof of Root Cause**, and **Where to Fix**.
-2. Invoke `/plan` with: **Goal** = fix `<root_cause>`, **Context** = this report body (proof included), **Affected files** = the blast-radius file list.
+2. Invoke `/recon` with: **Goal** = fix `<root_cause>`, **Context** = this report body (proof included), **Affected files** = the blast-radius file list.
 3. After the plan is created, update this report's `plan:` field and `linked_to`.
 
 When the user chooses **Add to backlog**:

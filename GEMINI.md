@@ -108,7 +108,7 @@ Fully autonomous the workflow system pipeline — plan to PR, zero user interven
 
 # /auto-pr — plan → orchestrate → PR → review loop, autonomously
 
-INTENT: one command, one merge-ready PR. Stages delegate to `/plan` (which reviews inline) → `/orchestrate` → `/pr` → review loop, all with `--auto`.
+INTENT: one command, one merge-ready PR. Stages delegate to `/recon` (which reviews inline) → `/orchestrate` → `/pr` → review loop, all with `--auto`.
 
 Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
@@ -129,7 +129,7 @@ Capture, list, and promote pre-planning ideas. Use `/backlog` to add, view, prom
 # backlog
 
 INTENT: a parking lot for ideas — lightweight to capture, structured enough to evaluate
-later. The backlog never implements; promotion hands off to `/plan`.
+later. The backlog never implements; promotion hands off to `/recon`.
 
 > [!IMPORTANT]
 > Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
@@ -145,7 +145,7 @@ later. The backlog never implements; promotion hands off to `/plan`.
 - `/backlog` — list active backlog items
 - `/backlog <number>` — view details of a specific item
 - `/backlog add <text>` — capture a new idea
-- `/backlog promote <number|N-M>` — hand off idea to `/plan`
+- `/backlog promote <number|N-M>` — hand off idea to `/recon`
 - `/backlog done|drop <number>` — complete or cancel an item
 - `/backlog pending group [auto]` — cluster active items into plan-sized groups
 
@@ -487,40 +487,6 @@ You are the ORCHESTRATOR. Subagents write the product code; you read, decompose,
 
 ---
 
-## Skill: bravros-plan
-Create a reviewed .planning dossier folder — phases, tier markers, acceptance — ready for /orchestrate. Use on `/plan`, `/plan --worktree`, or `/plan B-NNNN` to promote a backlog item.
-
-# plan
-
-Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
-
-INTENT: Produce ONE reviewed folder `.workflow/P-NNNN-<slug>/` for zero-translation execution by `/orchestrate`.
-
-## Core Steps
-
-1. **Reserve identity**:
-   - Fetch latest homolog: `git fetch origin homolog`
-   - Switch to `homolog` branch locally (or use worktree).
-   - Reserve ID and create folder-plan: `PLAN_ID=$(bravros nextid reserve plan --slug "$SLUG")` (which creates `.workflow/P-NNNN-<slug>/` and seeds `PLAN.md`).
-   - Commit and push reservation directly to homolog first to lock the ID:
-     `bravros commit "📋 plan: reserve $PLAN_ID $SLUG" .workflow/P-*`
-     `git push origin homolog`
-   - Switch back to the feature/worktree branch and merge: `git merge origin/homolog`.
-2. **Interview**: Ask only diverging questions. Save closed decisions & canonical constraints in `README.md`.
-3. **Write & Review**:
-   - Write `README.md` following [`dossier-template.md`](references/dossier-template.md).
-   - Review inline (validate path existence, tier markers `[H]/[S]/[O]`, dependencies, and CLI smoke tests).
-4. **Record & Handoff**:
-   - Append `created` and `reviewed` events to `.workflow/events.jsonl`.
-   - Commit: `bravros commit "📋 plan: add P-NNNN <slug>" .workflow/`.
-   - Hand off to `/orchestrate .workflow/P-NNNN-<slug>/`.
-
-## Flags
-- `--auto`: Skip interactive prompts.
-- `--worktree`: Execute within an isolated worktree via [`worktree-extension.md`](references/worktree-extension.md).
-
----
-
 ## Skill: bravros-pr
 Create a Pull Request with plan context and base branch detection.
 
@@ -681,19 +647,61 @@ Quick task execution without a full plan — just do it and commit.
 
 ---
 
-## Skill: bravros-scout
-Scout and pinpoint issues using graphify and code references without code modifications. Suggestions are passed to the orchestrator.
+## Skill: bravros-recon
+Turn a bug report or a feature request into ONE reviewed .planning dossier folder ready for /orchestrate. Use on `/recon <problem or feature>`, `/recon --worktree`, or `/recon B-NNNN` to promote a backlog item.
 
-# Scout — investigate and pinpoint issues
+# recon
 
 Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
-INTENT: Scout codebase with graphify and trace references to pinpoint the bug. It produces a detailed findings dossier folder `.workflow/scout/S-NNNN-<slug>/` but does not write code fixes. Suggestions and diagnostics are passed directly to the orchestrator.
+INTENT: take whatever the operator has — a symptom, a screenshot, a stack trace, or a feature idea — and produce ONE folder `.workflow/P-NNNN-<slug>/` that `/orchestrate` executes with zero translation.
+
+## 1 — Classify, then reserve
+
+Decide **defect** (something behaves wrong) or **change** (something new). State which and why in one line; ask only when genuinely unclear. Then `PLAN_ID=$(bravros nextid reserve plan --slug "$SLUG")`.
+
+Attachments — screenshots, logs, exports — are evidence, not decoration. Record each path in the dossier and describe what it shows. **Never assume the content of something you could not open**; say so instead.
+
+## 2 — Gather ground truth before writing a line
+
+- **graphify first when the project has it** (`.graphify` or `graphify-out/graph.json`): `graphify query "<question>"`, then open the file it names. The graph is a map, not the territory — code wins, and a stale label reads exactly like a fresh one.
+- **Defect** → hand the hunt to `/scout`: it certifies a root cause with runtime proof, never edits code. Fold its `diagnosis.md` into this dossier as `01-diagnosis.md`, and carry the certified cause into **Traps** and **Closed decisions**. `UNCERTIFIED` is a valid outcome — then the dossier plans the next investigation, not a fix.
+- **Change** → ask only where readings genuinely diverge; a deep multi-round fork goes to `/interview-me`. Search `.workflow/` for prior art before writing a near-duplicate.
+
+## 3 — Write the dossier, then review it inline
+
+`README.md` per [`dossier-template.md`](references/dossier-template.md): brief, what is canonical and NOT changing, closed decisions, traps, phases, `## Acceptance`. Then review your own output:
+
+- Every path named exists. No phase depends on a later phase's output. Two phases touching one file are ordered, not parallel. A "verify + fix" phase splits into verify-only then fix.
+- One tier marker per phase heading — `### Phase N: Name [S]`. **Marker IS the model** (`[H]` mechanical, `[S]` reasoning, `[O]` architecture).
+- A wrong load-bearing premise → **STOP** and tell the operator. Never paper over it.
+- A `cli/` path in any `Touches:` → `## Acceptance` demands a freshly built scratch binary running the affected verb with output pasted.
+
+## 4 — Record, commit, hand off
+
+Append `created` and `reviewed` events to `.workflow/events.jsonl`, then `bravros commit "📋 plan: add P-NNNN <slug>" .workflow/`. Give the operator exactly one next step: `/orchestrate .workflow/P-NNNN-<slug>/`.
+
+## Flags
+
+- `--auto`: skip all prompts (used by `/auto-pr`). `--worktree`: work inside an isolated worktree via [`worktree-extension.md`](references/worktree-extension.md). `/recon B-NNNN`: read the backlog item as context and link it in the brief.
+
+---
+
+## Skill: bravros-scout
+Investigate a defect with graphify and code references, then certify the root cause with runtime proof. Never modifies code. Runs standalone on `/scout <bug>`, or as the defect arm of `/recon`.
+
+# Scout — investigate, verify, certify
+
+Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
+
+INTENT: prove a root cause with runtime evidence, then hand the fix elsewhere. Investigation produces a hypothesis; only certification makes it a diagnosis. Findings land in `.workflow/scout/S-NNNN-<slug>/`. Nothing certifiable → say so plainly (`UNCERTIFIED`), never ship a guess.
 
 HARD CONSTRAINTS:
-- **NEVER modifies application code.** Writes findings and reports only inside reserved `$SCOUT_DIR`; implementation is handled by the orchestrator.
-- **Trace references.** Uses graphify and grep to map and pinpoint the issue.
+- **NEVER modifies application code.** Writes findings and reports only inside reserved `$SCOUT_DIR`; the fix happens through `/recon` → `/orchestrate` or `/quick`. Read-only covers *code*, not runtime *inspection* — reads, `SELECT`s and existing tests are fine; data writes, migrations and side-effecting jobs are not.
+- **Certification is the gate.** A diagnosis needs reproduce + state match, a counterfactual, or an unbroken evidence chain (`references/certification.md`). Cap 3 rounds; then report `UNCERTIFIED` honestly and recommend deeper investigation, not a fix.
+- **graphify is a lead source, never a verdict** — a confident graph hit still goes through verification; source code always wins.
 - **The hand-off is the operator's decision** — always `ask_question`.
+- **Called by `/recon`?** Skip the routing question and return `$SCOUT_DIR` plus the verdict; `/recon` folds `diagnosis.md` into its dossier as `01-diagnosis.md` and carries the certified cause into Traps and Closed decisions.
 
 ## Flow
 
@@ -705,7 +713,7 @@ HARD CONSTRAINTS:
    Workflow({ name: 'scout-investigate', args: { scout_dir: SCOUT_DIR, bug: ARGUMENTS, category, stack, repro?, leads, boost, max_rounds: 3 } })
    ```
 5. Write `diagnosis.md` + `report.md` in `$SCOUT_DIR` (schemas: `references/report-template.md`). Commit: `bravros commit "🔍 scout: $SCOUT_ID investigation for $SLUG" <files>`.
-6. Route via `ask_question` (decision matrix: `references/investigation-guide.md`). Backlog route = write `B-NNNN` per `.workflow/CONVENTIONS.md` (`bravros nextid` for ID).
+6. Route via `ask_question` (decision matrix: `references/investigation-guide.md`) — **standalone only**. Backlog route = write `B-NNNN` per `.workflow/CONVENTIONS.md` (`bravros nextid` for ID). Invoked by `/recon`: return `$SCOUT_DIR` and the verdict instead, and let `/recon` own the routing.
 
 Close investigation by appending `completed`/`cancelled` event to `.workflow/events.jsonl`. Use `$ARGUMENTS` as bug description.
 

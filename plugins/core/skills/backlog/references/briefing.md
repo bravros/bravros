@@ -1,7 +1,7 @@
 # backlog briefing
 
 INTENT: a parking lot for ideas — lightweight to capture, structured enough to evaluate
-later. The backlog never implements; promotion hands off to `/plan`.
+later. The backlog never implements; promotion hands off to `/recon`.
 
 ## Repo facts (events model — `.planning/CONVENTIONS.md` is canonical)
 
@@ -39,7 +39,7 @@ PRIMARY_BRANCH=$(cd "$BACKLOG_ROOT" && git branch --show-current)
 ## Commands
 
 `/backlog` list · `/backlog <number>` view · `/backlog add <text>` capture ·
-`/backlog promote <number|N-M>` hand off to `/plan` · `/backlog done|drop <number>` close ·
+`/backlog promote <number|N-M>` hand off to `/recon` · `/backlog done|drop <number>` close ·
 `/backlog pending group [auto]` cluster. Free text → route by intent.
 
 ## Add
@@ -58,12 +58,12 @@ PRIMARY_BRANCH=$(cd "$BACKLOG_ROOT" && git branch --show-current)
 
 ## Promote
 
-1. Announce, then ask: worktree (`/plan --worktree`) or local (`/plan`)?
+1. Announce, then ask: worktree (`/recon --worktree`) or local (`/recon`)?
    <!-- announce-template: "Item pendente pronto para promoção, aguardando escolha. Ramo {BRANCH}, projeto {PROJECT}." -->
    `bravros ha say --force "Item pendente pronto para promoção, aguardando escolha. Ramo <fragmento>, projeto <repo>." studio >/dev/null 2>&1 || true`
-2. Read the item; append a `promoted` event (subject `B-NNNN`); hand off to `/plan` with the
-   item as context — `/plan` links it in the plan body. The file does not move.
-3. After promote, the full `/plan` → `/orchestrate` pipeline applies — the only exception is
+2. Read the item; append a `promoted` event (subject `B-NNNN`); hand off to `/recon` with the
+   item as context — `/recon` links it in the plan body. The file does not move.
+3. After promote, the full `/recon` → `/orchestrate` pipeline applies — the only exception is
    `/quick` for immediate contained fixes.
 4. Batch (`N-M`): skip missing/closed IDs, no prompts mid-loop.
 

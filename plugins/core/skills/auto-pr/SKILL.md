@@ -6,7 +6,7 @@ description: Fully autonomous SDLC pipeline — plan to PR, zero user interventi
 
 # /auto-pr — plan → orchestrate → PR → review loop, autonomously
 
-INTENT: one command, one merge-ready PR. Stages delegate to `/plan` (which reviews inline) → `/orchestrate` → `/pr` → review loop, all with `--auto`.
+INTENT: one command, one merge-ready PR. Stages delegate to `/recon` (which reviews inline) → `/orchestrate` → `/pr` → review loop, all with `--auto`.
 
 Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 

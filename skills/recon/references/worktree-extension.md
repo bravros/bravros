@@ -1,6 +1,6 @@
 # Plan --worktree Extension
 
-When `/plan --worktree` is invoked (or `BRAVROS_WORKTREE=true`), the dossier is created inside
+When `/recon --worktree` is invoked (or `BRAVROS_WORKTREE=true`), the dossier is created inside
 an isolated worktree instead of the current checkout. Dossier shape, inline review, backlog
 promotion, and event rules are identical to the standard flow.
 

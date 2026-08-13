@@ -1,4 +1,4 @@
-# Detailed Instructions & Context for `/plan`
+# Detailed Instructions & Context for `/recon`
 
 Read this document on demand for complete execution details, review rules, recording conventions, and flags.
 
@@ -25,7 +25,7 @@ To prevent ID collisions across worktrees and concurrent branches, the plan iden
 Ask nothing you can read. Where two viable approaches genuinely fork, ask_question; a deep
 multi-round fork → `/interview-me`. Write the answers into the README as **closed decisions**,
 alongside the only-we-know context — constraints, traps, what is canonical and NOT changing — so
-`/orchestrate` never relitigates them. `/plan B-NNNN` (or a bare number) → read
+`/orchestrate` never relitigates them. `/recon B-NNNN` (or a bare number) → read
 `.planning/backlog/B-NNNN-*.md` as context and link it in the brief.
 
 ## 3 — Write the dossier, then review it inline
@@ -50,7 +50,7 @@ Two appends (born + reviewed) — the events ARE the state change — then one c
 E() { echo '{"ts":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","id":"e_'"$(date +%s)_$RANDOM"'","kind":"'"$1"'","subject":"'"$2"'"'"$3"',"by":"agent:plan"}' >> .planning/events.jsonl; }
 E created  "$PLAN_ID" ""
 E reviewed "$PLAN_ID" ',"verdict":"approved"'
-E promoted "B-NNNN"   ""        # only for /plan B-NNNN — the B- file stays put
+E promoted "B-NNNN"   ""        # only for /recon B-NNNN — the B- file stays put
 bravros commit "📋 plan: add P-NNNN <slug>" .planning/
 ```
 

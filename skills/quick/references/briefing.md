@@ -36,5 +36,5 @@ Quick task execution. No plan, no team, no worktree, no subagents. Just do it an
 
 - Never commit directly on `main` — branch first (Step 1).
 - `/quick` is the path for confident, contained fixes — scope is the operator's call. Want a
-  planning pass? Run `/plan` instead.
+  planning pass? Run `/recon` instead.
 - Use `/ship` to commit and push in one move.

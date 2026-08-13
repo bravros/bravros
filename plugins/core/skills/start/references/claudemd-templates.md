@@ -9,7 +9,7 @@ a stack-specific `## Tech Stack` / `## Development` section filled from detectio
 ```markdown
 ## Workflow
 
-/plan → /plan-review → [clear context] → /plan-approved → /plan-check → /pr → /review → /address-pr → /finish
+/recon → /orchestrate → /pr → /finish
 
 **Branch flow**: `feat/feature-name → homolog → main`
 

@@ -1,6 +1,6 @@
 # Interview Me — Detailed Briefing
 
-Closes the gap between "Claude thinks it understands" and "Claude actually understands" — for plans that look complete but hide unresolved decisions three layers deep. Most common entry point: after `/plan`, to lock down decisions the planner punted on. Standalone mode (no plan file) works the same against whatever is in the conversation.
+Closes the gap between "Claude thinks it understands" and "Claude actually understands" — for plans that look complete but hide unresolved decisions three layers deep. Most common entry point: after `/recon`, to lock down decisions the planner punted on. Standalone mode (no plan file) works the same against whatever is in the conversation.
 
 Map the plan as a **design tree**: every decision branches into the decisions that hang off it. Work the tree in **rounds** over the **frontier** — every unresolved decision whose prerequisites are already settled, i.e. the questions you can ask *now* without guessing at answers you haven't heard yet.
 
@@ -70,7 +70,7 @@ If a decision contradicts something already written in the plan or an earlier de
 
 ## Closing the interview
 
-**Plan file in scope** (most common): decisions ripple through any section — don't bolt on a Q&A appendix. Either **re-run `/plan`** with the locked decisions in context (if the interview shifted the plan's overall shape), or **apply targeted edits** to the sections that changed (if only a few details were refined). Tell the user which path you're taking before doing it.
+**Plan file in scope** (most common): decisions ripple through any section — don't bolt on a Q&A appendix. Either **re-run `/recon`** with the locked decisions in context (if the interview shifted the plan's overall shape), or **apply targeted edits** to the sections that changed (if only a few details were refined). Tell the user which path you're taking before doing it.
 
 **Standalone mode**: finalize the `.planning/decisions/<topic-slug>.md` file (above) and report the path.
 

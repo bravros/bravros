@@ -18,7 +18,7 @@ Graph present = `graphify-out/graph.json` or a `.graphify` file. Prefer the user
 |-----------|-----------|
 | Certified, small, single-file fix | `/quick — fix now` |
 | Certified, simple, can wait | Add to backlog |
-| Certified, 3+ files OR architectural OR severity high+ | Escalate to `/plan` |
+| Certified, 3+ files OR architectural OR severity high+ | Escalate to `/recon` |
 | Certified, external dependency, blocking, production-critical | Backlog + GH issue (`gh issue create --title "🐛 fix: …" --body "$(cat $DEBUG_DIR/diagnosis.md)" --label bug`; record the issue # in the B-file's `github:` frontmatter) |
 | **`UNCERTIFIED`** (round cap hit) | Backlog for deeper investigation — surface `/quick` last or not at all |
 | Investigation is sufficient as the record | Leave as-is |
@@ -40,7 +40,7 @@ Graph present = `graphify-out/graph.json` or a `.graphify` file. Prefer the user
 
 ## Receiver contract
 
-The receiving path (backlog file, `/plan`, `/quick`) MUST:
+The receiving path (backlog file, `/recon`, `/quick`) MUST:
 
 1. Record `debug: $DEBUG_ID` in its own frontmatter.
 2. Include `debug_commit: $DEBUG_COMMIT` in its commit message.

@@ -20,7 +20,7 @@ body: |
   # backlog
 
   INTENT: a parking lot for ideas — lightweight to capture, structured enough to evaluate
-  later. The backlog never implements; promotion hands off to `/plan`.
+  later. The backlog never implements; promotion hands off to `/recon`.
 
   > [!IMPORTANT]
   > Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
@@ -37,6 +37,6 @@ body: |
   - `/backlog` - List items
   - `/backlog <number>` - View item
   - `/backlog add <text>` - Capture new idea
-  - `/backlog promote <number|N-M>` - Hand off to `/plan`
+  - `/backlog promote <number|N-M>` - Hand off to `/recon`
   - `/backlog done|drop <number>` - Close item
   - `/backlog pending group [auto]` - Cluster active items
