@@ -1,110 +1,214 @@
-# Bravros
+<p align="center">
+  <img src="docs/catalog/logo.jpg" alt="Bravros" width="200" style="border-radius: 24px;" />
+</p>
+
+<h1 align="center">Bravros</h1>
 
 <p align="center">
-  <img src="docs/catalog/logo.jpg" alt="Bravros Logo" width="220" style="border-radius: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.3);" />
+  <strong>A host-neutral SDLC toolkit for coding agents.</strong><br />
+  Free, MIT, no account, no server, no telemetry.
 </p>
 
 <p align="center">
-  <strong>Host-Neutral Software Development Lifecycle (SDLC) Toolkit for AI Agents</strong>
-</p>
-
-<p align="center">
-  <a href="https://github.com/bravros/bravros/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green?style=for-the-badge&logo=github" alt="License" /></a>
-  <img src="https://img.shields.io/badge/skills-33-3B82F6?style=for-the-badge&logo=anthropic&logoColor=white" alt="Skills" />
-  <img src="https://img.shields.io/badge/bravros_cli-v0.1.0-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go CLI" />
-  <img src="https://img.shields.io/badge/Security-Signed-8B5CF6?style=for-the-badge&logo=shield" alt="Minisign Security" />
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-22C55E?style=for-the-badge" alt="MIT" /></a>
+  <img src="https://img.shields.io/badge/skills-33-3B82F6?style=for-the-badge" alt="33 skills" />
+  <img src="https://img.shields.io/badge/cli-Go-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go CLI" />
+  <img src="https://img.shields.io/badge/releases-minisign-8B5CF6?style=for-the-badge&logo=letsencrypt&logoColor=white" alt="Signed" />
+  <img src="https://img.shields.io/badge/telemetry-none-64748B?style=for-the-badge" alt="No telemetry" />
 </p>
 
 ---
 
-Bravros is a free, public, MIT-licensed, host-neutral agent toolkit. It integrates a set of **33 workflow skills** with a compiled Go CLI kernel to enforce structured, atomic, and secure software development lifecycles directly within AI agents (like Claude Code, Gemini CLI, Cursor, and more).
+Coding agents are good at writing code and bad at remembering how *your* team ships it. Bravros
+supplies the missing half: a set of **33 workflow skills** that give the agent a repeatable
+lifecycle, and a small **Go kernel** for the handful of operations a prompt must never be trusted
+to improvise — atomic locks, human-presence gates, and preserve-before-delete.
 
-Unlike toolkits that rely on heavy centralized servers, Bravros is **100% serverless, zero-touch, and has zero phone-home**. All skills are loaded dynamically from this public Git repository, and release binaries are signed cryptographically for absolute security.
-
----
-
-## ⚠️ Repository Reset & Decommission (v2.x → v0.1.0)
-
-Bravros was originally developed as a commercial, paid SaaS platform with license validation, Clerk auth, Turso databases, and Next.js dashboards. 
-
-We have sunsetted the commercial model:
-- **100% Free & Open Source:** The licensing API, Clerk, Turso, Stripe integration, and dashboard have been decommissioned.
-- **Git as the Transport:** Skills update dynamically via the hosts' native marketplaces/Git endpoints.
-- **Breaking Change for v2.x Users:** The old client binaries and dashboard are deprecated. Run the new open-source installer below to migrate to the `v0.1.0` release.
+Skills live in this public repository and reach your machine through each host's own update
+mechanism. There is no dashboard, no licence check, and nothing to log into.
 
 ---
 
-## 🚀 Key Features
-
-*   **Host-Neutral Skills:** Write skill conventions once and run them across multiple agent hosts (Claude Code, Gemini, Cursor).
-*   **Decoupled CLI Kernel:** Verbs are reserved only for operations a LLM prompt cannot perform on its own (atomic filesystem locks, out-of-band tokens, safety backups).
-*   **Out-of-Band Security Tokens:** Dangerous operations (like `/promote` merges or `/destructive` deletions) are gated behind out-of-band tokens generated in a separate terminal. The agent cannot self-authorize a merge or deletion.
-*   **Preserve-before-Delete:** Commands like `discard`, `clean-untracked`, and `trash` store snapshots in a tombstone folder before executing, preventing accidental loss of uncommitted work.
-*   **Cryptographic Verification:** Every release includes signatures verified by `install.sh` against our pinned Minisign public key.
-
----
-
-## 📦 Installation & Setup
-
-Install Bravros directly to your machine:
+## ⚡ Install
 
 ```bash
 curl -fsSL https://install.bravros.dev | sh
 ```
 
-Or via Homebrew:
+Or with Homebrew:
 
 ```bash
 brew install bravros/tap/bravros
 ```
 
-Initialize your project workspace:
+The installer verifies a minisign signature **before** it places a binary on your system — see
+[Verify the trust chain](#-verify-the-trust-chain). Nothing runs unsigned.
+
+Then, once per repository:
 
 ```bash
 bravros init
 ```
 
-This command detects your project's technology stack, writes `.bravros/config.json`, registers git hooks under `.bravros/hooks/`, and configures the plan structure.
+That detects your stack, writes `.bravros/config.json`, and installs the `commit-msg` and
+`pre-push` hooks under `.bravros/hooks/` via `core.hooksPath`. No global state, nothing outside
+the repo.
+
+### Getting the skills into your agent
+
+Skills are fetched from this repo, not from the binary — so publishing a skill never requires a
+release, and you never run an update command.
+
+| Host | How to add it | Updates |
+|---|---|---|
+| **Claude Code** | `/plugin marketplace add bravros/bravros` then `/plugin install bravros` | Background refresh, automatic |
+| **Gemini CLI** | `gemini extensions install https://github.com/bravros/bravros --auto-update` | On launch, automatic |
+| **Cursor** | ships `.cursorrules` | `git pull` |
+| **Codex / any AGENTS.md host** | ships `AGENTS.md` | `git pull` |
+
+Install only the core plugin, or add category plugins (`bravros-sdlc`, `bravros-design`,
+`bravros-deploy`, `bravros-tools`) if you want the long tail. Core stays small on purpose: an
+always-on skill list has a context budget, and blowing it silently hides your least-used skills.
 
 ---
 
-## 🛠️ The CLI Kernel Verbs
+## 🚀 The loop
 
-The `bravros` binary is written in Go, exposing subcommands designed to enforce workflow primitives:
+```
+/recon  ➔  /orchestrate  ➔  /pr  ➔  /finish
+```
 
-| Category | Verbs | Description / Why it is a CLI Verb |
+```bash
+/recon the checkout total is wrong for orders with a coupon
+```
+
+`/recon` takes a symptom, a screenshot, a stack trace, or a feature idea and produces **one
+dossier folder** — `.planning/P-NNNN-<slug>/` — carrying the brief, the constraints that must not
+change, the closed decisions, the traps, and phased tasks with per-phase verify commands.
+
+If it's a defect, `/recon` hands the hunt to `/scout`, which queries the code graph, traces the
+real execution path, and **certifies** the cause with runtime proof before anything is written
+down. No certification, no diagnosis — it reports `UNCERTIFIED` rather than shipping a guess.
+
+```bash
+/orchestrate .planning/P-0001-coupon-total/
+```
+
+`/orchestrate` executes that folder: it dispatches phases to subagents by complexity marker,
+verifies each phase against its own `Verify:` command, and commits as it goes. `/pr` opens the
+pull request; `/finish` merges it and records the outcome.
+
+Nothing about the loop is mandatory. `/quick` exists for a two-line fix, and `/backlog` for an
+idea you are not ready to act on.
+
+---
+
+## 🛠️ Why there is a CLI at all
+
+Most of the toolkit is prose, because a 2026 model sequences work better than a step list does.
+The Go binary exists only for the things a prompt genuinely cannot do:
+
+| Category | Verbs | Why it must be code |
 |---|---|---|
-| **Commit & IDs** | `commit`, `nextid` | Format checks (emojis/conventions); atomic ID reservation across multiple worktrees. |
-| **Locks & Tokens** | `merge-lock`, `promote`, `destructive`, `pr-review` | Cross-session merge locks and out-of-band human confirmation checks. |
-| **Safety Snapshots** | `discard`, `trash`, `discard` | Snaps files to temporary tombstones before performing modifications. |
-| **Git / Workspace** | `branch`, `worktree`, `config` | Automates worktree setups, PR queries, and `.bravros/` configuration parsing. |
-| **Installation** | `install`, `deploy`, `selfupdate`, `init`, `doctor`, `hooks` | Handles updates, verifies environment state, and manages Git hook linking. |
-| **Secrets** | `secrets`, `sa-token` | Keyring integration and 1Password secret injection (`op://` URLs). |
+| **Format & identity** | `commit`, `nextid` | Commit format is enforced by a hook, not a suggestion. IDs are reserved atomically across worktrees. |
+| **Human presence** | `promote`, `destructive`, `pr-review` | The session must be **unable** to mint its own authority. Tokens come from a separate terminal you control. |
+| **Atomicity** | `merge-lock` | Two sessions must not merge at once. |
+| **Preserve before delete** | `discard`, `trash`, `clean-untracked` | Content git has never seen is copied to `.trash/` before anything removes it. |
+| **Provisioning** | `worktree`, `branch`, `config`, `init`, `hooks` | Real filesystem and git work. |
+| **Distribution** | `install`, `deploy`, `selfupdate`, `doctor` | Installer machinery, headless. |
+| **Secrets** | `secrets set`, `secrets sa-token` | Keyring and `op://` resolution — values never touch a prompt. |
+
+If a rule can be enforced by code, it lives in the binary. If it can't, it's stated once as a
+hard constraint in a skill and nowhere else.
+
+---
+
+## 🔒 Safety
+
+**The agent cannot authorize its own dangerous actions.** That's the design, not a policy note.
+
+- **Production merges need you.** `main` is protected by branch rules plus a `pre-push` hook that
+  refuses `refs/heads/main`. Promotion stops for a token minted in a separate terminal — the
+  running session cannot mint it, so "the agent merged to production on its own" has no path.
+- **Deletion preserves first.** `discard`, `trash`, and `clean-untracked` copy into `.trash/`
+  before removing anything, and are reversible. Permanently destroying content that git has never
+  seen requires a single-use token, again minted out of band.
+- **Commit hygiene is enforced, not requested.** The `commit-msg` hook rejects malformed subjects
+  and strips AI attribution trailers. A skill that says "never do X" without a mechanism behind it
+  is labelled as lore, not presented as protection.
+- **Secrets stay out of context.** `secrets` and `sa-token` resolve from your keyring or 1Password
+  at the point of use; values are never pasted into a prompt or committed.
+- **Installers are the highest-risk code path**, so they behave accordingly: settings files are
+  merged, never overwritten, and a backup is written before any change.
+
+## 🕵️ Privacy
+
+**Bravros makes no network calls to us, because there is no "us" to call.** There is no server, no
+account, no licence check, no dashboard.
+
+- ❌ No analytics, no crash reporting, no usage or command tracking
+- ❌ No file paths, file contents, or prompts leave your machine
+- ❌ No third-party SDKs in the binary — grep it yourself
+- ✅ The only outbound traffic is **git and GitHub**: cloning this repo for skills, and fetching
+  release binaries on update. Both are things you can watch.
+
+Verify it the same way you would verify anyone's claim — run the CLI behind mitmproxy, Charles, or
+Wireshark and watch the wire.
+
+---
+
+## 🔐 Verify the trust chain
+
+Every release is signed with minisign, and `install.sh` checks the signature before installing.
+To verify by hand:
+
+```bash
+PUBKEY="RWQqHlahq4RjNnCasO/8yMsgtLGfdHejILKMxxpsulIs1rII6IgMO26G"
+
+curl -LO https://github.com/bravros/bravros/releases/latest/download/checksums.txt
+curl -LO https://github.com/bravros/bravros/releases/latest/download/checksums.txt.minisig
+
+minisign -Vm checksums.txt -P "$PUBKEY"
+# expected: Signature and comment signature verified
+#           Trusted comment: bravros release
+```
+
+The same key is published at [bravros.dev/security](https://bravros.dev/security). Because the
+source is public, you can also just build it yourself: `cd cli && go build .`
+
+---
+
+## 📦 What's in this repo
+
+| Path | What it is |
+|---|---|
+| `skills/` | The 33 skills — source of truth. Each is a `SKILL.md` plus `references/` loaded on demand. |
+| `cli/` | The Go kernel. |
+| `plugins/` | Generated per-category plugin trees. Do not edit — `tools/skillgen` rewrites them. |
+| `tools/skillgen` | Generates the per-host always-on files and lints skills for host-specific tokens. |
+| `tools/cataloggen` | Builds `docs/catalog/catalog.json` from skill frontmatter. |
+| `.claude-plugin/` | Claude Code marketplace + plugin manifests. |
+| `gemini-extension.json` | Gemini CLI extension manifest. |
+| `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.cursorrules` | Generated per-host contracts. Edit the source, not these. |
+| `install.sh`, `.goreleaser.yml` | Signed release and install path. |
+
+Skills are authored **host-neutral**: no harness-specific tool names, no absolute paths. CI fails
+the build if one slips in, which is the only reason the same skill runs unchanged on four hosts.
+
+---
+
+## ⬆️ Upgrading from v2.x
+
+Bravros used to be a paid product with licence keys, a dashboard, and a hosted API. That is gone —
+the licensing service, auth, database, and billing have all been decommissioned.
+
+**v2.x binaries and `bravros activate` no longer work.** There is no migration path and no upgrade
+in place: uninstall the old binary and install v0.1.0 above. Nothing carries over, and nothing is
+charged for any more.
 
 ---
 
 ## 📜 License
 
-MIT License — see [LICENSE](LICENSE) for details.
-
----
-
-## 🧠 What Bravros Does: Visual & Metaphorical Guide
-
-If you want to design alternative logo variations, here are the core concepts and visual metaphors that define Bravros:
-
-### 1. The Interconnected Graph (Workflow Traversal)
-Bravros is driven by **knowledge graphs** and structural connectivity. Using tools like `graphify`, the toolkit maps AST code components, COMMUNITY structures, and directories into a logical graph database.
-*   *Visual elements:* Connected nodes, networks, structural grids, branching lines, constellation formations.
-
-### 2. The Shield / Gates (Security & Constraints)
-Security is a non-negotiable pillar. The CLI acts as a validator that checks formatting, enforces commit templates, and requires out-of-band tokens (cryptographic locks) to open a merge gate.
-*   *Visual elements:* Shields, locks, keys, rings, gates, protective bounding boxes, concentric loops.
-
-### 3. The Swarm (Multi-Agent Cooperation)
-Bravros orchestrates autonomous subagents working in parallel (e.g. `SkillPorter`, `Orchestrator`, `leaf workers`). It represents parallel streams of execution merging into a single trunk.
-*   *Visual elements:* Concentrated waves, arrows converging, hexagons, swarms, overlapping layers, gears.
-
-### 4. The Loop / Pipeline (Automated SDLC)
-The lifecycle runs in a continuous circle: `/backlog` ➔ `/plan` ➔ `/orchestrate` ➔ `/pr` ➔ `/pr-review` ➔ `/finish`.
-*   *Visual elements:* Infinity symbols, dynamic circular arrows, progress trackers, linear segments wrapping into a circle.
+MIT — see [LICENSE](LICENSE). Contributions welcome via issues and pull requests; the skill catalog
+is curated, so open an issue before a large addition.
