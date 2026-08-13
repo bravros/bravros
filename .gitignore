@@ -1,0 +1,21 @@
+# macOS
+.DS_Store
+
+# Editor noise
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Go build artifacts
+/dist/
+/bravros
+/cli/bravros
+/tools/skillgen/skillgen
+
+# Local environment/scratch files
+/scratch/
+/tmp/
+.env
+.env.*
+!.env.example
