@@ -1,0 +1,15 @@
+{
+  "name": "bravros-marketplace",
+  "description": "Bravros host-neutral agent toolkit marketplace",
+  "owner": {
+    "name": "Bravros Team",
+    "url": "https://github.com/bravros"
+  },
+  "plugins": [
+    {
+      "name": "bravros",
+      "source": ".",
+      "description": "Bravros core agent toolkit"
+    }
+  ]
+}
