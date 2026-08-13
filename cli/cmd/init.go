@@ -5,24 +5,17 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/bravros/bravros/cli/internal/config"
-	ideploy "github.com/bravros/bravros/cli/internal/deploy"
 	projectinit "github.com/bravros/bravros/cli/internal/init"
 	"github.com/spf13/cobra"
 )
 
 var (
-	initStack         string
-	initSkipHooks     bool
+	initStack     string
+	initSkipHooks bool
+
+	// Deprecated no-op flags — accepted so existing callers do not break.
 	initSkipWorkflows bool
 	initSkipStaging   bool
-
-	// B-0117: bootstrap flags
-	initPortableRepo string
-	initDeployMode   string
-	initSkipSecrets  bool
-	initSkipMCP      bool
-	initForce        bool
 
 	// expand-placeholders flags
 	expandOutput string
@@ -32,38 +25,22 @@ var (
 	initExitFn = os.Exit
 )
 
-// resolveBootstrapDir returns the directory that init will deploy from.
-// Priority: positional arg > --portable-repo / BRAVROS_PORTABLE_REPO > cwd.
-// args is the cobra positional args slice; portableRepo is the resolved flag value.
-func resolveBootstrapDir(root, portableRepo string, args []string) string {
-	// Positional arg was provided — it already lives in root.
-	if len(args) > 0 {
-		return root
-	}
-	// Portable-repo flag/env wins over cwd when no positional arg given.
-	if portableRepo != "" {
-		return portableRepo
-	}
-	return root
-}
-
 var initCmd = &cobra.Command{
 	Use:   "init [path]",
-	Short: "Initialize project with SDLC structure (or bootstrap ~/.claude/)",
-	Long: `Initialize a project with the Bravros SDLC structure:
-- Detect tech stack and write .bravros.yml
-- Create .planning/backlog/archive/ directory structure
-- Copy git hooks from templates
-- Create .github/workflows/ directory
-- Create staging branch (homolog) if missing
+	Short: "Initialize the current repository with the SDLC structure",
+	Long: `Initialize a repository with the Bravros SDLC structure:
+- Detect the tech stack and write .bravros/config.json
+- Create the .planning/backlog/archive/ directory structure
+- Install the commit-msg and pre-push hooks into .bravros/hooks/
+  and point git at them via core.hooksPath
 
-When --portable-repo is provided (or BRAVROS_PORTABLE_REPO is set and the cwd
-is a bravros config repo), also bootstraps ~/.claude/ using the specified
---deploy-mode (symlinks or copies). Symlinks are the default; falls back to
-copies when the filesystem does not support them.
+init is strictly repo-local: everything it writes lives inside the repository
+working tree. It never touches ~/.claude/, global git config, or any other
+machine-wide state — installing the agent runtime is what "bravros install"
+and "bravros deploy" are for.
 
-Next steps after init:
-  bravros doctor && bravros secrets bootstrap && bravros mcp register --from config/mcp.json`,
+Next step after init:
+  bravros commit "<emoji> <type>: <subject>" <files...>`,
 	Run: func(cmd *cobra.Command, args []string) {
 		root, err := os.Getwd()
 		if err != nil {
@@ -76,11 +53,9 @@ Next steps after init:
 		}
 
 		opts := projectinit.InitOpts{
-			Root:              root,
-			StackOverride:     initStack,
-			SkipHooks:         initSkipHooks,
-			SkipWorkflows:     initSkipWorkflows,
-			SkipStagingBranch: initSkipStaging,
+			Root:          root,
+			StackOverride: initStack,
+			SkipHooks:     initSkipHooks,
 		}
 
 		result, err := projectinit.Init(opts)
@@ -92,101 +67,8 @@ Next steps after init:
 
 		b, _ := json.MarshalIndent(result, "", "  ")
 		fmt.Println(string(b))
+		fmt.Println(`next: bravros commit "<emoji> <type>: <subject>" <files...>`)
 
-		// B-0117 / B-0120: bootstrap ~/.claude/ when portable-repo is set.
-		//
-		// Resolve portableRepo from flag → env → platform default.
-		portableRepo := initPortableRepo
-		if portableRepo == "" {
-			portableRepo = config.PortableRepo()
-		}
-		deployMode := initDeployMode
-		if deployMode == "" {
-			deployMode = config.DeployMode()
-		}
-
-		configDir := config.ConfigDir()
-
-		// bootstrapDir is the directory to deploy from.
-		// When --portable-repo is supplied explicitly (or resolved from env) AND no
-		// positional arg was provided, the portable-repo path wins over cwd; this
-		// is the path install.sh always passes.  When a positional arg was given
-		// (bravros init /some/path), that path already sits in `root` and takes
-		// priority — bootstrapDir == root in that case too.
-		bootstrapDir := resolveBootstrapDir(root, portableRepo, args)
-
-		// Only deploy when running from the bravros config repo.
-		if ideploy.IsClaudeRepo(bootstrapDir) {
-			if deployMode != "copies" {
-				// Symlink mode.
-				symResult, symlinkErr := ideploy.SymlinkDeploy(bootstrapDir, configDir)
-				if symlinkErr != nil {
-					// SymlinkDeploy cannot proceed (existing real dir at destination).
-					// Auto-fall-back to copy-mode Deploy() which includes all hardening:
-					// cleanBrokenSymlinks, prune-by-default, post-copy verify.
-					if !initForce {
-						fmt.Fprintf(os.Stderr, "ℹ️  symlink deploy unavailable (%v); falling back to copy-mode deploy with hardening\n", symlinkErr)
-					} else {
-						fmt.Fprintf(os.Stderr, "ℹ️  symlink deploy unavailable (%v); falling back to copy-mode deploy with hardening (--force acknowledged)\n", symlinkErr)
-					}
-					deployOpts := ideploy.DeployOpts{
-						SourceDir:      bootstrapDir,
-						TargetDir:      configDir,
-						PreserveSkills: config.PreservedSkills(),
-					}
-					if _, fallbackErr := ideploy.Deploy(deployOpts); fallbackErr != nil {
-						fmt.Fprintf(os.Stderr, "⚠️  copy-mode fallback deploy failed: %v\n", fallbackErr)
-						initExitFn(1)
-						return
-					}
-					fmt.Printf("✅ deployed ~/.claude/ via copy (symlink fallback)\n")
-				} else {
-					fmt.Printf("✅ deployed ~/.claude/ via %s (mode: %s)\n", symResult.Mode, deployMode)
-				}
-			} else {
-				// Copy mode — use existing deploy logic.
-				deployOpts := ideploy.DeployOpts{
-					SourceDir:      bootstrapDir,
-					TargetDir:      configDir,
-					PreserveSkills: config.PreservedSkills(),
-				}
-				if _, deployErr := ideploy.Deploy(deployOpts); deployErr != nil {
-					fmt.Fprintf(os.Stderr, "⚠️  copy deploy: %v\n", deployErr)
-					initExitFn(1)
-					return
-				}
-				fmt.Printf("✅ deployed ~/.claude/ via copy\n")
-			}
-
-			if !initSkipSecrets {
-				fmt.Printf("next: bravros doctor && bravros secrets bootstrap && bravros mcp register --from config/mcp.json\n")
-			}
-		} else if initPortableRepo != "" {
-			// --portable-repo was explicitly passed but bootstrapDir is not a bravros
-			// config repo.  Fail loudly so install.sh surfaces the misconfiguration
-			// instead of silently skipping the bootstrap step.
-			//
-			// Loud failure is gated on the explicit flag (initPortableRepo), NOT on
-			// the resolved portableRepo from env/config.  install.sh always passes
-			// --portable-repo, so the flag is the right gate for the install.sh
-			// contract.  Treating env/config fallback the same way would surface a
-			// noisy error in interactive `bravros init` sessions where the env var
-			// happens to be set to a stale path — those should silently skip.
-			//
-			// We check existence first because IsClaudeRepo is basename-only —
-			// /tmp/does-not-exist/claude would pass the basename check but fail
-			// at deploy with only a warning.  Catching the missing path here
-			// gives a clearer error.
-			if _, err := os.Stat(bootstrapDir); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: --portable-repo %q does not exist: %v\n", bootstrapDir, err)
-				initExitFn(1)
-				return
-			} else if !ideploy.IsClaudeRepo(bootstrapDir) {
-				fmt.Fprintf(os.Stderr, "Error: --portable-repo %q is not a bravros config repo (expected basename \"claude\")\n", bootstrapDir)
-				initExitFn(1)
-				return
-			}
-		}
 	},
 }
 
@@ -240,15 +122,13 @@ If the file contains no placeholders, exits 0 silently without writing anything.
 func init() {
 	initCmd.Flags().StringVar(&initStack, "stack", "", "Override detected stack (e.g., laravel, nextjs, go)")
 	initCmd.Flags().BoolVar(&initSkipHooks, "skip-hooks", false, "Skip git hooks installation")
-	initCmd.Flags().BoolVar(&initSkipWorkflows, "skip-workflows", false, "Skip .github/workflows/ creation")
-	initCmd.Flags().BoolVar(&initSkipStaging, "skip-staging-branch", false, "Skip staging branch creation")
 
-	// B-0117 bootstrap flags
-	initCmd.Flags().StringVar(&initPortableRepo, "portable-repo", "", "Path to bravros config repo (default: $BRAVROS_PORTABLE_REPO)")
-	initCmd.Flags().StringVar(&initDeployMode, "deploy-mode", "", "Deploy mode: symlinks|copies|auto (default: $BRAVROS_DEPLOY_MODE or symlinks)")
-	initCmd.Flags().BoolVar(&initSkipSecrets, "skip-secrets", false, "Skip secrets bootstrap prompt in post-init summary")
-	initCmd.Flags().BoolVar(&initSkipMCP, "skip-mcp", false, "Skip MCP register prompt in post-init summary")
-	initCmd.Flags().BoolVar(&initForce, "force", false, "Force overwrite of existing non-symlink directories during deploy")
+	// Deprecated no-ops, kept so existing callers keep working: init no longer
+	// creates .github/workflows/ or a staging branch under any circumstances.
+	initCmd.Flags().BoolVar(&initSkipWorkflows, "skip-workflows", false, "Deprecated no-op")
+	initCmd.Flags().BoolVar(&initSkipStaging, "skip-staging-branch", false, "Deprecated no-op")
+	_ = initCmd.Flags().MarkDeprecated("skip-workflows", "init never creates .github/workflows/ — the flag is ignored")
+	_ = initCmd.Flags().MarkDeprecated("skip-staging-branch", "init never creates branches — the flag is ignored")
 
 	expandPlaceholdersCmd.Flags().StringVar(&expandOutput, "output", "", "Output file path (default: in-place)")
 

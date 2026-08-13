@@ -1,0 +1,60 @@
+#!/bin/sh
+# bravros-managed-pre-push-hook v1
+#
+# Blocks direct branch pushes to a protected branch. Work reaches a protected
+# branch through a pull request, never through `git push`.
+#
+# Tag pushes are always allowed (releases are cut from tags).
+#
+# Configure the protected set (space separated, defaults to "main master"):
+#   git config bravros.protectedBranches "main master release"
+#
+# One-off escape hatch:
+#   BRAVROS_ALLOW_PROTECTED_PUSH=1 git push origin main
+
+set -u
+
+if [ "${BRAVROS_ALLOW_PROTECTED_PUSH:-0}" = "1" ]; then
+    exit 0
+fi
+
+if [ -t 2 ]; then
+    RED='\033[0;31m'
+    YELLOW='\033[1;33m'
+    NC='\033[0m'
+else
+    RED=''
+    YELLOW=''
+    NC=''
+fi
+
+PROTECTED=$(git config --get bravros.protectedBranches 2>/dev/null || true)
+if [ -z "$PROTECTED" ]; then
+    PROTECTED="main master"
+fi
+
+# stdin lines: <local ref> <local sha> <remote ref> <remote sha>
+while read -r _local_ref _local_sha remote_ref _remote_sha; do
+    case "$remote_ref" in
+        refs/tags/*)
+            continue
+            ;;
+        refs/heads/*)
+            branch=${remote_ref#refs/heads/}
+            ;;
+        *)
+            continue
+            ;;
+    esac
+
+    for protected in $PROTECTED; do
+        if [ "$branch" = "$protected" ]; then
+            printf "${RED}✖ Direct push to '%s' is not allowed.${NC}\n" "$branch" >&2
+            printf "${YELLOW}  Open a pull request instead, or override once with:${NC}\n" >&2
+            printf "    BRAVROS_ALLOW_PROTECTED_PUSH=1 git push ...\n" >&2
+            exit 1
+        fi
+    done
+done
+
+exit 0

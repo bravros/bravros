@@ -1,38 +1,55 @@
 package projectinit
 
 import (
+	"embed"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"sort"
 
 	"github.com/bravros/bravros/cli/internal/config"
 	"github.com/bravros/bravros/cli/internal/hooks"
 	"github.com/bravros/bravros/cli/internal/stack"
 )
 
+// hookTemplates carries the canonical git hooks shipped inside the binary.
+// They are embedded on purpose: `bravros init` must work on a machine that has
+// nothing but the binary, and must never read or write global state such as
+// ~/.claude/ to find its own templates.
+//
+//go:embed templates
+var hookTemplates embed.FS
+
+// hookTemplateDir is the path of the embedded template directory inside hookTemplates.
+const hookTemplateDir = "templates"
+
 // InitOpts configures the init behavior.
 type InitOpts struct {
-	Root              string // project root (default ".")
-	StackOverride     string // --stack flag (e.g., "laravel", "nextjs")
-	SkipHooks         bool
-	SkipWorkflows     bool
-	SkipStagingBranch bool
+	Root          string // project root (default ".")
+	StackOverride string // --stack flag (e.g., "laravel", "nextjs")
+	SkipHooks     bool
 }
 
 // InitResult holds the outcome of the init operation.
 type InitResult struct {
-	Stack                string   `json:"stack"`
-	ConfigWritten        bool     `json:"config_written"`
-	HooksInstalled       bool     `json:"hooks_installed"`
-	WorkflowsCreated     []string `json:"workflows_created"`
-	StagingBranchCreated bool     `json:"staging_branch_created"`
-	PlanningDirCreated   bool     `json:"planning_dir_created"`
-	AlreadyInitialized   bool     `json:"already_initialized"`
+	Stack              string   `json:"stack"`
+	ConfigPath         string   `json:"config_path"`
+	ConfigWritten      bool     `json:"config_written"`
+	HooksInstalled     bool     `json:"hooks_installed"`
+	Hooks              []string `json:"hooks,omitempty"`
+	HooksPath          string   `json:"hooks_path,omitempty"`
+	PlanningDirCreated bool     `json:"planning_dir_created"`
+	AlreadyInitialized bool     `json:"already_initialized"`
 }
 
-// Init initializes a project with SDLC structure.
+// Init initializes a project with the Bravros SDLC structure.
+//
+// Everything it writes lives inside the repository working tree: .bravros/config.json,
+// .bravros/hooks/, .planning/, and the local `core.hooksPath` git config. It never
+// touches ~/.claude/, ~/.bravros/, or any other global location — that is what the
+// separate `install` and `deploy` verbs are for.
 func Init(opts InitOpts) (*InitResult, error) {
 	if opts.Root == "" {
 		opts.Root = "."
@@ -65,11 +82,16 @@ func Init(opts InitOpts) (*InitResult, error) {
 		result.Stack = detectResult.Stack.Language
 	}
 
-	// 4. Write .bravros.yml
-	if err := stack.WriteConfig(opts.Root, detectResult); err != nil {
+	// 4. Write .bravros/config.json.
+	//
+	// WriteConfigAlways, not WriteConfig: the plain writer skips the file when
+	// detection found nothing (an empty repo), and `bravros init` promises a
+	// config.json unconditionally.
+	if err := stack.WriteConfigAlways(opts.Root, detectResult); err != nil {
 		return nil, fmt.Errorf("failed to write %s: %w", config.ConfigFilename, err)
 	}
 	result.ConfigWritten = true
+	result.ConfigPath = config.ConfigFilename
 
 	// 5. Create .planning/backlog/archive/
 	planningArchive := filepath.Join(opts.Root, ".planning", "backlog", "archive")
@@ -80,83 +102,93 @@ func Init(opts InitOpts) (*InitResult, error) {
 
 	// 6. Install hooks
 	if !opts.SkipHooks {
-		installed, err := installHooks(opts.Root)
+		installed, names, err := installHooks(opts.Root)
 		if err != nil {
-			// Non-fatal: hooks are optional (templates may not exist)
-			result.HooksInstalled = false
-		} else {
-			result.HooksInstalled = installed
+			return nil, fmt.Errorf("failed to install hooks: %w", err)
 		}
-	}
-
-	// 7. Create workflows dir
-	if !opts.SkipWorkflows {
-		workflowsDir := filepath.Join(opts.Root, ".github", "workflows")
-		if err := os.MkdirAll(workflowsDir, 0755); err != nil {
-			return nil, fmt.Errorf("failed to create .github/workflows: %w", err)
-		}
-		result.WorkflowsCreated = []string{".github/workflows/"}
-	}
-
-	// 8. Create staging branch if missing
-	if !opts.SkipStagingBranch {
-		created, err := ensureStagingBranch(opts.Root)
-		if err != nil {
-			// Non-fatal: git may not be available
-			result.StagingBranchCreated = false
-		} else {
-			result.StagingBranchCreated = created
-		}
+		result.HooksInstalled = installed
+		result.Hooks = names
+		result.HooksPath = filepath.Join(".bravros", "hooks")
 	}
 
 	return result, nil
 }
 
-// hooksSourceDir returns the path to the hooks template directory.
-// Exported for testing — tests can override via HooksSourceOverride.
+// HooksSourceOverride points installHooks at a directory of hook templates on
+// disk instead of the embedded ones. Test-only seam.
 var HooksSourceOverride string
 
-func hooksSourceDir() string {
+// hooksSource returns a directory holding the canonical hook templates plus a
+// cleanup function. Unless HooksSourceOverride is set, the embedded templates are
+// materialized into a temporary directory so the hooks package (which works on
+// file paths) can classify and refresh against them.
+func hooksSource() (string, func(), error) {
 	if HooksSourceOverride != "" {
-		return HooksSourceOverride
+		return HooksSourceOverride, func() {}, nil
 	}
-	home, err := os.UserHomeDir()
+
+	dir, err := os.MkdirTemp("", "bravros-hook-templates-")
 	if err != nil {
-		return ""
+		return "", func() {}, fmt.Errorf("could not stage hook templates: %w", err)
 	}
-	return filepath.Join(home, ".claude", "templates", ".githooks")
+	cleanup := func() { _ = os.RemoveAll(dir) }
+
+	entries, err := fs.ReadDir(hookTemplates, hookTemplateDir)
+	if err != nil {
+		cleanup()
+		return "", func() {}, fmt.Errorf("embedded hook templates unreadable: %w", err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		data, err := hookTemplates.ReadFile(hookTemplateDir + "/" + entry.Name())
+		if err != nil {
+			cleanup()
+			return "", func() {}, fmt.Errorf("embedded hook %s unreadable: %w", entry.Name(), err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, entry.Name()), data, 0755); err != nil {
+			cleanup()
+			return "", func() {}, fmt.Errorf("could not stage hook %s: %w", entry.Name(), err)
+		}
+	}
+
+	return dir, cleanup, nil
 }
 
-// installHooks copies hook files from templates to .githooks/ and sets git config.
+// installHooks copies the canonical hooks into <root>/.bravros/hooks/ and points
+// git at them via core.hooksPath.
 //
-// For each hook file, the function classifies the existing destination using the
-// hooks package state machine:
-//   - Missing     → copied from template via hooks.Refresh (writes + chmod 0755)
-//   - Pristine    → refreshed via hooks.Refresh (adds sentinel marker)
+// For each hook file, the destination is classified with the hooks package state
+// machine:
+//   - Missing      → copied from template via hooks.Refresh (writes + chmod 0755)
+//   - Pristine     → refreshed via hooks.Refresh (adds sentinel marker)
 //   - OldCanonical → refreshed via hooks.Refresh (bumps version)
-//   - Customized  → skipped (user-managed hook — no overwrite)
-//   - Foreign     → skipped (no bravros origin — no overwrite)
+//   - Current      → left alone
+//   - Foreign      → skipped (user-managed hook — no overwrite)
 //
-// Non-hook files (e.g. README.md) are copied via copyFile only when missing.
-// After installing hooks, `git config core.hooksPath=.githooks` is set idempotently
-// via hooks.EnsureHooksPath.
-func installHooks(root string) (bool, error) {
-	srcDir := hooksSourceDir()
-	if srcDir == "" {
-		return false, fmt.Errorf("could not determine hooks source directory")
+// Non-hook files (e.g. README.md) are copied only when missing. It returns whether
+// anything changed plus the names of the hooks now present in .bravros/hooks/.
+func installHooks(root string) (bool, []string, error) {
+	srcDir, cleanup, err := hooksSource()
+	if err != nil {
+		return false, nil, err
 	}
+	defer cleanup()
 
 	entries, err := os.ReadDir(srcDir)
 	if err != nil {
-		return false, fmt.Errorf("hooks template directory not found: %w", err)
+		return false, nil, fmt.Errorf("hooks template directory not found: %w", err)
 	}
 
 	destDir := filepath.Join(root, ".bravros", "hooks")
 	if err := os.MkdirAll(destDir, 0755); err != nil {
-		return false, fmt.Errorf("failed to create .bravros/hooks: %w", err)
+		return false, nil, fmt.Errorf("failed to create .bravros/hooks: %w", err)
 	}
 
 	anyChanged := false
+	var installed []string
 
 	for _, entry := range entries {
 		if entry.IsDir() {
@@ -167,10 +199,10 @@ func installHooks(root string) (bool, error) {
 		dst := filepath.Join(destDir, entry.Name())
 
 		// Non-hook files (e.g. README.md): copy only if missing, never overwrite.
-		if entry.Name() == "README.md" {
+		if filepath.Ext(entry.Name()) != "" {
 			if _, err := os.Stat(dst); os.IsNotExist(err) {
 				if err := copyFile(src, dst); err != nil {
-					return false, fmt.Errorf("failed to copy %s: %w", entry.Name(), err)
+					return false, nil, fmt.Errorf("failed to copy %s: %w", entry.Name(), err)
 				}
 				anyChanged = true
 			}
@@ -180,14 +212,14 @@ func installHooks(root string) (bool, error) {
 		// For hook files, use the hooks package state machine.
 		status, err := hooks.Classify(dst, src)
 		if err != nil {
-			return false, fmt.Errorf("failed to classify hook %s: %w", entry.Name(), err)
+			return false, nil, fmt.Errorf("failed to classify hook %s: %w", entry.Name(), err)
 		}
 
 		switch status {
 		case hooks.StatusMissing, hooks.StatusPristine, hooks.StatusOldCanonical:
 			// Missing: install fresh; Pristine/OldCanonical: upgrade to current canonical.
 			if err := hooks.Refresh(dst, src); err != nil {
-				return false, fmt.Errorf("failed to install hook %s: %w", entry.Name(), err)
+				return false, nil, fmt.Errorf("failed to install hook %s: %w", entry.Name(), err)
 			}
 			anyChanged = true
 
@@ -197,14 +229,18 @@ func installHooks(root string) (bool, error) {
 			_ = os.Chmod(dst, 0755)
 			fmt.Fprintf(os.Stderr, "skipping %s (existing hook is %s — not overwriting)\n", entry.Name(), status)
 		}
+
+		installed = append(installed, entry.Name())
 	}
+
+	sort.Strings(installed)
 
 	// Set git config core.hooksPath idempotently.
 	if err := hooks.EnsureHooksPath(root); err != nil {
-		return false, fmt.Errorf("failed to set core.hooksPath: %w", err)
+		return false, nil, fmt.Errorf("failed to set core.hooksPath: %w", err)
 	}
 
-	return anyChanged, nil
+	return anyChanged, installed, nil
 }
 
 // copyFile copies a single file from src to dst.
@@ -223,29 +259,4 @@ func copyFile(src, dst string) error {
 
 	_, err = io.Copy(out, in)
 	return err
-}
-
-// ensureStagingBranch creates a "homolog" branch if it doesn't exist.
-func ensureStagingBranch(root string) (bool, error) {
-	// Check if branch exists
-	cmd := exec.Command("git", "branch", "--list", "homolog")
-	cmd.Dir = root
-	out, err := cmd.Output()
-	if err != nil {
-		return false, fmt.Errorf("failed to check branches: %w", err)
-	}
-
-	// Branch already exists
-	if len(out) > 0 {
-		return false, nil
-	}
-
-	// Create from current HEAD
-	cmd = exec.Command("git", "branch", "homolog")
-	cmd.Dir = root
-	if err := cmd.Run(); err != nil {
-		return false, fmt.Errorf("failed to create homolog branch: %w", err)
-	}
-
-	return true, nil
 }

@@ -2,7 +2,6 @@ package stack
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -138,12 +137,24 @@ func Detect(root string, opts DetectOpts) (*DetectResult, error) {
 // Early-exit: when the detection result carries no stack info AND no prior file exists,
 // we skip writing to avoid fabricating an empty config that misleads consumers.
 func WriteConfig(root string, result *DetectResult) error {
+	return writeConfig(root, result, false)
+}
+
+// WriteConfigAlways is WriteConfig without the empty-detection early-exit: the config
+// file is written even when detection found no stack and none existed before.
+// `bravros init` uses this — it promises a .bravros/config.json unconditionally,
+// including in a repo that is still empty.
+func WriteConfigAlways(root string, result *DetectResult) error {
+	return writeConfig(root, result, true)
+}
+
+func writeConfig(root string, result *DetectResult, always bool) error {
 	cfgPath := filepath.Join(root, config.ConfigFilename)
 	legacyPath := filepath.Join(root, config.LegacyConfigFilename)
 	legacySbravrosPath := filepath.Join(root, config.LegacySbravrosFilename)
 
 	// Early-exit: nothing detected AND no prior file → don't create an empty stub.
-	if result.Stack.Language == "" && len(result.Stacks) == 0 {
+	if !always && result.Stack.Language == "" && len(result.Stacks) == 0 {
 		// Check whether a file already exists.
 		_, newErr := os.Stat(cfgPath)
 		_, legacyErr := os.Stat(legacyPath)
@@ -160,8 +171,7 @@ func WriteConfig(root string, result *DetectResult) error {
 		_ = json.Unmarshal(data, cfg)
 	} else {
 		if data, err := os.ReadFile(legacyPath); err == nil {
-			err2 := yaml.Unmarshal(data, cfg)
-			fmt.Printf("DEBUG: legacyPath=%s err2=%v cfg=%+v\n", legacyPath, err2, cfg)
+			_ = yaml.Unmarshal(data, cfg)
 		} else if data, err := os.ReadFile(legacySbravrosPath); err == nil {
 			_ = yaml.Unmarshal(data, cfg)
 		}
