@@ -56,6 +56,14 @@ release:
   github:
     owner: bravros
     name: bravros
+  # install.bravros.dev is a Cloudflare Worker that proxies
+  # releases/latest/download/install.sh. Without this block that URL 404s and the
+  # worker answers 503 — which is exactly how the installer broke after install.sh
+  # moved into this monorepo and the old cross-repo sync step disappeared.
+  # Attaching it here also keeps the installer in lockstep with the binaries it
+  # installs, since each release carries the script that fetches it.
+  extra_files:
+    - glob: install.sh
 
 brews:
   - name: bravros
