@@ -20,3 +20,9 @@
 .env
 .env.*
 !.env.example
+
+# Internal planning — NEVER publish. This repo is public.
+# Root-anchored so templates/.planning/ (a shipped template) is unaffected.
+/.planning/
+/docs/prd/
+/docs/prdv2/
