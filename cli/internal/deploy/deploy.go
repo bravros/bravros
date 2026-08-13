@@ -202,9 +202,9 @@ func Deploy(opts DeployOpts) (*DeployResult, error) {
 		opts.SourceDir = cwd
 	}
 
-	// Validate: must be the claude config repo
+	// Validate: must be a toolkit source checkout (detected by content — see IsClaudeRepo).
 	if !IsClaudeRepo(opts.SourceDir) {
-		return nil, fmt.Errorf("not the claude config repo (cwd basename must be \"claude\")")
+		return nil, fmt.Errorf("%s is not a bravros source checkout: expected a skills/ directory and a cli/go.mod for this module.\n\nRun deploy from the root of your bravros clone, or pass --source-dir <path>", opts.SourceDir)
 	}
 
 	if opts.TargetDir == "" {
@@ -649,9 +649,23 @@ func fileUpToDate(src, dst string) bool {
 	return !dstInfo.ModTime().Before(srcInfo.ModTime())
 }
 
-// IsClaudeRepo checks if the given directory is the claude config repo.
+// IsClaudeRepo reports whether dir is the toolkit source repo.
+//
+// Detection is by CONTENT, not directory name. The previous check was
+// `filepath.Base(dir) == "claude"`, which was already brittle in the repo it was
+// written for — any worktree, rename, or fresh clone under a different folder name
+// failed it — and is simply wrong here, where the repo is called "bravros".
+// A source checkout is identified by the two things it always has: a skills/
+// directory and a cli/go.mod declaring this module.
 func IsClaudeRepo(dir string) bool {
-	return filepath.Base(dir) == "claude"
+	if fi, err := os.Stat(filepath.Join(dir, "skills")); err != nil || !fi.IsDir() {
+		return false
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "cli", "go.mod"))
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(data), "module github.com/bravros/bravros/cli")
 }
 
 // mapSourceToDest converts a source-relative path to its target-relative path.

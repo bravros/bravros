@@ -5,13 +5,14 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
 // setupTestRepo creates a mock claude config repo with deployable files.
 func setupTestRepo(t *testing.T) string {
 	t.Helper()
-	// Must end with "claude" to pass IsClaudeRepo check
+	// Directory name is irrelevant now — writeRepoMarkers supplies the real markers.
 	base := filepath.Join(t.TempDir(), "claude")
 	must := func(err error) {
 		t.Helper()
@@ -42,6 +43,7 @@ func setupTestRepo(t *testing.T) string {
 	// Create mcp.json that should NOT be deployed
 	must(os.WriteFile(filepath.Join(base, "mcp.json"), []byte(`{"mcp":true}`), 0644))
 
+	writeRepoMarkers(t, base)
 	return base
 }
 
@@ -259,26 +261,42 @@ func TestNonClaudeRepoDetection(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for non-claude repo")
 	}
-	if err.Error() != `not the claude config repo (cwd basename must be "claude")` {
+	if !strings.Contains(err.Error(), "not a bravros source checkout") {
 		t.Fatalf("unexpected error message: %v", err)
 	}
 }
 
+// TestIsClaudeRepo pins the content-based contract. The old implementation accepted
+// any directory literally named "claude", which failed on every worktree, rename, or
+// clone under a different folder name — and rejected this repo outright, since it is
+// called "bravros".
 func TestIsClaudeRepo(t *testing.T) {
-	tests := []struct {
-		dir  string
-		want bool
-	}{
-		{"/Users/me/Sites/claude", true},
-		{"/Users/me/Sites/my-app", false},
-		{"/tmp/claude", true},
-		{"/tmp/claude-cli", false},
+	// A checkout is valid regardless of its directory name.
+	named := filepath.Join(t.TempDir(), "totally-unrelated-name")
+	if err := os.MkdirAll(filepath.Join(named, "skills"), 0755); err != nil {
+		t.Fatal(err)
 	}
-	for _, tt := range tests {
-		got := IsClaudeRepo(tt.dir)
-		if got != tt.want {
-			t.Errorf("IsClaudeRepo(%q) = %v, want %v", tt.dir, got, tt.want)
-		}
+	writeRepoMarkers(t, named)
+	if !IsClaudeRepo(named) {
+		t.Errorf("IsClaudeRepo(%q) = false, want true (name must not matter)", named)
+	}
+
+	// Being named "claude" is no longer sufficient on its own.
+	bare := filepath.Join(t.TempDir(), "claude")
+	if err := os.MkdirAll(bare, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if IsClaudeRepo(bare) {
+		t.Errorf("IsClaudeRepo(%q) = true, want false (name alone must not qualify)", bare)
+	}
+
+	// skills/ without the module marker is not enough either.
+	partial := filepath.Join(t.TempDir(), "partial")
+	if err := os.MkdirAll(filepath.Join(partial, "skills"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if IsClaudeRepo(partial) {
+		t.Errorf("IsClaudeRepo(%q) = true, want false (skills/ alone must not qualify)", partial)
 	}
 }
 
@@ -311,8 +329,8 @@ func TestDeployableFile(t *testing.T) {
 // the explicit chmod step added by B-0154 — ensuring hooks work even if source
 // file modes were accidentally stripped.
 func TestGithooksDeployedAndExecutable(t *testing.T) {
-	// Must end with "claude" to pass IsClaudeRepo check
 	base := filepath.Join(t.TempDir(), "claude")
+	writeRepoMarkers(t, base)
 	must := func(err error) {
 		t.Helper()
 		if err != nil {

@@ -111,9 +111,12 @@ Markdown strategy — HTML comment markers bracket auto-generated content:
 			return nil
 		}
 
-		// Rewrite managed sections.  Current implementation writes placeholder
-		// content to ensure markers exist; bravros init fills in real content.
-		if err := managed.RewriteJSONSection(settingsPath, "_bravros_version", "v3"); err != nil {
+		// settings.json — register the bravros SessionStart hooks (selfupdate,
+		// verify-install-check) and the statusline. Entry-level merge: only
+		// entries carrying "__managed_by": "bravros" are ever replaced, so the
+		// user's own hooks and every unrelated key survive.
+		res, err := managed.SyncClaudeSettings(settingsPath)
+		if err != nil {
 			return fmt.Errorf("sync settings.json: %w", err)
 		}
 
@@ -122,7 +125,22 @@ Markdown strategy — HTML comment markers bracket auto-generated content:
 			return fmt.Errorf("sync CLAUDE.md: %w", err)
 		}
 
-		fmt.Printf("✅ synced managed sections in %s and %s\n", settingsPath, claudeMDPath)
+		out := cmd.OutOrStdout()
+		switch {
+		case res.Created:
+			fmt.Fprintf(out, "✅ created %s with the bravros SessionStart hooks and statusline\n", settingsPath)
+		case res.Changed:
+			fmt.Fprintf(out, "✅ registered the bravros SessionStart hooks and statusline in %s\n", settingsPath)
+			if res.BackupPath != "" {
+				fmt.Fprintf(out, "   backup: %s\n", res.BackupPath)
+			}
+		default:
+			fmt.Fprintf(out, "✅ %s already up to date\n", settingsPath)
+		}
+		if res.StatusLineSkipped {
+			fmt.Fprintf(out, "ℹ️  left your own \"statusLine\" untouched — remove it to let bravros manage it\n")
+		}
+		fmt.Fprintf(out, "✅ synced managed sections in %s and %s\n", settingsPath, claudeMDPath)
 		return nil
 	},
 }

@@ -207,6 +207,28 @@ full DeployResult object (deployed files, skipped, pruned, skill lists) or
 			os.Exit(1)
 		}
 
+		// Deploying the runtime is worthless if nothing ever invokes it, so the
+		// same step registers the bravros SessionStart hooks + statusline in the
+		// global settings.json. Entry-level merge — user-owned settings survive.
+		// (Never done from `bravros init`: that command is repo-local.)
+		if !deployDryRun && !deployCountOnly {
+			settingsPath := filepath.Join(config.ConfigDir(), "settings.json")
+			sync, syncErr := managed.SyncClaudeSettings(settingsPath)
+			switch {
+			case syncErr != nil:
+				fmt.Fprintf(os.Stderr, "Error: settings.json: %v\n", syncErr)
+				os.Exit(1)
+			case sync.Changed:
+				fmt.Fprintf(os.Stderr, "  → registered bravros hooks + statusline in %s\n", settingsPath)
+				if sync.BackupPath != "" {
+					fmt.Fprintf(os.Stderr, "    backup: %s\n", sync.BackupPath)
+				}
+			}
+			if sync.StatusLineSkipped {
+				fmt.Fprintf(os.Stderr, "  → left your own \"statusLine\" in %s untouched\n", settingsPath)
+			}
+		}
+
 		// Output modes:
 		//   --field X    → just that field's value (machine-scrapable)
 		//   --json       → the full DeployResult JSON object on stdout

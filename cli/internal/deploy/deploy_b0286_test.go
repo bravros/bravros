@@ -36,6 +36,7 @@ func setupB0286Src(t *testing.T) string {
 	must(os.WriteFile(filepath.Join(base, "config", "settings.json"), []byte(`{}`), 0644))
 	must(os.WriteFile(filepath.Join(base, "CLAUDE.md"), []byte("# Claude"), 0644))
 
+	writeRepoMarkers(t, base)
 	return base
 }
 
