@@ -212,7 +212,7 @@ curl -LO https://github.com/bravros/bravros/releases/latest/download/checksums.t
 
 minisign -Vm checksums.txt -P "$PUBKEY"
 # expected: Signature and comment signature verified
-#           Trusted comment: bravros release
+#           Trusted comment: Bravros release v2.9.0
 ```
 
 The same key is published at [bravros.dev/security](https://bravros.dev/security). Because the

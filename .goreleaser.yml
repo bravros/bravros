@@ -26,7 +26,10 @@ builds:
 
 archives:
   - id: bravros
-    format: tar.gz
+    # `formats` (plural, list) — `format` was deprecated in GoReleaser v2.
+    # install.sh fetches bravros-<os>-<arch>.tar.gz, so this name_template and
+    # the tar.gz format are load-bearing: changing either breaks every installer.
+    formats: [tar.gz]
     name_template: "bravros-{{ .Os }}-{{ .Arch }}"
 
 checksum:
@@ -44,7 +47,7 @@ signs:
         # (untrusted comment: ... \n <base64-payload>). Write it straight — no outer base64.
         printf '%s\n' "${MINISIGN_SECRET_KEY}" > /tmp/bravros.key
         # minisign -W: no password (the key was generated with -W to skip the password prompt)
-        minisign -S -W -m "${artifact}" -s /tmp/bravros.key -t "bravros release"
+        minisign -S -W -m "${artifact}" -s /tmp/bravros.key -t "Bravros release v{{ .Version }}"
     signature: "${artifact}.minisig"
     env:
       - MINISIGN_SECRET_KEY
