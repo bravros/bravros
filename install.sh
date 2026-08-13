@@ -56,9 +56,15 @@ ensure_minisign() {
   fi
 }
 
+# Use `if`, not an `[ ] && ... && ...` chain. Under `set -e` that chain returns 1 on a
+# machine with no ~/.zshrc and no ~/.bashrc — a genuinely fresh box — which killed the
+# installer silently right after extracting the binary: no PATH entry, no settings
+# registration, no "Installed" line, and exit 0 so nothing looked wrong.
 add_to_path() {
   for rc in "$HOME/.zshrc" "$HOME/.bashrc"; do
-    [ -f "$rc" ] && ! grep -qF '.claude/bin' "$rc" && printf '\nexport PATH="$HOME/.claude/bin:$PATH"\n' >> "$rc"
+    if [ -f "$rc" ] && ! grep -qF '.claude/bin' "$rc"; then
+      printf '\nexport PATH="$HOME/.claude/bin:$PATH"\n' >> "$rc"
+    fi
   done
 }
 
