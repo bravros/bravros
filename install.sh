@@ -3,7 +3,7 @@
 # All skill/hook/config setup happens via `bravros init` (invoked automatically).
 #
 # Usage:
-#   curl -fsSL https://bravros.dev/install | sh
+#   curl -fsSL https://install.bravros.dev | sh
 #
 # Verify this installer and the embedded public key at: https://bravros.dev/security
 # (Key ID: 366384ABA1561E2A)
