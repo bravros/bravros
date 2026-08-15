@@ -68,7 +68,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
-          for a in checksums.txt checksums.txt.minisig bravros-darwin-arm64.tar.gz; do
+          # bravros-payload.tar.gz carries skills/ + templates/ and is the ONLY
+          # channel by which a skills-only change reaches an installed machine.
+          # It is not optional: selfupdate treats a missing payload as
+          # fetch.ErrNoPayload — a silent no-op — so without this assertion a
+          # release that drops the asset ships clean and every client silently
+          # stops receiving skill updates. v2.10.0 shipped without it unnoticed.
+          for a in checksums.txt checksums.txt.minisig bravros-darwin-arm64.tar.gz bravros-payload.tar.gz; do
             gh release view "${GITHUB_REF_NAME}" --json assets \
               --jq '.assets[].name' | grep -qx "$a" \
               || { echo "::error::release is missing $a — install.sh will 404"; exit 1; }
