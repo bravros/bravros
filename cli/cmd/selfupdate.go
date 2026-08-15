@@ -5,9 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -27,27 +25,21 @@ var (
 	selfupdateDryRun       bool
 	selfupdateDeep         bool
 	selfupdateForce        bool
-
-	// selfupdateRepoOverride is the portable repo path used by tests.
-	// When non-empty it replaces the config.PortableRepo() default.
-	// Tests set this via t.Cleanup to restore the original value.
-	selfupdateRepoOverride string
 )
 
 var selfupdateCmd = &cobra.Command{
 	Use:     "selfupdate",
 	Aliases: []string{"update"},
-	Short:   "Auto-update the toolkit when the source has drifted",
-	Long: `Fetches the portable repo, detects real changes (commits, skills drift, CLI version drift),
-and runs install.sh only when an update is actually needed. Stays silent with no 1Password prompts
-when nothing changed.
+	Short:   "Fetch and deploy the newest published skills payload",
+	Long: `Resolves the newest published release and, when the payload on disk is behind it,
+downloads and minisign-verifies bravros-payload.tar.gz and deploys skills/ + templates/
+into ~/.claude/. Stays a silent no-op when already in sync or when offline.
 
-Branch-agnostic: works on any git checkout (main, homolog, or any feature branch). Uses
-'git fetch + git checkout origin/main' to update the working tree without switching branches,
-so users on homolog or feature branches receive every update.
+There is no local checkout in the picture: selfupdate never runs git, never runs install.sh,
+and behaves identically whether or not a portable-repo clone happens to exist on disk.
 
 Use --dry-run to see what would be downloaded and updated without modifying anything on disk.
-Use --verbose to see the full trace (fetching, applying overlay, running install.sh, etc.).
+Use --verbose to see the full trace (remote check, offline skips, deploy summary).
 
 The check itself is cached: after every completed check the marker
 ~/.claude/state/.bravros-last-check is stamped, and 'bravros selfupdate' within the TTL
@@ -59,14 +51,6 @@ always bypass the cache and run the real check.`,
 		if err != nil {
 			return nil
 		}
-
-		repo := selfupdateRepoOverride
-		if repo == "" {
-			// Use config.PortableRepo() so BRAVROS_PORTABLE_REPO env var wins
-			// over the auto-detection fallback in paths.PortableRepoDir().
-			repo = config.PortableRepo()
-		}
-		cli := filepath.Join(home, ".claude", "bin", "bravros")
 
 		// B-0345: TTL cache for the SessionStart check. A full check costs ~9s
 		// (the network fetch dominates); a cache-hit session skips it entirely.
@@ -108,233 +92,53 @@ always bypass the cache and run the real check.`,
 			}
 		}
 
-		gitDir := filepath.Join(repo, ".git")
-		if info, err := os.Stat(gitDir); err != nil || !info.IsDir() {
-			// No portable repo clone on disk — the curl|sh install path. Fall
-			// back to fetching the published payload directly instead of
-			// silently exiting 0 (P-0003: that silent-0 was the bug).
-			return selfupdateViaFetch(home)
-		}
-
-		// Fetch origin/main to get the latest remote state.
-		// Branch-agnostic — we fetch but do NOT pull (no branch switching).
-		// --tags is required: named-refspec fetches (e.g. "main") do NOT auto-follow tags,
-		// so without it `git describe --tags origin/main` would return a stale tag and
-		// detectCliStale would silently miss tag-only version bumps.
-		fetchCmd := exec.Command("git", "-C", repo, "fetch", "origin", "main", "--tags", "--quiet")
-		if err := fetchCmd.Run(); err != nil {
-			// Network failure is non-fatal: skip gracefully
-			return nil
-		}
-
-		repoNeedsSync := selfupdate.HasOriginMainUpdates(repo)
-		// Clobber guard (WS6): the working-tree overlay `git checkout origin/main -- .`
-		// reverts ANY tracked file that differs from origin/main, regardless of branch.
-		// That is safe only when HEAD is strictly an ancestor of origin/main (clean
-		// catch-up / fast-forward). On a diverged or ahead HEAD — e.g. homolog or a
-		// feature branch carrying committed-but-not-yet-on-main work — the overlay would
-		// silently revert those local commits' content into a staged reversion (it ate a
-		// feature-branch worktree live during the 2026-06-15 audit). IsBehindOriginMain
-		// returns true ONLY for the ancestor-or-equal-behind case, so we gate the
-		// destructive checkout on it. install.sh (skill/CLI/hook drift) still runs on a
-		// diverged HEAD — only the working-tree overlay is skipped.
-		safeToOverlay := selfupdate.IsBehindOriginMain(repo)
-
-		// Cheap signals run on every invocation: git HEAD drift (HasOriginMainUpdates,
-		// above), CLI version drift, and hook drift. These are sub-millisecond ref/stat
-		// reads with no per-skill SHA walk.
-		//
-		// Expensive signals — per-skill SHA drift (each enabled skill's tree is walked +
-		// hashed) and scripts drift — are gated behind --deep (4m6). They are redundant on
-		// the common path: a skill or script edit pushed to main always lands as a new
-		// origin/main commit, so HasOriginMainUpdates already fires and triggers install.sh.
-		// --deep covers the rare case where the deployed runtime drifted WITHOUT a new main
-		// commit (manual ~/.claude edit, partial deploy, manifest loss).
-		claudeSkillsDrift := false
-		scriptsDrift := false
-		var scriptsDrifted []string
-
-		manifestPath := filepath.Join(home, ".claude", "skills", deploy.ManifestFileName)
-		manifest, _ := deploy.LoadManifest(manifestPath)
-
-		if selfupdateDeep {
-			claudeSkillsDrift = detectSkillsDrift(repo, home)
-			scriptsDrifted, _ = selfupdate.DetectScriptsDrift(repo, manifest)
-			scriptsDrift = len(scriptsDrifted) > 0
-		}
-		skillsDrift := claudeSkillsDrift
-		cliStale := detectCliStale(cli, repo)
-
-		hookReport := detectHookDrift(repo, home)
-
-		if !repoNeedsSync && !skillsDrift && !cliStale && !scriptsDrift && !hookReport.NeedsRefresh {
-			// Check completed, nothing to do — stamp the check cache so the next
-			// session within the TTL skips the ~9s fetch entirely.
-			touchSelfupdateCheckMarker(home)
-			return nil
-		}
-
-		// Capture old version before install for the upgrade summary line.
-		oldVer := ""
-		if verOut, err := exec.Command(cli, "version").Output(); err == nil {
-			parts := strings.Fields(strings.TrimSpace(string(verOut)))
-			if len(parts) >= 2 {
-				oldVer = parts[len(parts)-1]
-			}
-		}
-
-		// manifest was loaded above (for scripts drift); use it as manifestBefore.
-		manifestBefore := manifest
-
-		if repoNeedsSync && safeToOverlay {
-			if selfupdateVerbose {
-				if selfupdateDryRun {
-					fmt.Fprintln(os.Stderr, "🔍 [dry-run] SDLC repo has origin/main updates — would sync working tree")
-				} else {
-					fmt.Fprintln(os.Stderr, "🔄 SDLC updating — syncing working tree to origin/main…")
-				}
-			}
-			// Branch-agnostic update: checkout origin/main into working tree WITHOUT switching branches.
-			// Gated on safeToOverlay (IsBehindOriginMain) so it runs ONLY when HEAD is strictly an
-			// ancestor of origin/main — never on a diverged/ahead HEAD, which would clobber local commits.
-			if err := selfupdate.UpdatePortableRepo(repo, selfupdateDryRun); err != nil {
-				fmt.Fprintf(os.Stderr, "⚠️  repo update failed — resolve manually: cd %s && git checkout origin/main -- .\n  (%v)\n", repo, err)
-				return nil
-			}
-		} else if repoNeedsSync && !safeToOverlay {
-			// Diverged or ahead of origin/main: HEAD carries local commits not on main.
-			// Skip the destructive working-tree overlay so committed-but-not-on-main work
-			// is never clobbered. install.sh below still runs for any skill/CLI/hook drift.
-			if selfupdateVerbose {
-				fmt.Fprintf(os.Stderr, "ℹ️  SDLC repo diverged from origin/main on this branch — skipping working-tree overlay to protect local commits. To sync, merge or rebase origin/main yourself.\n")
-			}
-		} else if skillsDrift {
-			if selfupdateVerbose {
-				fmt.Fprintln(os.Stderr, "🔄 Skills drift detected (claude) — running install.sh…")
-			}
-		} else if cliStale {
-			if selfupdateVerbose {
-				fmt.Fprintln(os.Stderr, "🔄 CLI version drift — running install.sh…")
-			}
-		} else if scriptsDrift {
-			if selfupdateVerbose {
-				fmt.Fprintf(os.Stderr, "🔄 Scripts drift detected (%s) — running install.sh…\n", strings.Join(scriptsDrifted, ", "))
-			}
-		}
-
-		// Emit structured lines for customized hooks (always, not just verbose).
-		// Write the same lines to the cache buffer file so auto-verify-install can read them.
-		// Truncate the cache file every run — even when CustomizedPaths is empty — so
-		// stale entries from a prior selfupdate don't keep surfacing after the user fixes
-		// their hook.
-		cacheDir := filepath.Join(home, ".claude", "cache")
-		_ = os.MkdirAll(cacheDir, 0755)
-		cacheFile := filepath.Join(cacheDir, "last-selfupdate-hooks.log")
-		var cacheLines strings.Builder
-		for _, p := range hookReport.CustomizedPaths {
-			line := "HOOK_DRIFT_CUSTOMIZED: " + p
-			fmt.Fprintln(os.Stderr, line)
-			cacheLines.WriteString(line + "\n")
-		}
-		_ = os.WriteFile(cacheFile, []byte(cacheLines.String()), 0644)
-
-		// Perform hook refresh for old-canonical hooks (silent unless verbose).
-		if hookReport.NeedsRefresh {
-			if selfupdateVerbose {
-				fmt.Fprintln(os.Stderr, "🔄 Hook drift detected — refreshing commit-msg…")
-			}
-			if !selfupdateDryRun {
-				canonicalPath := filepath.Join(home, ".claude", "templates", ".githooks", "commit-msg")
-				for _, targetPath := range hookReport.RefreshedPaths {
-					if err := hooks.Refresh(targetPath, canonicalPath); err != nil && selfupdateVerbose {
-						fmt.Fprintf(os.Stderr, "⚠️  hook refresh failed for %s: %v\n", targetPath, err)
-					}
-				}
-				_ = hooks.EnsureHooksPath(repo)
-			}
-		}
-
-		if selfupdateDryRun {
-			if selfupdateVerbose {
-				fmt.Fprintln(os.Stderr, "🔍 [dry-run] would run install.sh to apply changes")
-			}
-			return nil
-		}
-
-		installCmd := exec.Command("bash", filepath.Join(repo, "install.sh"))
-		installCmd.Stdout = nil
-		installCmd.Stderr = nil
-		if err := installCmd.Run(); err != nil {
-			exitCode := 1
-			if exitErr, ok := err.(*exec.ExitError); ok {
-				exitCode = exitErr.ExitCode()
-			}
-			fmt.Fprintf(os.Stderr, "⚠️  install.sh failed (exit %d) — run manually: bash %s/install.sh\n", exitCode, repo)
-			return nil
-		}
-
-		newVer := "unknown"
-		if verOut, err := exec.Command(cli, "version").Output(); err == nil {
-			parts := strings.Fields(strings.TrimSpace(string(verOut)))
-			if len(parts) >= 2 {
-				newVer = parts[len(parts)-1]
-			}
-		}
-
-		// Update the Scripts SHAs in the manifest after a successful install.sh run.
-		// This prevents scripts/ drift from triggering a redeploy on every subsequent
-		// selfupdate call when the install.sh already wrote the updated scripts.
-		if newScriptsSHAs, err := selfupdate.ComputeScriptsSHAs(repo); err == nil {
-			if manifestAfterInstall, err := deploy.LoadManifest(manifestPath); err == nil {
-				manifestAfterInstall.Scripts = newScriptsSHAs
-				_ = deploy.SaveManifest(manifestPath, manifestAfterInstall)
-			}
-		}
-
-		// Compute which skills changed by diffing the manifest before and after install.sh.
-		// Used for the skills-only upgrade summary line below. Sort the result so the
-		// truncated display ("a, b, c +N more") is deterministic across runs (map
-		// iteration order is randomized in Go).
-		var updatedSkills []string
-		if manifestAfter, err := deploy.LoadManifest(manifestPath); err == nil {
-			updatedSkills = append(updatedSkills, manifestDiffSkillNames(manifestBefore, manifestAfter, "")...)
-		}
-		sort.Strings(updatedSkills)
-
-		// Always emit exactly one upgrade line on real upgrade (default and verbose).
-		if oldVer != "" && oldVer != newVer {
-			fmt.Fprintf(os.Stderr, "🔄 bravros %s → %s\n", oldVer, newVer)
-			// Audio notice on real version bump (100% PT-BR — script gates on Mac-unlock + HA reachability).
-			// Strip a leading "v" so Alexa reads "três quarenta e quatro ponto zero" not "vê três…".
-			announceVer := strings.TrimPrefix(newVer, "v")
-			announce := exec.Command(os.Args[0], "ha", "say", "--force",
-				"Nova versão Bravros instalada. Versão "+announceVer+".", "studio")
-			announce.Stdout = nil
-			announce.Stderr = nil
-			if err := announce.Start(); err == nil {
-				_ = announce.Process.Release()
-			}
-		} else if len(updatedSkills) > 0 {
-			// Skills changed but CLI version stayed same — emit a skills-only summary.
-			names := updatedSkills
-			suffix := ""
-			if len(names) > 3 {
-				names = names[:3]
-				suffix = fmt.Sprintf(" (+%d more)", len(updatedSkills)-3)
-			}
-			fmt.Fprintf(os.Stderr, "✨ bravros deployed %d skill update(s) from main: %s%s\n",
-				len(updatedSkills), strings.Join(names, ", "), suffix)
-		} else if selfupdateVerbose {
-			fmt.Fprintf(os.Stderr, "✓ SDLC updated to %s\n", newVer)
-		}
-
-		writeSelfupdateMarkers(home, newVer)
-		if selfupdateVerbose {
-			fmt.Fprintln(os.Stderr, "✓ verify-install queued for next session")
-		}
-
-		return nil
+		// The published-payload fetch is the ONE update path (P-0014). A
+		// portable-repo clone on disk is irrelevant: presence or absence of
+		// ~/Sites/claude/.git changes nothing about what happens next.
+		return selfupdateViaFetch(home)
 	},
+}
+
+// applyHookDrift emits the HOOK_DRIFT_CUSTOMIZED: lines, rewrites the
+// ~/.claude/cache/last-selfupdate-hooks.log buffer, and refreshes any
+// old-canonical commit-msg hooks against the payload-deployed canonical
+// (~/.claude/templates/.githooks/commit-msg). It takes no repo argument:
+// the canonical source is the payload deployed to `home`, not a clone on
+// disk. The one repo-dependent step of the pre-P-0014 inlined block —
+// `hooks.EnsureHooksPath(repo)`, which set `core.hooksPath` on the portable
+// repo's git checkout — died with the clone lane: selfupdate no longer has
+// a checkout of its own to point a hooks path at.
+func applyHookDrift(home string, report HookDriftReport) {
+	// Emit structured lines for customized hooks (always, not just verbose).
+	// Write the same lines to the cache buffer file so auto-verify-install can read them.
+	// Truncate the cache file every run — even when CustomizedPaths is empty — so
+	// stale entries from a prior selfupdate don't keep surfacing after the user fixes
+	// their hook.
+	cacheDir := filepath.Join(home, ".claude", "cache")
+	_ = os.MkdirAll(cacheDir, 0755)
+	cacheFile := filepath.Join(cacheDir, "last-selfupdate-hooks.log")
+	var cacheLines strings.Builder
+	for _, p := range report.CustomizedPaths {
+		line := "HOOK_DRIFT_CUSTOMIZED: " + p
+		fmt.Fprintln(os.Stderr, line)
+		cacheLines.WriteString(line + "\n")
+	}
+	_ = os.WriteFile(cacheFile, []byte(cacheLines.String()), 0644)
+
+	// Perform hook refresh for old-canonical hooks (silent unless verbose).
+	if report.NeedsRefresh {
+		if selfupdateVerbose {
+			fmt.Fprintln(os.Stderr, "🔄 Hook drift detected — refreshing commit-msg…")
+		}
+		if !selfupdateDryRun {
+			canonicalPath := filepath.Join(home, ".claude", "templates", ".githooks", "commit-msg")
+			for _, targetPath := range report.RefreshedPaths {
+				if err := hooks.Refresh(targetPath, canonicalPath); err != nil && selfupdateVerbose {
+					fmt.Fprintf(os.Stderr, "⚠️  hook refresh failed for %s: %v\n", targetPath, err)
+				}
+			}
+		}
+	}
 }
 
 // selfupdateFetchClient is the minimal surface selfupdateViaFetch needs from
@@ -365,9 +169,11 @@ var (
 // "installed version" probe.
 const payloadTagFileName = ".bravros-payload-tag"
 
-// selfupdateViaFetch is the no-clone path: resolve the published release, and if
-// the payload on disk is behind it, fetch + verify + deploy it. Returns the
-// process exit code (0 = success or nothing-to-do, non-zero = a real failure).
+// selfupdateViaFetch is THE update path (P-0014 retired the clone lane): resolve
+// the published release, and if the payload on disk is behind it, fetch + verify
+// + deploy it. Returns nil for success and for every nothing-to-do outcome
+// (in sync, offline, release without a payload asset); non-nil only on a real
+// failure that must not look like success.
 func selfupdateViaFetch(home string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -400,8 +206,33 @@ func selfupdateViaFetch(home string) error {
 		return nil
 	}
 
+	// Hook drift must be checked even when the payload is already in sync —
+	// a project's commit-msg hook can drift from the deployed canonical
+	// without a new release landing, so this runs before the !res.Behind
+	// early return, not after it. detectHookDrift scans a project checkout's
+	// .githooks/commit-msg and .git/hooks/commit-msg — the fetch path has no
+	// portable-repo clone to scan, so the right "repoRoot" here is the
+	// current working directory: the project whose hooks would actually
+	// drift. On os.Getwd() failure, skip hook drift silently rather than
+	// fail the whole update over an unrelated stat error.
+	//
+	// applyHookDrift only writes output when CustomizedPaths/NeedsRefresh
+	// are non-empty, so an in-sync run with clean hooks still produces no
+	// output — the "must produce no output whatsoever" contract on the
+	// !res.Behind branch below is preserved; a drifting hook is exactly the
+	// case that contract is not meant to suppress.
+	if cwd, cwdErr := os.Getwd(); cwdErr == nil {
+		applyHookDrift(home, detectHookDrift(cwd, home))
+	}
+
 	if !res.Behind {
-		// In-sync: must produce no output whatsoever.
+		// Check completed with nothing to do — stamp the check cache so the
+		// next session within the TTL short-circuits before the remote check.
+		// This is the fetch-lane home of the stamp the clone lane used to
+		// place on its own no-drift early return; without it the TTL cache
+		// would only ever be written by a real update. Silent by
+		// construction: in-sync must produce no output whatsoever.
+		touchSelfupdateCheckMarker(home)
 		return nil
 	}
 
@@ -421,15 +252,30 @@ func selfupdateViaFetch(home string) error {
 	deployResult, deployErr := deploy.Deploy(deploy.DeployOpts{
 		SourceDir: payloadDir,
 		TargetDir: selfupdateFetchTargetDirOverride,
-		// NoPrune: orphan-pruning compares TargetDir against SourceDir and
-		// deletes anything with no counterpart. The fetched payload is a
-		// PARTIAL source tree by construction (only skills/ + templates/ ship
-		// in it — no hooks/, no agents/), so "absent from the payload" means
-		// "not shipped in the payload", never "deleted upstream". Pruning is
-		// sound only when SourceDir is a full repo checkout (the clone path);
-		// here it would wipe every hand-installed hook/agent/skill on the
-		// first automatic SessionStart fetch.
-		NoPrune:        true,
+		// Pruning is ON here, and scoped. The payload ships skills/ + templates/
+		// (.goreleaser.yml), which is the COMPLETE deployable tree — the source
+		// repo has no hooks/ or agents/ either. So for those two subtrees
+		// "absent from the payload" genuinely means "deleted upstream", and with
+		// the clone lane retired this fetch is the only delivery path: without
+		// pruning, a skill removed upstream would linger on every machine
+		// forever.
+		//
+		// PruneSubtrees narrows orphan detection to exactly what the payload
+		// carries. ~/.claude/hooks and ~/.claude/agents are content bravros does
+		// not own at the target, and they stay untouched. (deploy.detectOrphans
+		// already skips any subtree missing from SourceDir; this scoping is the
+		// explicit contract, so a payload that ever shipped an empty hooks/ or
+		// agents/ still could not trigger a wipe.)
+		PruneSubtrees: []string{"skills", "templates"},
+		// FilterMode: EnabledSkills here is a deploy filter, not a prune
+		// instruction. config.EnabledSkills() resolves .bravros.yml from CWD
+		// first, and selfupdate fires unattended from the SessionStart hook —
+		// so without this, opening a session in a project that sets
+		// skills.enabled would delete every other skill from the shared
+		// ~/.claude runtime. Filter mode keeps the allowlist additive:
+		// non-listed skills are preserved, and only genuine payload orphans
+		// (deleted upstream) are pruned.
+		FilterMode:     true,
 		PreserveSkills: config.PreservedSkills(),
 		EnabledSkills:  config.EnabledSkills(),
 	})
@@ -527,163 +373,13 @@ func init() {
 	_ = selfupdateCmd.Flags().MarkDeprecated("silent", "silence is now the default; use --verbose to see output")
 	selfupdateCmd.Flags().StringVar(&selfupdateSkipIfRecent, "skip-if-recent", "", "skip update if last one was within this duration (e.g., '6h', '30m')")
 	selfupdateCmd.Flags().BoolVar(&selfupdateDryRun, "dry-run", false, "show what would be updated without modifying anything on disk")
-	selfupdateCmd.Flags().BoolVar(&selfupdateDeep, "deep", false, "also run the expensive per-skill SHA + scripts drift detectors (default off: only git HEAD, CLI version, and hooks are checked)")
+	// --deep gated the clone-based per-skill SHA + scripts drift detectors,
+	// which P-0014 deleted along with the clone lane. The flag stays
+	// registered as a deprecated no-op (mirroring --silent above) so a user
+	// or hook still passing it gets a deprecation notice, not "unknown flag".
+	selfupdateCmd.Flags().BoolVar(&selfupdateDeep, "deep", false, "deprecated no-op: the expensive clone-based drift detectors were removed")
+	_ = selfupdateCmd.Flags().MarkDeprecated("deep", "the clone-based drift detectors it gated no longer exist")
 	selfupdateCmd.Flags().BoolVar(&selfupdateForce, "force", false, "bypass the check-TTL cache and run the full drift check now (the `bravros update` alias always does this)")
-}
-
-// detectSkillsDrift returns true when deployed skills/ differs from source in any
-// way — file added, removed, renamed, or content modified — regardless of which
-// file inside a skill directory changed.
-//
-// Mechanism: compares each enabled source skill's SHA (computed via
-// deploy.ComputeSkillSHA) against the corresponding entry in the deployed
-// manifest (~/.claude/skills/.deploy-manifest.json written by install.sh).
-//
-// Returns true (force redeploy) when:
-//   - The manifest file is missing entirely (deploy never ran since manifest
-//     support landed, or the runtime directory is fresh).
-//   - A source skill's SHA differs from the manifest entry.
-//   - A skill exists in the manifest but has been removed from source.
-//   - Any ComputeSkillSHA call fails (fail-safe: redeploy rather than miss a change).
-//
-// Returns false only when every enabled source skill's SHA matches its manifest entry.
-func detectSkillsDrift(repo, home string) bool {
-	manifestPath := filepath.Join(home, ".claude", "skills", deploy.ManifestFileName)
-	return detectSourceSkillManifestDrift(repo, manifestPath)
-}
-
-func detectSourceSkillManifestDrift(repo, manifestPath string) bool {
-	manifest, err := deploy.LoadManifest(manifestPath)
-	if err != nil {
-		// Unreadable manifest — treat as drift.
-		return true
-	}
-
-	// If the manifest has no entries AND no source skills exist, nothing to do.
-	// But an empty manifest when source skills exist signals "deploy never ran" — return true.
-	srcSkillsDir := filepath.Join(repo, "skills")
-	entries, err := os.ReadDir(srcSkillsDir)
-	if err != nil {
-		// Can't read source skills dir — can't determine drift; fail-safe is false.
-		return false
-	}
-
-	// Collect enabled source skills using the same allowlist Deploy() uses.
-	enabledSkills := config.EnabledSkills() // nil = all skills enabled
-
-	sourceSeen := make(map[string]bool)
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-
-		// Skip non-runtime shared-asset dirs (shared/, _shared/) — the same gate
-		// deploy.Deploy() applies. These hold shared reference docs, not
-		// deployable skills, so deploy never writes them to the manifest.
-		// Iterating them here would hit the !inManifest branch below and report
-		// perpetual false-positive drift (R-0004).
-		if deploy.NonRuntimeSkillDir(name) {
-			continue
-		}
-
-		skillDir := filepath.Join(srcSkillsDir, name)
-
-		// Apply enabled-skills allowlist (same logic as deploy.isSkillEnabled).
-		if !skillIsEnabled(name, skillDir, enabledSkills) {
-			continue
-		}
-
-		sourceSeen[name] = true
-
-		currentSHA, err := deploy.ComputeSkillSHA(skillDir)
-		if err != nil {
-			// Broken symlink or unreadable file — treat as drift to force a clean redeploy.
-			return true
-		}
-
-		manifestSHA, inManifest := manifest.Skills[name]
-		if !inManifest {
-			// Skill exists in source but not in manifest — newly added or manifest is stale.
-			return true
-		}
-		if currentSHA != manifestSHA {
-			return true
-		}
-	}
-
-	// Check for skills in the manifest that no longer exist in source (removed skill).
-	for name := range manifest.Skills {
-		if !sourceSeen[name] {
-			return true
-		}
-	}
-
-	return false
-}
-
-func manifestDiffSkillNames(before, after deploy.Manifest, prefix string) []string {
-	var changed []string
-	for name, newSHA := range after.Skills {
-		if before.Skills[name] != newSHA {
-			changed = append(changed, prefix+name)
-		}
-	}
-	for name := range before.Skills {
-		if _, exists := after.Skills[name]; !exists {
-			changed = append(changed, prefix+name)
-		}
-	}
-	return changed
-}
-
-// skillIsEnabled mirrors deploy.isSkillEnabled for callers outside the deploy package.
-// enabledList nil/empty means all skills are enabled. Delegates the `core: true`
-// frontmatter scan to deploy.IsSkillCore so the two stay aligned (a previous
-// 512-byte prefix-read here would miss `core: true` in frontmatter that exceeds
-// 512 bytes — drift detection would silently skip such skills).
-//
-// Note: deploy.Deploy() gates skill discovery with TWO checks —
-// deploy.NonRuntimeSkillDir and deploy.isSkillEnabled. This function mirrors only
-// the isSkillEnabled half; the caller (detectSkillsDrift) applies
-// deploy.NonRuntimeSkillDir separately before invoking this.
-func skillIsEnabled(name, skillDir string, enabledList []string) bool {
-	if len(enabledList) == 0 {
-		return true
-	}
-	for _, n := range enabledList {
-		if n == name {
-			return true
-		}
-	}
-	return deploy.IsSkillCore(filepath.Join(skillDir, "SKILL.md"))
-}
-
-// detectCliStale compares installed bravros version with the latest release tag in the portable repo.
-// Uses `git -C <repo> describe --tags --abbrev=0 origin/main` — no network call beyond the
-// already-performed fetch.
-// Fail-safe: returns false if either version probe fails (don't trigger unnecessary install).
-func detectCliStale(cli, repo string) bool {
-	installedOut, err := exec.Command(cli, "version").Output()
-	if err != nil {
-		return false
-	}
-	tagOut, err := exec.Command("git", "-C", repo, "describe", "--tags", "--abbrev=0", "origin/main").Output()
-	if err != nil {
-		return false
-	}
-	// `bravros version` prints "bravros v3.0.1" — extract the "v3.0.1" portion
-	installed := strings.TrimSpace(string(installedOut))
-	parts := strings.Fields(installed)
-	installedVer := ""
-	if len(parts) >= 2 {
-		installedVer = parts[len(parts)-1]
-	}
-	latestTag := strings.TrimSpace(string(tagOut))
-	if installedVer == "" || latestTag == "" {
-		return false
-	}
-	return installedVer != latestTag
 }
 
 // HookDriftReport summarises the state of commit-msg hooks found in the project.

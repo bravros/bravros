@@ -62,22 +62,18 @@ cd cli && go build -ldflags="-s -w -X github.com/bravros/bravros/cli/cmd.Version
 - **Version tag format**: `-X github.com/bravros/bravros/cli/cmd.Version=v1.9.5` — the `v` prefix is stripped at print time, so always include it for consistency with git tags
 - **Never commit `bin/bravros`** — releases ship via tag-push only (`release.yml` cross-compiles all 3 platform binaries) and manually committed binaries break selfupdate's drift detection. For in-session iteration, build a separate `bravros-dev` binary instead of overwriting the live one
 
-## Deploy (portable repo → `~/.claude/`)
+## Deploy (source repo → `~/.claude/`)
 
 Two paths after editing skills/configs in this repo:
 
 | Command | When |
 |---|---|
-| `bravros deploy` | Fast. Copies the portable repo to `~/.claude/` without running health checks. Use during active work. Supports `--filter <csv>` to override the `skills.enabled` allowlist per-invocation; `--dry-run` to preview. |
-| `bash install.sh` | Full install. Runs dependency checks, 1Password auth, MCP platform filtering (removes Herd/BrowserMCP on Linux), and macOS-only setup. Use for first install or after a `selfupdate`. |
+| `bravros deploy` | Fast. Copies the source repo — cwd by default, or `--source <dir>` — to `~/.claude/` without running health checks. Use during active work. Supports `--filter <csv>` to override the `skills.enabled` allowlist per-invocation; `--dry-run` to preview. |
+| `bash install.sh` | Full install. Runs dependency checks, 1Password auth, MCP platform filtering (removes Herd/BrowserMCP on Linux), and macOS-only setup. Use for first install or to update the binary itself. |
 
-**`bravros selfupdate`** (alias: `bravros update`) — drift detector. If drift is detected it runs `install.sh` automatically; otherwise it's a silent no-op. Fires on SessionStart hook.
+**`bravros selfupdate`** (alias: `bravros update`) — resolves the newest published release and downloads + signature-verifies `bravros-payload.tar.gz` when the on-disk payload is behind. Deploys `skills/` + `templates/` into `~/.claude/`. It never runs `install.sh`, never runs `git fetch`, and never touches a local clone. It stays a silent no-op when in sync or offline. Fires on SessionStart hook, rate-limited by the 6h check TTL (`BRAVROS_SELFUPDATE_TTL`).
 
-**Detector tiers (4m6).** The default run checks three *cheap* signals only — git HEAD drift (`HasOriginMainUpdates` via `merge-base`), CLI version drift (`detectCliStale` via `git describe`), and commit-msg hook SHA drift (`detectHookDrift`). The two *expensive* signals — per-skill manifest-SHA drift (each enabled skill's tree is walked + hashed) and `scripts/` drift — run only under `--deep`. They are redundant on the common path: any skill or script edit pushed to main lands as a new `origin/main` commit, so the git-HEAD signal already fires and triggers `install.sh`. `--deep` covers the rare case where the deployed runtime drifted WITHOUT a new main commit (manual `~/.claude` edit, partial deploy, manifest loss).
-
-**Clobber guard (WS6).** The working-tree overlay `git checkout origin/main -- .` runs ONLY when HEAD is strictly an ancestor of `origin/main` (clean catch-up / fast-forward — `selfupdate.IsBehindOriginMain`). On a diverged or ahead HEAD (e.g. homolog or a feature branch carrying committed-but-not-yet-on-main work), the overlay is skipped so local commits' content is never reverted into a staged reversion. `install.sh` still runs on a diverged HEAD for any skill/CLI/hook drift — only the destructive overlay is gated.
-
-Skill-drift signal is manifest-SHA-based (P-0138): under `--deep`, any change inside a skill (file added, removed, content modified, regardless of which file or mtime) triggers redeploy on next SessionStart. The manifest lives at `~/.claude/skills/.deploy-manifest.json` and is written by `install.sh` via `bravros deploy`. Missing manifest → forces a fresh `install.sh` run.
+**Drift detection** is now **commit-msg hook drift only** (`detectHookDrift`), which compares the project's `.githooks/commit-msg` and `.git/hooks/commit-msg` against the payload-deployed canonical at `~/.claude/templates/.githooks/commit-msg`. Payload freshness is decided by comparing the recorded payload tag against the latest published release tag, not by any git operation.
 
 ### Deploy manifest
 

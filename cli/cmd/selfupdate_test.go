@@ -1,28 +1,26 @@
 package cmd
 
-// Tests for the selfupdate command — lock in the contracts described in P-0097 Phase 4.
+// Tests for the selfupdate command.
 //
-// Strategy: call selfupdateCmd.RunE directly (bypassing cobra flag parsing) after setting
-// the package-level flag vars. Use PATH-shimmed fake `git` binaries (written to t.TempDir)
-// for network/invocation-recording tests. Use selfupdateRepoOverride for path injection.
+// Since P-0014 there is exactly ONE update path — selfupdateViaFetch — so these tests
+// never build git fixtures: they call selfupdateCmd.RunE directly (bypassing cobra flag
+// parsing) after setting the package-level flag vars, and inject a fakeFetchClient plus
+// temp payload/target dirs so nothing touches the network or the developer's ~/.claude.
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/bravros/bravros/cli/internal/deploy"
+	"github.com/bravros/bravros/cli/internal/config"
 	"github.com/bravros/bravros/cli/internal/fetch"
 	"github.com/bravros/bravros/cli/internal/hooks"
-	"github.com/bravros/bravros/cli/internal/selfupdate"
 )
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -59,7 +57,6 @@ func resetSelfupdateFlags(t *testing.T) {
 	origVerbose := selfupdateVerbose
 	origSkip := selfupdateSkipIfRecent
 	origDry := selfupdateDryRun
-	origOverride := selfupdateRepoOverride
 	origDeep := selfupdateDeep
 	origForce := selfupdateForce
 	origFetchClient := selfupdateFetchClientOverride
@@ -73,7 +70,6 @@ func resetSelfupdateFlags(t *testing.T) {
 	selfupdateVerbose = false
 	selfupdateSkipIfRecent = ""
 	selfupdateDryRun = false
-	selfupdateRepoOverride = ""
 	selfupdateDeep = false
 	selfupdateForce = false
 	selfupdateFetchClientOverride = nil
@@ -98,7 +94,6 @@ func resetSelfupdateFlags(t *testing.T) {
 		selfupdateVerbose = origVerbose
 		selfupdateSkipIfRecent = origSkip
 		selfupdateDryRun = origDry
-		selfupdateRepoOverride = origOverride
 		selfupdateDeep = origDeep
 		selfupdateForce = origForce
 		selfupdateFetchClientOverride = origFetchClient
@@ -122,96 +117,6 @@ func resetSelfupdateFlags(t *testing.T) {
 	})
 }
 
-// gitEnv returns env vars that suppress git global config noise in tests.
-func gitEnv() []string {
-	return append(os.Environ(),
-		"GIT_AUTHOR_NAME=test",
-		"GIT_AUTHOR_EMAIL=test@test.com",
-		"GIT_COMMITTER_NAME=test",
-		"GIT_COMMITTER_EMAIL=test@test.com",
-		"GIT_CONFIG_NOSYSTEM=1",
-	)
-}
-
-// mustGit runs a git command in dir, failing the test on error.
-func mustGit(t *testing.T, dir string, args ...string) string {
-	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	cmd.Env = gitEnv()
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %v in %s: %v\n%s", args, dir, err, out)
-	}
-	return strings.TrimSpace(string(out))
-}
-
-// mustGitAt runs a git command in dir with GIT_COMMITTER_DATE and GIT_AUTHOR_DATE
-// set to the given RFC 2822 date string. This pins the tagger timestamp on annotated
-// tags so that `git describe --tags --abbrev=0` deterministically returns the tag
-// with the latest tagger date when two tags sit on the same commit (B-0315 fix).
-//
-// Example date format: "2020-01-01T00:00:00 +0000"
-func mustGitAt(t *testing.T, dir, date string, args ...string) string {
-	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	env := gitEnv()
-	env = append(env, "GIT_COMMITTER_DATE="+date, "GIT_AUTHOR_DATE="+date)
-	cmd.Env = env
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git (at %s) %v in %s: %v\n%s", date, args, dir, err, out)
-	}
-	return strings.TrimSpace(string(out))
-}
-
-// shimGit writes a fake `git` script to a temp bin dir and prepends it to PATH.
-// The script receives the git arguments and can do whatever fn describes.
-// Returns the bin dir path (useful for reading log files placed there).
-func shimGit(t *testing.T, scriptBody string) string {
-	t.Helper()
-	binDir := t.TempDir()
-	script := filepath.Join(binDir, "git")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\n"+scriptBody), 0o755); err != nil {
-		t.Fatalf("write fake git: %v", err)
-	}
-	origPath := os.Getenv("PATH")
-	if err := os.Setenv("PATH", binDir+":"+origPath); err != nil {
-		t.Fatalf("setenv PATH: %v", err)
-	}
-	t.Cleanup(func() { os.Setenv("PATH", origPath) })
-	return binDir
-}
-
-// makeRepoWithOriginMain creates a local git repo on the given branch
-// with a real `origin` remote (another bare repo) that has `main` at HEAD.
-// Returns the local repo path.
-func makeRepoWithOriginMain(t *testing.T, localBranch string) string {
-	t.Helper()
-
-	// 1. Create the "remote" bare repo with a commit on main.
-	remote := t.TempDir()
-	mustGit(t, remote, "init", "--bare", "-b", "main")
-
-	// Working clone to seed the remote.
-	seed := t.TempDir()
-	mustGit(t, seed, "clone", remote, ".")
-	writeTestFile(t, seed, "README.md", "# test")
-	mustGit(t, seed, "add", ".")
-	mustGit(t, seed, "commit", "-m", "initial")
-	mustGit(t, seed, "push", "origin", "main")
-
-	// 2. Create the local repo on localBranch.
-	local := t.TempDir()
-	mustGit(t, local, "clone", remote, ".")
-	if localBranch != "main" {
-		mustGit(t, local, "checkout", "-b", localBranch)
-	}
-
-	return local
-}
-
 // runSelfupdate calls selfupdateCmd.RunE directly and returns (stderr, error).
 func runSelfupdate(t *testing.T) (string, error) {
 	t.Helper()
@@ -224,609 +129,77 @@ func runSelfupdate(t *testing.T) (string, error) {
 
 // ── tests ─────────────────────────────────────────────────────────────────────
 
-// TestSelfupdate_OnHomolog_DoesNotBail verifies that selfupdate runs successfully
-// (exit 0, no "skipped"/"main-only" text) when the portable repo is on the
-// `homolog` branch — the core regression from P-0097.
-func TestSelfupdate_OnHomolog_DoesNotBail(t *testing.T) {
-	resetSelfupdateFlags(t)
+// TestSelfupdateFetchPathTakenWhenNoCloneExists is the no-clone half of the
+// P-0014 invariant pair (see TestSelfupdateFetchPathTakenEvenWhenCloneExists for
+// the other half): with no portable-repo clone anywhere under HOME, RunE takes
+// the fetch path — it does NOT exit silently, which was the pre-P-0003 bug.
+func TestSelfupdateFetchPathTakenWhenNoCloneExists(t *testing.T) {
+	home, payloadDir := setupFetchPathTest(t)
+	t.Setenv("HOME", home)
+	// Keep the (now-unread) env override out of the picture so the clone probe,
+	// if it were ever reintroduced, would resolve strictly under this temp HOME.
+	t.Setenv("BRAVROS_PORTABLE_REPO", "")
+	writeInstalledTag(t, payloadDir, "v1.0.0")
 
-	// Build a real git repo whose local branch is `homolog` but origin/main exists.
-	repo := makeRepoWithOriginMain(t, "homolog")
-	selfupdateRepoOverride = repo
-
-	stderr, err := runSelfupdate(t)
-
-	if err != nil {
-		t.Fatalf("RunE returned error: %v", err)
-	}
-	banned := []string{"skipped: not on main", "main-only", "skipped.*main"}
-	for _, b := range banned {
-		if strings.Contains(strings.ToLower(stderr), strings.ToLower(b)) {
-			t.Errorf("stderr must not contain %q, got: %s", b, stderr)
-		}
-	}
-}
-
-// TestSelfupdate_NoPortableRepo_ExitsSilently verifies that when the portable
-// repo path does not exist (no .git directory), selfupdate exits silently with
-// no output and no error.
-func TestSelfupdate_NoPortableRepo_ExitsSilently(t *testing.T) {
-	resetSelfupdateFlags(t)
-
-	// Point at a directory that definitely does not exist.
-	selfupdateRepoOverride = filepath.Join(t.TempDir(), "nonexistent-repo")
+	fake := &fakeFetchClient{resolveTag: "v1.0.0"}
+	selfupdateFetchClientOverride = fake
 
 	stderr, err := runSelfupdate(t)
-
 	if err != nil {
-		t.Fatalf("expected nil error for missing repo, got: %v", err)
+		t.Fatalf("RunE without a clone must not error, got: %v", err)
 	}
+	if fake.resolveCalls != 1 {
+		t.Errorf("fetch path must run without a clone; ResolveLatestTag called %d time(s), want 1", fake.resolveCalls)
+	}
+	// In sync with the remote → still no output.
 	if stderr != "" {
-		t.Errorf("expected empty stderr for missing repo, got: %q", stderr)
-	}
-}
-
-// TestSelfupdate_NetworkFailure_ExitsSilently verifies that when `git fetch`
-// fails (network/remote error), selfupdate exits silently with exit 0.
-func TestSelfupdate_NetworkFailure_ExitsSilently(t *testing.T) {
-	resetSelfupdateFlags(t)
-
-	// Create a real git repo (has .git) but with no valid remote, so fetch will fail.
-	repo := t.TempDir()
-	mustGit(t, repo, "init", "-b", "main")
-	mustGit(t, repo, "config", "user.email", "test@test.com")
-	mustGit(t, repo, "config", "user.name", "Test")
-	writeTestFile(t, repo, "README.md", "# test")
-	mustGit(t, repo, "add", ".")
-	mustGit(t, repo, "commit", "-m", "initial")
-	// Add a broken remote so fetch fails.
-	mustGit(t, repo, "remote", "add", "origin", "https://127.0.0.1:1/nonexistent.git")
-
-	selfupdateRepoOverride = repo
-
-	stderr, err := runSelfupdate(t)
-
-	if err != nil {
-		t.Fatalf("network failure must not return error (must be non-fatal), got: %v", err)
-	}
-	// Must exit silently — no scary error messages.
-	// A network failure is a no-op; we don't want to spam the user.
-	if strings.Contains(stderr, "fatal") || strings.Contains(stderr, "error") {
-		t.Errorf("network failure must produce no error output, got: %q", stderr)
+		t.Errorf("in-sync run must be silent, got: %q", stderr)
 	}
 }
 
 // TestSelfupdate_VerboseFlag_PrintsDetails verifies that:
-//   - with --verbose, stderr contains a multi-line trace when drift is detected
-//   - without --verbose (default), no output is produced when the repo is up-to-date
+//   - with --verbose, stderr carries the fetch-path trace for a non-update outcome
+//   - without --verbose (default), that same outcome is completely silent
+//
+// Salvaged from the clone-lane version of this test: the traced events changed
+// (remote check / offline skip instead of git fetch / install.sh), the contract
+// did not.
 func TestSelfupdate_VerboseFlag_PrintsDetails(t *testing.T) {
-	t.Run("verbose_with_drift", func(t *testing.T) {
-		resetSelfupdateFlags(t)
-
-		// Create a repo where origin/main is one commit ahead of local HEAD,
-		// so repoBehind == true → verbose output is emitted.
-		remote := t.TempDir()
-		mustGit(t, remote, "init", "--bare", "-b", "main")
-
-		seed := t.TempDir()
-		mustGit(t, seed, "clone", remote, ".")
-		writeTestFile(t, seed, "README.md", "# v1")
-		mustGit(t, seed, "add", ".")
-		mustGit(t, seed, "commit", "-m", "initial")
-		mustGit(t, seed, "push", "origin", "main")
-
-		// Local clone at the same commit — then advance remote one more commit.
-		local := t.TempDir()
-		mustGit(t, local, "clone", remote, ".")
-
-		// Advance the remote by one commit (via seed).
-		writeTestFile(t, seed, "README.md", "# v2")
-		mustGit(t, seed, "add", ".")
-		mustGit(t, seed, "commit", "-m", "advance")
-		mustGit(t, seed, "push", "origin", "main")
-
-		selfupdateRepoOverride = local
+	t.Run("verbose_traces_offline_skip", func(t *testing.T) {
+		home, payloadDir := setupFetchPathTest(t)
+		t.Setenv("HOME", home)
+		writeInstalledTag(t, payloadDir, "v1.0.0")
+		selfupdateFetchClientOverride = &fakeFetchClient{
+			resolveErr: errors.New("dial tcp: network is unreachable"),
+		}
 		selfupdateVerbose = true
-		selfupdateDryRun = true // dry-run so install.sh is not actually called
 
 		stderr, err := runSelfupdate(t)
-
 		if err != nil {
 			t.Fatalf("RunE error: %v", err)
 		}
-		// Verbose + drift should produce at least one line of trace.
-		if strings.TrimSpace(stderr) == "" {
-			t.Error("expected verbose output with drift, got empty stderr")
-		}
-		lines := strings.Split(strings.TrimSpace(stderr), "\n")
-		if len(lines) < 1 {
-			t.Errorf("expected at least 1 line of verbose output, got: %q", stderr)
+		if !strings.Contains(stderr, "offline") {
+			t.Errorf("expected a verbose offline trace line, got: %q", stderr)
 		}
 	})
 
-	t.Run("silent_when_up_to_date", func(t *testing.T) {
-		resetSelfupdateFlags(t)
-
-		// Repo exactly at origin/main — no drift — no output even with verbose.
-		repo := makeRepoWithOriginMain(t, "main")
-		selfupdateRepoOverride = repo
+	t.Run("silent_when_not_verbose", func(t *testing.T) {
+		home, payloadDir := setupFetchPathTest(t)
+		t.Setenv("HOME", home)
+		writeInstalledTag(t, payloadDir, "v1.0.0")
+		selfupdateFetchClientOverride = &fakeFetchClient{
+			resolveErr: errors.New("dial tcp: network is unreachable"),
+		}
 		selfupdateVerbose = false
 
 		stderr, err := runSelfupdate(t)
-
 		if err != nil {
 			t.Fatalf("RunE error: %v", err)
 		}
-		// Up-to-date, no skills/CLI drift → must be silent.
-		// (CLI binary probe may fail safely, and skills dirs may differ in CI —
-		// we only assert no panic / no error, not strictly empty stderr,
-		// because detectSkillsDrift / detectCliStale may emit nothing anyway.)
-		_ = stderr // no-panic is the contract; silence is best-effort
-	})
-}
-
-// TestSelfupdate_OnlyReadsOriginMain is the source-of-truth regression lock.
-// It records every `git -C <repo> ...` invocation selfupdate makes and asserts
-// that the only remote ref arguments are `origin/main` or `origin main`
-// (no `origin/homolog`, `origin/master`, bare branch names beyond HEAD detection).
-func TestSelfupdate_OnlyReadsOriginMain(t *testing.T) {
-	resetSelfupdateFlags(t)
-
-	// Set up a valid repo on a non-main branch so we exercise the full path.
-	repo := makeRepoWithOriginMain(t, "homolog")
-	selfupdateRepoOverride = repo
-	selfupdateDryRun = true // avoid install.sh side-effects
-
-	logFile := filepath.Join(t.TempDir(), "git-invocations.log")
-
-	// Write a fake `git` that:
-	//   1. Logs its full argument list to logFile.
-	//   2. Delegates to the real git for commands that need real output.
-	realGit, err := exec.LookPath("git")
-	if err != nil {
-		t.Fatalf("real git not found: %v", err)
-	}
-	scriptBody := fmt.Sprintf(`LOG=%q
-REAL_GIT=%q
-echo "$@" >> "$LOG"
-exec "$REAL_GIT" "$@"
-`, logFile, realGit)
-	shimGit(t, scriptBody)
-
-	_, runErr := runSelfupdate(t)
-	if runErr != nil {
-		t.Fatalf("RunE returned error: %v", runErr)
-	}
-
-	// Read log and check every invocation.
-	f, err := os.Open(logFile)
-	if err != nil {
-		// Log may not exist if selfupdate exited before any git call (e.g., no .git).
-		// That would mean no git was called at all — which satisfies the constraint.
-		t.Logf("no git invocation log (zero calls): %v", err)
-		return
-	}
-	defer f.Close()
-
-	forbiddenRefs := []string{
-		"origin/homolog",
-		"origin/master",
-		"origin/staging",
-		"origin/develop",
-	}
-
-	scanner := bufio.NewScanner(f)
-	lineNum := 0
-	for scanner.Scan() {
-		lineNum++
-		line := scanner.Text()
-		for _, bad := range forbiddenRefs {
-			if strings.Contains(line, bad) {
-				t.Errorf("git invocation %d touches forbidden ref %q: %s", lineNum, bad, line)
-			}
-		}
-		// Additionally: if the line contains a bare branch name as a positional arg
-		// that is not "main", "HEAD", "origin/main", "--", ".", or a flag, warn.
-		// We check the specific known-good patterns selfupdate.go uses:
-		//   fetch origin main --quiet
-		//   rev-parse HEAD
-		//   rev-parse origin/main
-		//   merge-base --is-ancestor origin/main HEAD
-		//   describe --tags --abbrev=0 origin/main
-		//   status --porcelain
-		//   checkout origin/main -- .
-		//   log / show / diff (used by detectCliStale internally) — allowed
-		// Reject any line that references a remote other than origin/main.
-		if strings.Contains(line, "origin/") && !strings.Contains(line, "origin/main") {
-			t.Errorf("git invocation %d references a remote ref other than origin/main: %s", lineNum, line)
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		t.Fatalf("reading log: %v", err)
-	}
-	if lineNum == 0 {
-		t.Log("no git invocations recorded (repo may have been up-to-date or no .git found)")
-	}
-}
-
-// TestSelfupdate_DivergedBranch_SkipsClobberingCheckout is the WS6 regression lock.
-// On a diverged feature branch (local has a committed file NOT on origin/main, and
-// origin/main has advanced independently), selfupdate must NOT run the destructive
-// `git checkout origin/main -- .` overlay — doing so reverts the committed-but-not-on-main
-// file's content into a staged reversion (the live clobber the 2026-06-15 audit hit).
-//
-// The test asserts two things:
-//  1. The git invocation log contains NO `checkout origin/main -- .` call.
-//  2. The locally-committed tracked file's on-disk content survives unchanged.
-func TestSelfupdate_DivergedBranch_SkipsClobberingCheckout(t *testing.T) {
-	resetSelfupdateFlags(t)
-
-	// 1. Remote bare repo seeded with one commit on main.
-	remote := t.TempDir()
-	mustGit(t, remote, "init", "--bare", "-b", "main")
-
-	seed := t.TempDir()
-	mustGit(t, seed, "clone", remote, ".")
-	writeTestFile(t, seed, "shared.txt", "base\n")
-	mustGit(t, seed, "add", ".")
-	mustGit(t, seed, "commit", "-m", "initial")
-	mustGit(t, seed, "push", "origin", "main")
-
-	// 2. Local clone on a feature branch with a committed feature file (NOT on main).
-	local := t.TempDir()
-	mustGit(t, local, "clone", remote, ".")
-	mustGit(t, local, "checkout", "-b", "feature/clobber-guard")
-	featureFile := filepath.Join(local, "feature.txt")
-	const featureContent = "feature-only committed work\n"
-	if err := os.WriteFile(featureFile, []byte(featureContent), 0644); err != nil {
-		t.Fatalf("write feature file: %v", err)
-	}
-	mustGit(t, local, "add", "feature.txt")
-	mustGit(t, local, "commit", "-m", "feature-only commit")
-
-	// 3. Advance origin/main independently so local HEAD is DIVERGED (commits on both sides).
-	writeTestFile(t, seed, "shared.txt", "advanced-on-main\n")
-	mustGit(t, seed, "add", ".")
-	mustGit(t, seed, "commit", "-m", "advance main")
-	mustGit(t, seed, "push", "origin", "main")
-
-	selfupdateRepoOverride = local
-	// Run in NON-dry-run so the destructive overlay would genuinely fire without the guard.
-	// (install.sh does not exist in this temp repo, so the post-decision install step
-	// fails gracefully — RunE swallows it and returns nil.)
-	selfupdateDryRun = false
-
-	// Record every git invocation so we can assert the destructive checkout never fires.
-	logFile := filepath.Join(t.TempDir(), "git-invocations.log")
-	realGit, err := exec.LookPath("git")
-	if err != nil {
-		t.Fatalf("real git not found: %v", err)
-	}
-	scriptBody := fmt.Sprintf(`LOG=%q
-REAL_GIT=%q
-echo "$@" >> "$LOG"
-exec "$REAL_GIT" "$@"
-`, logFile, realGit)
-	shimGit(t, scriptBody)
-
-	if _, runErr := runSelfupdate(t); runErr != nil {
-		t.Fatalf("RunE returned error: %v", runErr)
-	}
-
-	// Assert 1: no clobbering checkout was invoked.
-	logBytes, err := os.ReadFile(logFile)
-	if err != nil {
-		t.Fatalf("read git log: %v", err)
-	}
-	logContent := string(logBytes)
-	if strings.Contains(logContent, "checkout origin/main -- .") {
-		t.Errorf("diverged branch must NOT run `git checkout origin/main -- .`, but it did:\n%s", logContent)
-	}
-
-	// Assert 2: the committed feature file's content survives unchanged on disk.
-	got, err := os.ReadFile(featureFile)
-	if err != nil {
-		t.Fatalf("read feature file after selfupdate: %v", err)
-	}
-	if string(got) != featureContent {
-		t.Errorf("committed feature file was clobbered: got %q, want %q", string(got), featureContent)
-	}
-}
-
-// TestSelfupdate_StrictlyBehind_RunsCheckout pins the inverse: when HEAD is strictly
-// an ancestor of origin/main (clean catch-up, no local divergence), the working-tree
-// overlay still runs. This guards against the clobber guard over-firing and breaking
-// the normal fast-forward update path.
-func TestSelfupdate_StrictlyBehind_RunsCheckout(t *testing.T) {
-	resetSelfupdateFlags(t)
-
-	// Remote seeded with one commit on main.
-	remote := t.TempDir()
-	mustGit(t, remote, "init", "--bare", "-b", "main")
-
-	seed := t.TempDir()
-	mustGit(t, seed, "clone", remote, ".")
-	writeTestFile(t, seed, "shared.txt", "base\n")
-	mustGit(t, seed, "add", ".")
-	mustGit(t, seed, "commit", "-m", "initial")
-	mustGit(t, seed, "push", "origin", "main")
-
-	// Local clone at the same commit, no local commits → strictly behind once main advances.
-	local := t.TempDir()
-	mustGit(t, local, "clone", remote, ".")
-
-	// Advance origin/main by one commit; local HEAD is now an ancestor of origin/main.
-	writeTestFile(t, seed, "shared.txt", "advanced\n")
-	mustGit(t, seed, "add", ".")
-	mustGit(t, seed, "commit", "-m", "advance main")
-	mustGit(t, seed, "push", "origin", "main")
-
-	selfupdateRepoOverride = local
-	selfupdateDryRun = true // overlay emits a dry-run trace line instead of touching disk
-
-	logFile := filepath.Join(t.TempDir(), "git-invocations.log")
-	realGit, err := exec.LookPath("git")
-	if err != nil {
-		t.Fatalf("real git not found: %v", err)
-	}
-	scriptBody := fmt.Sprintf(`LOG=%q
-REAL_GIT=%q
-echo "$@" >> "$LOG"
-exec "$REAL_GIT" "$@"
-`, logFile, realGit)
-	shimGit(t, scriptBody)
-
-	if _, runErr := runSelfupdate(t); runErr != nil {
-		t.Fatalf("RunE returned error: %v", runErr)
-	}
-
-	logBytes, err := os.ReadFile(logFile)
-	if err != nil {
-		t.Fatalf("read git log: %v", err)
-	}
-	// In dry-run, UpdatePortableRepo prints the would-run command but does not exec it,
-	// so the checkout will not appear in the git invocation log. Instead assert the
-	// strictly-behind path was taken by confirming IsBehindOriginMain agrees.
-	if !selfupdate.IsBehindOriginMain(local) {
-		t.Fatal("precondition: expected strictly-behind HEAD (IsBehindOriginMain=true)")
-	}
-	// And the diverged-skip message must NOT be present.
-	if strings.Contains(string(logBytes), "checkout origin/main -- .") {
-		// Real (non-dry) checkout shouldn't appear in dry-run; if it did the dry-run gating broke.
-		t.Errorf("dry-run must not exec the real checkout overlay:\n%s", string(logBytes))
-	}
-}
-
-// TestSelfupdate_DeepFlag_GatesExpensiveDetectors verifies that skill-SHA drift does
-// NOT trigger install when run WITHOUT --deep (the 4m6 gating), and DOES when --deep
-// is set. We construct a repo whose deployed skills manifest is drifted but origin/main
-// is in sync (no new commits), so the only signal that could fire is the skill-SHA
-// detector — which must be silent by default and active under --deep.
-func TestSelfupdate_DeepFlag_GatesExpensiveDetectors(t *testing.T) {
-	t.Run("default_skips_skill_sha_detector", func(t *testing.T) {
-		resetSelfupdateFlags(t)
-		// Repo exactly at origin/main (no git/CLI/hook drift), but skills manifest is missing
-		// → detectSkillsDrift would return true. Without --deep it must not be consulted.
-		repo := makeRepoWithOriginMain(t, "main")
-		selfupdateRepoOverride = repo
-		selfupdateVerbose = true
-		selfupdateDryRun = true
-
-		stderr, err := runSelfupdate(t)
-		if err != nil {
-			t.Fatalf("RunE error: %v", err)
-		}
-		// Skills drift must NOT be reported in the default (shallow) run.
-		if strings.Contains(stderr, "Skills drift detected") {
-			t.Errorf("default run must not consult the skill-SHA detector, got: %q", stderr)
-		}
-		// selfupdateDeep stays false in the default path.
-		if selfupdateDeep {
-			t.Error("selfupdateDeep must default to false")
+		if stderr != "" {
+			t.Errorf("default verbosity must stay silent, got: %q", stderr)
 		}
 	})
-}
-
-// ── detectSkillsDrift tests ───────────────────────────────────────────────────
-
-// skillDriftFixture builds a minimal repo+home pair with one source skill and a
-// matching manifest entry. Returns (repoDir, homeDir, skillSrcDir).
-// The fixture starts in-sync: manifest SHA matches source SHA.
-func skillDriftFixture(t *testing.T, skillName string) (repo, home, skillSrc string) {
-	t.Helper()
-	repo = t.TempDir()
-	home = t.TempDir()
-
-	skillSrc = filepath.Join(repo, "skills", skillName)
-	if err := os.MkdirAll(skillSrc, 0755); err != nil {
-		t.Fatalf("mkdir skillSrc: %v", err)
-	}
-	// Seed a SKILL.md and a reference file.
-	writeTestFile(t, skillSrc, "SKILL.md", "# "+skillName)
-	refDir := filepath.Join(skillSrc, "references")
-	if err := os.MkdirAll(refDir, 0755); err != nil {
-		t.Fatalf("mkdir refDir: %v", err)
-	}
-	writeTestFile(t, refDir, "guide.md", "initial content")
-
-	// Compute the SHA using the same function detectSkillsDrift uses, then write
-	// a matching manifest so the fixture starts in-sync.
-	sha, err := deploy.ComputeSkillSHA(skillSrc)
-	if err != nil {
-		t.Fatalf("ComputeSkillSHA: %v", err)
-	}
-	skillsRuntime := filepath.Join(home, ".claude", "skills")
-	if err := os.MkdirAll(skillsRuntime, 0755); err != nil {
-		t.Fatalf("mkdir runtime skills: %v", err)
-	}
-	manifestPath := filepath.Join(skillsRuntime, ".deploy-manifest.json")
-	manifestContent := fmt.Sprintf(`{"version":1,"skills":{%q:%q}}`, skillName, sha)
-	if err := os.WriteFile(manifestPath, []byte(manifestContent), 0644); err != nil {
-		t.Fatalf("write manifest: %v", err)
-	}
-	return repo, home, skillSrc
-}
-
-// TestDetectSkillsDrift_NoFalsePositiveWhenInSync asserts that when the manifest
-// SHA exactly matches the source skill SHA, detectSkillsDrift returns false.
-func TestDetectSkillsDrift_NoFalsePositiveWhenInSync(t *testing.T) {
-	repo, home, _ := skillDriftFixture(t, "plan")
-	// Fixture starts in sync.
-	if detectSkillsDrift(repo, home) {
-		t.Error("expected false (in-sync), got true (drift detected)")
-	}
-}
-
-// TestDetectSkillsDrift_MissingManifestReturnsTrue verifies that when the manifest
-// file does not exist, detectSkillsDrift returns true so install.sh creates it.
-func TestDetectSkillsDrift_MissingManifestReturnsTrue(t *testing.T) {
-	repo, home, _ := skillDriftFixture(t, "plan")
-
-	// Remove the manifest file.
-	manifestPath := filepath.Join(home, ".claude", "skills", ".deploy-manifest.json")
-	if err := os.Remove(manifestPath); err != nil {
-		t.Fatalf("remove manifest: %v", err)
-	}
-
-	if !detectSkillsDrift(repo, home) {
-		t.Error("expected true (manifest missing), got false")
-	}
-}
-
-// TestDetectSkillsDrift_DetectsChangeInsideSkillNonSKILLMd verifies that modifying
-// a non-SKILL.md file inside a skill directory triggers drift detection.
-// Today's mtime-based check FAILS this case; the SHA-based check must catch it.
-func TestDetectSkillsDrift_DetectsChangeInsideSkillNonSKILLMd(t *testing.T) {
-	repo, home, skillSrc := skillDriftFixture(t, "plan")
-
-	// Modify a non-SKILL.md file (simulates a reference file update).
-	writeTestFile(t, filepath.Join(skillSrc, "references"), "guide.md", "MODIFIED content")
-
-	if !detectSkillsDrift(repo, home) {
-		t.Error("expected true (non-SKILL.md file modified), got false")
-	}
-}
-
-// TestDetectSkillsDrift_DetectsAddedFileInsideSkill verifies that adding a new file
-// inside a skill directory triggers drift detection.
-func TestDetectSkillsDrift_DetectsAddedFileInsideSkill(t *testing.T) {
-	repo, home, skillSrc := skillDriftFixture(t, "plan")
-
-	// Add a new file to the skill.
-	writeTestFile(t, filepath.Join(skillSrc, "references"), "new-file.md", "new content")
-
-	if !detectSkillsDrift(repo, home) {
-		t.Error("expected true (file added inside skill), got false")
-	}
-}
-
-// TestDetectSkillsDrift_DetectsRemovedFileInsideSkill verifies that removing a file
-// inside a skill directory triggers drift detection.
-func TestDetectSkillsDrift_DetectsRemovedFileInsideSkill(t *testing.T) {
-	repo, home, skillSrc := skillDriftFixture(t, "plan")
-
-	// Remove the reference file.
-	if err := os.Remove(filepath.Join(skillSrc, "references", "guide.md")); err != nil {
-		t.Fatalf("remove file: %v", err)
-	}
-
-	if !detectSkillsDrift(repo, home) {
-		t.Error("expected true (file removed inside skill), got false")
-	}
-}
-
-// TestDetectSkillsDrift_DetectsRenamedFile verifies that renaming a file inside a
-// skill directory triggers drift detection (old name gone, new name added).
-func TestDetectSkillsDrift_DetectsRenamedFile(t *testing.T) {
-	repo, home, skillSrc := skillDriftFixture(t, "plan")
-
-	refDir := filepath.Join(skillSrc, "references")
-	oldPath := filepath.Join(refDir, "guide.md")
-	newPath := filepath.Join(refDir, "renamed.md")
-
-	// Read old content, write to new name, remove old.
-	content, err := os.ReadFile(oldPath)
-	if err != nil {
-		t.Fatalf("read old file: %v", err)
-	}
-	if err := os.WriteFile(newPath, content, 0644); err != nil {
-		t.Fatalf("write new file: %v", err)
-	}
-	if err := os.Remove(oldPath); err != nil {
-		t.Fatalf("remove old file: %v", err)
-	}
-
-	if !detectSkillsDrift(repo, home) {
-		t.Error("expected true (file renamed inside skill), got false")
-	}
-}
-
-// TestDetectSkillsDrift_IgnoresNonRuntimeSharedDir verifies that a skills/shared/
-// directory (non-runtime shared docs, no SKILL.md) does NOT trigger drift.
-// deploy.Deploy() never writes shared/ to the manifest; before the R-0004 fix
-// detectSkillsDrift iterated it, found it absent from the manifest via the
-// !inManifest branch, and reported perpetual false-positive drift — re-arming
-// the verify-install marker on every SessionStart.
-func TestDetectSkillsDrift_IgnoresNonRuntimeSharedDir(t *testing.T) {
-	repo, home, _ := skillDriftFixture(t, "plan")
-
-	// Add a non-runtime shared-asset directory with no SKILL.md, mirroring the
-	// real skills/shared/ dir. It is intentionally absent from the manifest.
-	sharedDir := filepath.Join(repo, "skills", "shared")
-	if err := os.MkdirAll(sharedDir, 0755); err != nil {
-		t.Fatalf("mkdir shared: %v", err)
-	}
-	writeTestFile(t, sharedDir, "pipeline.md", "shared reference doc")
-
-	if detectSkillsDrift(repo, home) {
-		t.Error("expected false (skills/shared/ is non-runtime, must be ignored), got true")
-	}
-}
-
-// TestDetectSkillsDrift_IgnoresUnderscoreSharedDir is the _shared/ counterpart of
-// TestDetectSkillsDrift_IgnoresNonRuntimeSharedDir — deploy.NonRuntimeSkillDir
-// gates both "shared" and "_shared", so the drift detector must ignore both.
-func TestDetectSkillsDrift_IgnoresUnderscoreSharedDir(t *testing.T) {
-	repo, home, _ := skillDriftFixture(t, "plan")
-
-	// Add a _shared/ non-runtime directory with no SKILL.md, absent from the manifest.
-	sharedDir := filepath.Join(repo, "skills", "_shared")
-	if err := os.MkdirAll(sharedDir, 0755); err != nil {
-		t.Fatalf("mkdir _shared: %v", err)
-	}
-	writeTestFile(t, sharedDir, "helper.md", "shared reference doc")
-
-	if detectSkillsDrift(repo, home) {
-		t.Error("expected false (skills/_shared/ is non-runtime, must be ignored), got true")
-	}
-}
-
-func TestManifestDiffSkillNames_PrefixesCodexChanges(t *testing.T) {
-	before := deploy.Manifest{Version: 1, Skills: map[string]string{
-		"plan":    "old",
-		"finish":  "same",
-		"removed": "gone",
-	}}
-	after := deploy.Manifest{Version: 1, Skills: map[string]string{
-		"plan":   "new",
-		"finish": "same",
-		"added":  "sha",
-	}}
-
-	got := manifestDiffSkillNames(before, after, "codex:")
-	want := map[string]bool{
-		"codex:plan":    true,
-		"codex:added":   true,
-		"codex:removed": true,
-	}
-	if len(got) != len(want) {
-		t.Fatalf("got %d changes %v, want %d", len(got), got, len(want))
-	}
-	for _, name := range got {
-		if !want[name] {
-			t.Fatalf("unexpected change %q in %v", name, got)
-		}
-	}
 }
 
 func TestWriteSelfupdateMarkers_WritesSharedAndLegacyVerifyMarkers(t *testing.T) {
@@ -872,75 +245,6 @@ func TestSelfupdateAlias_UpdateInvokesSelfupdate(t *testing.T) {
 	}
 	if cmd.Use != "selfupdate" {
 		t.Errorf("expected Use='selfupdate', got %q", cmd.Use)
-	}
-}
-
-// TestIsBehindOriginMain_DetectsCommitsOnHomologCheckout verifies that
-// IsBehindOriginMain returns true when the repo is checked out on homolog but
-// origin/main has new commits ahead of local main.
-func TestIsBehindOriginMain_DetectsCommitsOnHomologCheckout(t *testing.T) {
-	// Build a repo on homolog with origin/main at the same initial commit.
-	repo := makeRepoWithOriginMain(t, "homolog")
-
-	// At this point local homolog and origin/main share the same commit.
-	// origin/main is NOT ahead of HEAD (homolog == same commit as main).
-	// IsBehindOriginMain uses HEAD, so we need to check its behavior here:
-	// homolog is at the same commit as origin/main → should return false.
-	if selfupdate.IsBehindOriginMain(repo) {
-		t.Error("expected false when homolog is at same commit as origin/main, got true")
-	}
-
-	// Now advance origin/main by one commit (via a separate seed repo).
-	// We need to push to the remote. Retrieve remote URL from the clone.
-	remoteURL := mustGit(t, repo, "remote", "get-url", "origin")
-
-	// Create a seed clone to push a new commit to origin/main.
-	seed := t.TempDir()
-	mustGit(t, seed, "clone", remoteURL, ".")
-	writeTestFile(t, seed, "advance.md", "advance")
-	mustGit(t, seed, "add", ".")
-	mustGit(t, seed, "commit", "-m", "advance origin/main")
-	mustGit(t, seed, "push", "origin", "main")
-
-	// Fetch the updated origin/main into the local repo (selfupdate does this before calling IsBehindOriginMain).
-	mustGit(t, repo, "fetch", "origin", "main")
-
-	// Now origin/main is one commit ahead of HEAD (homolog).
-	// IsBehindOriginMain should return true because HEAD is an ancestor of origin/main.
-	if !selfupdate.IsBehindOriginMain(repo) {
-		t.Error("expected true when origin/main is ahead of HEAD (on homolog), got false")
-	}
-}
-
-// TestSkillIsEnabled_DetectsCoreInLongFrontmatter guards against the regressed
-// 512-byte prefix-read in skillIsEnabled — drift detection silently dropped any
-// skill whose `core: true` field landed past the 512-byte mark in its SKILL.md
-// frontmatter. The fix delegates to deploy.IsSkillCore which scans the full
-// frontmatter block via bufio.Scanner.
-func TestSkillIsEnabled_DetectsCoreInLongFrontmatter(t *testing.T) {
-	skillDir := t.TempDir()
-	// Build a SKILL.md whose frontmatter exceeds 512 bytes BEFORE the
-	// `core: true` line. The old prefix-read truncated this and missed it.
-	var b strings.Builder
-	b.WriteString("---\n")
-	b.WriteString("name: bigfrontmatter\n")
-	b.WriteString("description: >\n")
-	for i := 0; i < 12; i++ {
-		// Padding deliberately avoids the literal `core: true` substring so the
-		// fixture's own assertion below finds the field at the intended offset.
-		b.WriteString("  intentionally long padding line to push the canonical key past 512 bytes\n")
-	}
-	b.WriteString("core: true\n")
-	b.WriteString("---\n\n# body\n")
-	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(b.String()), 0644); err != nil {
-		t.Fatalf("write SKILL.md: %v", err)
-	}
-	if offset := strings.Index(b.String(), "core: true"); offset < 512 {
-		t.Fatalf("test fixture broken: `core: true` at byte %d, must be > 512", offset)
-	}
-
-	if !skillIsEnabled("bigfrontmatter", skillDir, []string{"otherallowlistedskill"}) {
-		t.Error("expected skillIsEnabled=true for core skill with long frontmatter, got false")
 	}
 }
 
@@ -1257,48 +561,60 @@ func TestDetectHookDrift_NoCanonical_ReturnsEmptyReport(t *testing.T) {
 	}
 }
 
-// TestSelfupdate_HookDriftIntegratesWithDecisionGate verifies that when
-// hookReport.NeedsRefresh is true, it gates the selfupdate decision correctly.
-// We test this indirectly by confirming detectHookDrift integrates into the gate:
-// a repo with an old-canonical hook (NeedsRefresh=true) must not be silently
-// skipped by the `!repoNeedsSync && !skillsDrift && !cliStale && !scriptsDrift`
-// early-return.  We validate the HookDriftReport struct's contract directly.
-func TestSelfupdate_HookDriftIntegratesWithDecisionGate(t *testing.T) {
+// TestSelfupdate_HookDriftIntegratesWithFetchPath is the fetch-path successor of
+// the clone lane's decision-gate test. The clone lane folded hook drift into a
+// composite `!repoNeedsSync && !skillsDrift && !cliStale && ...` early return;
+// that expression is gone, but the coverage it stood for is not: hook drift must
+// still be acted on when the payload itself is already in sync, i.e. BEFORE the
+// !res.Behind early return in selfupdateViaFetch.
+//
+// A drifting commit-msg hook is a property of the project you are sitting in, so
+// the scan target is the working directory — hence t.Chdir.
+func TestSelfupdate_HookDriftIntegratesWithFetchPath(t *testing.T) {
+	resetSelfupdateFlags(t)
+	t.Setenv("BRAVROS_CONFIG_DIR", t.TempDir())
+
 	repo, home := hookDriftFixture(t, currentCanonicalContent)
+
+	payloadDir := t.TempDir()
+	selfupdateFetchPayloadDirOverride = payloadDir
+	writeInstalledTag(t, payloadDir, "v1.0.0")
+	// In sync: nothing to fetch, nothing to deploy — only hook drift can act.
+	fake := &fakeFetchClient{resolveTag: "v1.0.0"}
+	selfupdateFetchClientOverride = fake
 
 	// Write an old-canonical hook so NeedsRefresh is true.
 	hookDir := filepath.Join(repo, ".githooks")
 	if err := os.MkdirAll(hookDir, 0755); err != nil {
 		t.Fatalf("mkdir .githooks: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(hookDir, "commit-msg"), []byte("#!/bin/bash\n# bravros-managed-commit-msg-hook v0\nexit 0\n"), 0755); err != nil {
+	hookPath := filepath.Join(hookDir, "commit-msg")
+	if err := os.WriteFile(hookPath, []byte("#!/bin/bash\n# bravros-managed-commit-msg-hook v0\nexit 0\n"), 0755); err != nil {
 		t.Fatalf("write hook: %v", err)
 	}
-
-	report := detectHookDrift(repo, home)
-
-	if !report.NeedsRefresh {
+	if !detectHookDrift(repo, home).NeedsRefresh {
 		t.Fatal("precondition: expected NeedsRefresh=true, got false")
 	}
 
-	// Simulate the gate expression from selfupdateCmd.RunE:
-	// if !repoNeedsSync && !skillsDrift && !cliStale && !scriptsDrift && !hookReport.NeedsRefresh { return nil }
-	// With NeedsRefresh=true, the gate must NOT trigger the early return.
-	repoNeedsSync := false
-	skillsDrift := false
-	cliStale := false
-	scriptsDrift := false
-	wouldSkip := !repoNeedsSync && !skillsDrift && !cliStale && !scriptsDrift && !report.NeedsRefresh
+	t.Chdir(repo)
 
-	if wouldSkip {
-		t.Error("gate incorrectly skipped selfupdate when hook drift NeedsRefresh=true")
+	var err error
+	captureStderr(t, func() { err = selfupdateViaFetch(home) })
+	if err != nil {
+		t.Fatalf("in-sync run with hook drift must not error, got: %v", err)
+	}
+	if fake.fetchCalls != 0 {
+		t.Fatalf("precondition: in-sync run must not fetch, got %d FetchPayload call(s)", fake.fetchCalls)
 	}
 
-	// Also verify the inverse: with all false (no hook drift), the gate triggers.
-	emptyReport := HookDriftReport{}
-	wouldSkipEmpty := !repoNeedsSync && !skillsDrift && !cliStale && !scriptsDrift && !emptyReport.NeedsRefresh
-	if !wouldSkipEmpty {
-		t.Error("gate should skip when no drift at all, but did not")
+	// The drifting hook must have been refreshed to the canonical content even
+	// though the payload had nothing to say.
+	got, readErr := os.ReadFile(hookPath)
+	if readErr != nil {
+		t.Fatalf("read hook after selfupdate: %v", readErr)
+	}
+	if string(got) != currentCanonicalContent {
+		t.Errorf("old-canonical hook must be refreshed on an in-sync fetch run:\n got: %q\nwant: %q", got, currentCanonicalContent)
 	}
 }
 
@@ -1342,90 +658,6 @@ func TestDetectHookDrift_HistoricalMD5Pristine(t *testing.T) {
 	}
 }
 
-// ── detectCliStale tests ──────────────────────────────────────────────────────
-
-// TestDetectCliStale_TagOnlyDrift verifies that detectCliStale returns true when
-// origin/main has a newer release tag but no new commits beyond what local HEAD
-// already knows.  This is the regression target for the --tags omission: without
-// `--tags` in the fetch, `git describe --tags --abbrev=0 origin/main` returns the
-// last locally-known tag (stale), and the function silently returns false.
-//
-// The test wires up a real git fixture:
-//  1. bare remote, seeded with one commit on main (tag v0.1.0)
-//  2. local clone (same commit, same tag) — in-sync baseline asserts false
-//  3. push a new tag (v0.2.0) to origin WITHOUT any new commit
-//  4. fetch --tags into the local clone
-//  5. assert detectCliStale returns true (installed "v0.1.0" ≠ origin/main latest "v0.2.0")
-//
-// Because we cannot control what `bravros version` returns in the test environment,
-// we instead call detectCliStale with a fake `cli` binary that prints a fixed
-// installed-version string, letting us exercise the tag-comparison logic directly.
-func TestDetectCliStale_TagOnlyDrift(t *testing.T) {
-	// 1. Create the remote bare repo.
-	remote := t.TempDir()
-	mustGit(t, remote, "init", "--bare", "-b", "main")
-
-	// 2. Seed the remote with one commit and tag v0.1.0.
-	// Use mustGitAt with a fixed early date for v0.1.0 so that when v0.2.0 is
-	// later tagged at a strictly-later date on the same commit, git describe
-	// deterministically picks v0.2.0 (latest tagger date wins). Without pinning
-	// dates both tags get the same wall-clock timestamp and describe tie-breaks
-	// unpredictably (B-0315).
-	seed := t.TempDir()
-	mustGit(t, seed, "clone", remote, ".")
-	writeTestFile(t, seed, "README.md", "# initial")
-	mustGit(t, seed, "add", ".")
-	mustGit(t, seed, "commit", "-m", "initial commit")
-	mustGit(t, seed, "push", "origin", "main")
-	mustGitAt(t, seed, "2020-01-01T00:00:00 +0000", "-c", "tag.gpgSign=false", "tag", "-a", "v0.1.0", "-m", "release v0.1.0")
-	mustGit(t, seed, "push", "origin", "v0.1.0")
-
-	// 3. Clone locally — starts fully in-sync (same commit, same tag).
-	local := t.TempDir()
-	mustGit(t, local, "clone", remote, ".")
-	// Fetch tags into the local clone so it knows v0.1.0.
-	mustGit(t, local, "fetch", "origin", "main", "--tags")
-
-	// Build a fake `bravros` binary that prints "bravros v0.1.0"
-	// (matches origin/main's current tag -> should return false).
-	fakeCLI := filepath.Join(t.TempDir(), "bravros-fake")
-	fakeBody := "#!/bin/sh\necho 'bravros v0.1.0'\n"
-	if err := os.WriteFile(fakeCLI, []byte(fakeBody), 0o755); err != nil {
-		t.Fatalf("write fake bravros: %v", err)
-	}
-
-	// Baseline: installed matches origin/main tag -> detectCliStale must return false.
-	if detectCliStale(fakeCLI, local) {
-		t.Fatal("baseline: expected false (installed tag matches origin/main tag), got true")
-	}
-
-	// 4. Push a NEW tag v0.2.0 to origin from seed WITHOUT any new commit.
-	// Use a strictly-later date than v0.1.0 so git describe always returns v0.2.0
-	// when both annotated tags sit on the same commit (B-0315 hermeticity fix).
-	mustGitAt(t, seed, "2020-06-01T00:00:00 +0000", "-c", "tag.gpgSign=false", "tag", "-a", "v0.2.0", "-m", "release v0.2.0")
-	mustGit(t, seed, "push", "origin", "v0.2.0")
-
-	// 5. Simulate what selfupdate does: fetch --tags into the local clone.
-	// This is the exact command after the P-0173 fix; without --tags the new tag
-	// would NOT be fetched and detectCliStale would still return false.
-	mustGit(t, local, "fetch", "origin", "main", "--tags")
-
-	// Now origin/main's latest tag is v0.2.0 but installed is still v0.1.0.
-	// detectCliStale must return true.
-	if !detectCliStale(fakeCLI, local) {
-		t.Error("expected true (tag-only drift: origin/main=v0.2.0, installed=v0.1.0), got false")
-	}
-
-	// 6. Confirm the inverse: update the fake CLI to report v0.2.0 -> back to false.
-	fakeCLI2 := filepath.Join(t.TempDir(), "bravros-fake2")
-	if err := os.WriteFile(fakeCLI2, []byte("#!/bin/sh\necho 'bravros v0.2.0'\n"), 0o755); err != nil {
-		t.Fatalf("write fake bravros2: %v", err)
-	}
-	if detectCliStale(fakeCLI2, local) {
-		t.Error("expected false when installed matches latest tag, got true")
-	}
-}
-
 // ── check-TTL cache (B-0345) ─────────────────────────────────────────────────
 
 // checkMarkerPath returns the cache marker path under the given fake HOME.
@@ -1452,17 +684,27 @@ func writeCheckMarker(t *testing.T, home string, age time.Duration) {
 	}
 }
 
-// TestSelfupdate_CheckCache_FreshMarkerSkipsCheck verifies that a marker
-// younger than the TTL short-circuits the run before any git invocation.
-func TestSelfupdate_CheckCache_FreshMarkerSkipsCheck(t *testing.T) {
-	resetSelfupdateFlags(t)
-	home := t.TempDir()
+// setupCheckCacheTest wires an isolated HOME + payload dir + fake fetch client
+// for the TTL-cache tests, and returns (home, fake). The caller sets
+// BRAVROS_SELFUPDATE_TTL itself. The fake is in-sync (installed tag == remote
+// tag), so a run that reaches the fetch path is observable purely through
+// fake.resolveCalls without producing output or deploying anything.
+func setupCheckCacheTest(t *testing.T) (string, *fakeFetchClient) {
+	t.Helper()
+	home, payloadDir := setupFetchPathTest(t)
 	t.Setenv("HOME", home)
+	writeInstalledTag(t, payloadDir, "v1.0.0")
+	fake := &fakeFetchClient{resolveTag: "v1.0.0"}
+	selfupdateFetchClientOverride = fake
+	return home, fake
+}
+
+// TestSelfupdate_CheckCache_FreshMarkerSkipsCheck verifies that a marker
+// younger than the TTL short-circuits the run before the remote check.
+func TestSelfupdate_CheckCache_FreshMarkerSkipsCheck(t *testing.T) {
+	home, fake := setupCheckCacheTest(t)
 	t.Setenv("BRAVROS_SELFUPDATE_TTL", "6h")
 	writeCheckMarker(t, home, 0)
-
-	binDir := shimGit(t, `echo "$@" >> "$(dirname "$0")/git.log"; exit 1`)
-	selfupdateRepoOverride = t.TempDir()
 	selfupdateVerbose = true
 
 	stderr, err := runSelfupdate(t)
@@ -1472,85 +714,59 @@ func TestSelfupdate_CheckCache_FreshMarkerSkipsCheck(t *testing.T) {
 	if !strings.Contains(stderr, "selfupdate checked") {
 		t.Errorf("verbose cache hit must mention the cached check, got: %q", stderr)
 	}
-	if _, statErr := os.Stat(filepath.Join(binDir, "git.log")); statErr == nil {
-		t.Error("cache hit must not invoke git at all, but git was called")
+	if fake.resolveCalls != 0 {
+		t.Errorf("cache hit must not reach the remote check, but ResolveLatestTag was called %d time(s)", fake.resolveCalls)
 	}
 }
 
 // TestSelfupdate_CheckCache_StaleMarkerRunsCheck verifies that a marker older
-// than the TTL does NOT short-circuit — the real check (git fetch) runs.
+// than the TTL does NOT short-circuit — the real remote check runs.
 func TestSelfupdate_CheckCache_StaleMarkerRunsCheck(t *testing.T) {
-	resetSelfupdateFlags(t)
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home, fake := setupCheckCacheTest(t)
 	t.Setenv("BRAVROS_SELFUPDATE_TTL", "1h")
 	writeCheckMarker(t, home, 2*time.Hour)
-
-	binDir := shimGit(t, `echo "$@" >> "$(dirname "$0")/git.log"; exit 1`)
-	repo := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
-		t.Fatalf("mkdir fake .git: %v", err)
-	}
-	selfupdateRepoOverride = repo
 
 	if _, err := runSelfupdate(t); err != nil {
 		t.Fatalf("stale marker run must not error, got: %v", err)
 	}
-	if _, statErr := os.Stat(filepath.Join(binDir, "git.log")); statErr != nil {
-		t.Error("stale marker must run the real check (git fetch), but git was never called")
+	if fake.resolveCalls != 1 {
+		t.Errorf("stale marker must run the real check; ResolveLatestTag called %d time(s), want 1", fake.resolveCalls)
 	}
 }
 
 // TestSelfupdate_CheckCache_ForceBypasses verifies --force ignores a fresh marker.
 func TestSelfupdate_CheckCache_ForceBypasses(t *testing.T) {
-	resetSelfupdateFlags(t)
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home, fake := setupCheckCacheTest(t)
 	t.Setenv("BRAVROS_SELFUPDATE_TTL", "6h")
 	writeCheckMarker(t, home, 0)
-
-	binDir := shimGit(t, `echo "$@" >> "$(dirname "$0")/git.log"; exit 1`)
-	repo := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
-		t.Fatalf("mkdir fake .git: %v", err)
-	}
-	selfupdateRepoOverride = repo
 	selfupdateForce = true
 
 	if _, err := runSelfupdate(t); err != nil {
 		t.Fatalf("--force run must not error, got: %v", err)
 	}
-	if _, statErr := os.Stat(filepath.Join(binDir, "git.log")); statErr != nil {
-		t.Error("--force must bypass the cache and run the real check, but git was never called")
+	if fake.resolveCalls != 1 {
+		t.Errorf("--force must bypass the cache; ResolveLatestTag called %d time(s), want 1", fake.resolveCalls)
 	}
 }
 
 // TestSelfupdate_CheckCache_MarkerStampedAfterCompletedCheck verifies that a
-// completed no-drift check stamps the marker so the next session cache-hits.
+// completed in-sync check stamps the marker so the next session cache-hits.
 func TestSelfupdate_CheckCache_MarkerStampedAfterCompletedCheck(t *testing.T) {
-	resetSelfupdateFlags(t)
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home, _ := setupCheckCacheTest(t)
 	t.Setenv("BRAVROS_SELFUPDATE_TTL", "6h")
 
-	selfupdateRepoOverride = makeRepoWithOriginMain(t, "main")
-
 	if _, err := runSelfupdate(t); err != nil {
-		t.Fatalf("no-drift run must not error, got: %v", err)
+		t.Fatalf("in-sync run must not error, got: %v", err)
 	}
 	if _, statErr := os.Stat(checkMarkerPath(home)); statErr != nil {
-		t.Error("completed no-drift check must stamp the cache marker, but it does not exist")
+		t.Error("completed in-sync check must stamp the cache marker, but it does not exist")
 	}
 }
 
 // TestSelfupdate_CheckCache_DryRunLeavesNoMarker verifies --dry-run never stamps.
 func TestSelfupdate_CheckCache_DryRunLeavesNoMarker(t *testing.T) {
-	resetSelfupdateFlags(t)
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home, _ := setupCheckCacheTest(t)
 	t.Setenv("BRAVROS_SELFUPDATE_TTL", "6h")
-
-	selfupdateRepoOverride = makeRepoWithOriginMain(t, "main")
 	selfupdateDryRun = true
 
 	if _, err := runSelfupdate(t); err != nil {
@@ -1839,29 +1055,18 @@ func TestSelfupdateFetchPathBehindFetchesAndDeploys(t *testing.T) {
 	}
 }
 
-// TestSelfupdateFetchPathDoesNotPruneTargetDir verifies that the fetch path's
-// deploy call never orphan-prunes the target dir. The fetched payload is a
-// PARTIAL source tree by construction (skills/ + templates/ only — no hooks/
-// or agents/ ship in it at all), so "absent from payload" must never be read
-// as "deleted upstream, prune it". Pruning against a partial source tree would
-// wipe every hand-installed hook, agent, and skill on the very first automatic
-// SessionStart fetch.
-func TestSelfupdateFetchPathDoesNotPruneTargetDir(t *testing.T) {
-	home, payloadDir := setupFetchPathTest(t)
-	writeInstalledTag(t, payloadDir, "v1.0.0")
-
-	targetDir := t.TempDir()
-	selfupdateFetchTargetDirOverride = targetDir
-
-	// Pre-populate the target dir with user-owned content that has NO
-	// counterpart in the fetched payload (fake payload only ships
-	// skills/fakeskill and templates/fake.md — see writeFakePayloadTree).
-	preExisting := map[string]string{
+// seedFetchTargetRuntime pre-populates the fetch-path target dir with the
+// user-owned content a real ~/.claude carries and that the fake payload has NO
+// counterpart for: a hand-installed hook, a hand-written agent, and a skill.
+// Returns the path→content map it wrote.
+func seedFetchTargetRuntime(t *testing.T, targetDir string) map[string]string {
+	t.Helper()
+	seeded := map[string]string{
 		filepath.Join(targetDir, "hooks", "pre-push"):                 "#!/bin/sh\necho pre-push\n",
 		filepath.Join(targetDir, "agents", "my-agent.md"):             "# my-agent\n",
 		filepath.Join(targetDir, "skills", "handwritten", "SKILL.md"): "# handwritten\n",
 	}
-	for path, content := range preExisting {
+	for path, content := range seeded {
 		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 			t.Fatalf("mkdir %s: %v", filepath.Dir(path), err)
 		}
@@ -1869,12 +1074,41 @@ func TestSelfupdateFetchPathDoesNotPruneTargetDir(t *testing.T) {
 			t.Fatalf("write %s: %v", path, err)
 		}
 	}
+	return seeded
+}
 
-	fake := &fakeFetchClient{
+// isolatePreserveConfig points config.PreservedSkills()/EnabledSkills() at a
+// throwaway .bravros.yml so a test never reads a config it did not write.
+//
+// The resolution chain is cwd → $BRAVROS_PORTABLE_REPO → $HOME (see
+// cli/internal/config/preserve.go). cwd during `go test ./cmd/` is cli/cmd,
+// which DOES carry a .bravros/config.json fixture and would otherwise win the
+// chain — hence the chdir to an empty dir. The declared config is then written
+// into the $BRAVROS_PORTABLE_REPO dir, so a passing test is also proof that the
+// env-var hint still resolves .bravros.yml (P-0014 retires the portable-repo
+// clone LANE, not this hint). Passing yaml == "" isolates without declaring.
+func isolatePreserveConfig(t *testing.T, yaml string) {
+	t.Helper()
+	t.Chdir(t.TempDir()) // empty cwd — nothing to find at chain step 1
+	t.Setenv("HOME", t.TempDir())
+	hint := t.TempDir()
+	t.Setenv("BRAVROS_PORTABLE_REPO", hint)
+	if yaml != "" {
+		if err := os.WriteFile(filepath.Join(hint, ".bravros.yml"), []byte(yaml), 0644); err != nil {
+			t.Fatalf("write .bravros.yml: %v", err)
+		}
+	}
+}
+
+// runFetchPathDeploy drives one behind→fetch→deploy cycle against targetDir.
+func runFetchPathDeploy(t *testing.T, home, payloadDir, targetDir string) {
+	t.Helper()
+	writeInstalledTag(t, payloadDir, "v1.0.0")
+	selfupdateFetchTargetDirOverride = targetDir
+	selfupdateFetchClientOverride = &fakeFetchClient{
 		resolveTag:   "v2.0.0",
 		writePayload: func(destDir string) error { writeFakePayloadTree(t, destDir); return nil },
 	}
-	selfupdateFetchClientOverride = fake
 
 	var err error
 	captureStderr(t, func() {
@@ -1883,43 +1117,120 @@ func TestSelfupdateFetchPathDoesNotPruneTargetDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("behind run must not error, got: %v", err)
 	}
+}
 
-	for path, want := range preExisting {
-		got, readErr := os.ReadFile(path)
+// TestSelfupdateFetchPathNeverPrunesHooksOrAgents is the safety guard for
+// P-0014 Phase 4. The fetch path now DOES orphan-prune (it is the only delivery
+// path left, so a skill deleted upstream has to be removed), but pruning is
+// scoped to skills+templates — the subtrees the payload actually ships.
+// ~/.claude/hooks and ~/.claude/agents are content bravros does not own at the
+// target and must come through a fetch-path deploy byte-for-byte intact.
+func TestSelfupdateFetchPathNeverPrunesHooksOrAgents(t *testing.T) {
+	home, payloadDir := setupFetchPathTest(t)
+	isolatePreserveConfig(t, "")
+
+	targetDir := t.TempDir()
+	seeded := seedFetchTargetRuntime(t, targetDir)
+
+	runFetchPathDeploy(t, home, payloadDir, targetDir)
+
+	for _, rel := range []string{
+		filepath.Join(targetDir, "hooks", "pre-push"),
+		filepath.Join(targetDir, "agents", "my-agent.md"),
+	} {
+		got, readErr := os.ReadFile(rel)
 		if readErr != nil {
-			t.Errorf("pre-existing user-owned file %s must survive the fetch-path deploy, but: %v", path, readErr)
+			t.Errorf("user-owned file %s must survive the fetch-path deploy, but: %v", rel, readErr)
 			continue
 		}
-		if string(got) != want {
-			t.Errorf("pre-existing file %s content changed: got %q, want %q", path, got, want)
+		if string(got) != seeded[rel] {
+			t.Errorf("user-owned file %s content changed: got %q, want %q", rel, got, seeded[rel])
 		}
 	}
 }
 
-// TestSelfupdateFetchPathSkippedWhenPortableRepoExists verifies that when a
-// valid portable repo clone exists (.git present), selfupdateCmd.RunE never
-// enters the fetch path at all — the fake resolver must never be called.
-func TestSelfupdateFetchPathSkippedWhenPortableRepoExists(t *testing.T) {
-	home, _ := setupFetchPathTest(t)
-	t.Setenv("HOME", home)
+// TestSelfupdateFetchPathPrunesSkillAbsentFromPayload is the other half of the
+// same change: the payload IS the complete deployable tree, so a skill sitting
+// at the target with no counterpart in it was deleted upstream and has to go.
+// Before P-0014 the clone lane did this; with that lane retired, the fetch path
+// owns it — without this, a removed skill would linger on every machine forever.
+func TestSelfupdateFetchPathPrunesSkillAbsentFromPayload(t *testing.T) {
+	home, payloadDir := setupFetchPathTest(t)
+	isolatePreserveConfig(t, "")
 
-	repo := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
-		t.Fatalf("mkdir fake .git: %v", err)
+	targetDir := t.TempDir()
+	seedFetchTargetRuntime(t, targetDir)
+
+	runFetchPathDeploy(t, home, payloadDir, targetDir)
+
+	orphan := filepath.Join(targetDir, "skills", "handwritten")
+	if _, err := os.Stat(orphan); !os.IsNotExist(err) {
+		t.Errorf("skills/handwritten has no counterpart in the payload and must be pruned (stat err: %v)", err)
 	}
-	selfupdateRepoOverride = repo
+	// The payload's own skill still lands — pruning must not eat the deploy.
+	if _, err := os.Stat(filepath.Join(targetDir, "skills", "fakeskill", "SKILL.md")); err != nil {
+		t.Errorf("payload skill must be deployed: %v", err)
+	}
+}
 
-	fake := &fakeFetchClient{resolveTag: "v9.9.9"}
+// TestSelfupdateFetchPathHonorsPreservedSkills — skills.preserve is the opt-in
+// escape hatch from the prune above, and it must keep working on the fetch path.
+// Doubles as a live check that $BRAVROS_PORTABLE_REPO still works as the
+// .bravros.yml resolution hint (P-0014 keeps that contract even though the
+// portable-repo CLONE lane is gone).
+func TestSelfupdateFetchPathHonorsPreservedSkills(t *testing.T) {
+	home, payloadDir := setupFetchPathTest(t)
+	isolatePreserveConfig(t, "skills:\n  preserve:\n    - handwritten\n")
+
+	if got := config.PreservedSkills(); len(got) != 1 || got[0] != "handwritten" {
+		t.Fatalf("test setup: config.PreservedSkills() = %v, want [handwritten]", got)
+	}
+
+	targetDir := t.TempDir()
+	seeded := seedFetchTargetRuntime(t, targetDir)
+
+	runFetchPathDeploy(t, home, payloadDir, targetDir)
+
+	preserved := filepath.Join(targetDir, "skills", "handwritten", "SKILL.md")
+	got, readErr := os.ReadFile(preserved)
+	if readErr != nil {
+		t.Fatalf("preserved skill must survive the fetch-path deploy, but: %v", readErr)
+	}
+	if string(got) != seeded[preserved] {
+		t.Errorf("preserved skill content changed: got %q, want %q", got, seeded[preserved])
+	}
+}
+
+// TestSelfupdateFetchPathTakenEvenWhenCloneExists is THE P-0014 invariant: a
+// machine that happens to have a portable-repo clone on disk behaves exactly
+// like one that does not. Before P-0014 the presence of a .git directory
+// diverted RunE into the clone lane (git fetch + install.sh) and the fetch path
+// was never entered; the inverse of this test asserted precisely that.
+//
+// The clone is materialised at $HOME/Sites/claude/.git — the exact location
+// the retired portable-repo probe used to check — so the assertion is that
+// a clone's presence there is now ignored entirely, not merely that some
+// unrelated directory is ignored.
+func TestSelfupdateFetchPathTakenEvenWhenCloneExists(t *testing.T) {
+	home, payloadDir := setupFetchPathTest(t)
+	t.Setenv("HOME", home)
+	// Neutralise the env override so only the HOME-relative probe could speak.
+	t.Setenv("BRAVROS_PORTABLE_REPO", "")
+
+	clone := filepath.Join(home, "Sites", "claude")
+	if err := os.MkdirAll(filepath.Join(clone, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir fake portable-repo clone: %v", err)
+	}
+
+	writeInstalledTag(t, payloadDir, "v1.0.0")
+	fake := &fakeFetchClient{resolveTag: "v1.0.0"}
 	selfupdateFetchClientOverride = fake
 
 	if _, err := runSelfupdate(t); err != nil {
-		t.Fatalf("RunE with a valid portable repo must not error, got: %v", err)
+		t.Fatalf("RunE with a clone present must not error, got: %v", err)
 	}
 
-	if fake.resolveCalls != 0 {
-		t.Errorf("fetch path must not be entered when a portable repo exists, but ResolveLatestTag was called %d time(s)", fake.resolveCalls)
-	}
-	if fake.fetchCalls != 0 {
-		t.Errorf("fetch path must not be entered when a portable repo exists, but FetchPayload was called %d time(s)", fake.fetchCalls)
+	if fake.resolveCalls != 1 {
+		t.Errorf("fetch path must be taken even when a clone exists at %s; ResolveLatestTag called %d time(s), want 1", clone, fake.resolveCalls)
 	}
 }

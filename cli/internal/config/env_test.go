@@ -3,14 +3,12 @@ package config
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 )
 
 func TestEnv_DefaultsByOS(t *testing.T) {
 	// Unset all BRAVROS_* env vars to test defaults.
 	vars := []string{
-		"BRAVROS_PORTABLE_REPO",
 		"BRAVROS_CONFIG_DIR",
 		"BRAVROS_PLANNING_DIR",
 		"BRAVROS_OP_VAULT",
@@ -24,18 +22,6 @@ func TestEnv_DefaultsByOS(t *testing.T) {
 	}
 
 	home, _ := os.UserHomeDir()
-
-	// PortableRepo — OS-dependent
-	got := PortableRepo()
-	var wantRepo string
-	if runtime.GOOS == "darwin" {
-		wantRepo = filepath.Join(home, "Sites", "claude")
-	} else {
-		wantRepo = filepath.Join(home, "claude")
-	}
-	if got != wantRepo {
-		t.Errorf("PortableRepo() = %q, want %q", got, wantRepo)
-	}
 
 	// ConfigDir
 	if want := filepath.Join(home, ".claude"); ConfigDir() != want {
@@ -74,7 +60,6 @@ func TestEnv_DefaultsByOS(t *testing.T) {
 }
 
 func TestEnv_EnvOverride(t *testing.T) {
-	t.Setenv("BRAVROS_PORTABLE_REPO", "/custom/repo")
 	t.Setenv("BRAVROS_CONFIG_DIR", "/custom/.claude")
 	t.Setenv("BRAVROS_PLANNING_DIR", "custom-planning")
 	t.Setenv("BRAVROS_OP_VAULT", "MyVault")
@@ -83,9 +68,6 @@ func TestEnv_EnvOverride(t *testing.T) {
 	t.Setenv("BRAVROS_HASS_ENTITY_ID", "input_boolean.my_lock")
 	t.Setenv("BRAVROS_DEPLOY_MODE", "copies")
 
-	if got, want := PortableRepo(), "/custom/repo"; got != want {
-		t.Errorf("PortableRepo() = %q, want %q", got, want)
-	}
 	if got, want := ConfigDir(), "/custom/.claude"; got != want {
 		t.Errorf("ConfigDir() = %q, want %q", got, want)
 	}

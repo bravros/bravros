@@ -61,9 +61,7 @@ Module name is `claude-cli` for backwards compat; the binary is `bravros`.
 
 ### init
 
-- **Precedence:** positional arg > `--portable-repo` flag > `$BRAVROS_PORTABLE_REPO` env > cwd
-- **Bootstrap source:** always use the resolved path from the precedence chain, never cwd
-- **Invalid path:** when `--portable-repo` is set but the path is not a valid claude config repo, exit non-zero with a clear stderr error (loud failure, not silent skip)
+- **Root resolution:** positional `[path]` argument when given, otherwise the current working directory. No flag and no env var participate.
 
 ## Never
 

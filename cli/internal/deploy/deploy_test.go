@@ -717,7 +717,7 @@ func TestDetectOrphans_HonorsPreserveList(t *testing.T) {
 	}
 
 	// With preserve list including "graphify" — graphify must NOT appear in orphans.
-	orphans, err := detectOrphans(src, dst, []string{"graphify"})
+	orphans, err := detectOrphans(src, dst, []string{"graphify"}, resolvePruneSubtrees(nil))
 	if err != nil {
 		t.Fatalf("detectOrphans: %v", err)
 	}
@@ -728,7 +728,7 @@ func TestDetectOrphans_HonorsPreserveList(t *testing.T) {
 	}
 
 	// Control: without preserve list, graphify MUST appear in orphans.
-	orphansNoPreserve, err := detectOrphans(src, dst, nil)
+	orphansNoPreserve, err := detectOrphans(src, dst, nil, resolvePruneSubtrees(nil))
 	if err != nil {
 		t.Fatalf("detectOrphans (no preserve): %v", err)
 	}
@@ -879,5 +879,182 @@ func TestDeployJSONMerge(t *testing.T) {
 	}
 	if nested["key4"] != "val4" {
 		t.Errorf("expected nested key4 = val4, got %v", nested["key4"])
+	}
+}
+
+// --- PruneSubtrees scoping (P-0014 Phase 4) ---------------------------------
+//
+// The selfupdate fetch lane is now the ONLY delivery path, and it prunes. Its
+// SourceDir is the published payload (skills/ + templates/), so orphan pruning
+// must be scoped to exactly those subtrees — ~/.claude/hooks and
+// ~/.claude/agents hold content bravros does not own at the target.
+
+// setupPayloadRepo builds a fixture shaped like the published payload:
+// skills/ + templates/ only, no cli/go.mod (IsClaudeRepo's fetched-payload
+// fallback path). extraDirs are created empty — used to exercise the case where
+// detectOrphans' absent-source guard does NOT fire and only PruneSubtrees
+// scoping stands between the deploy and the user's hooks/agents.
+func setupPayloadRepo(t *testing.T, extraDirs ...string) string {
+	t.Helper()
+	base := filepath.Join(t.TempDir(), "payload")
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(os.MkdirAll(filepath.Join(base, "skills", "commit"), 0755))
+	must(os.MkdirAll(filepath.Join(base, "templates"), 0755))
+	must(os.WriteFile(filepath.Join(base, "skills", "commit", "SKILL.md"), []byte("commit skill"), 0644))
+	must(os.WriteFile(filepath.Join(base, "templates", "plan.md"), []byte("# Plan"), 0644))
+	for _, d := range extraDirs {
+		must(os.MkdirAll(filepath.Join(base, d), 0755))
+	}
+	return base
+}
+
+// seedRuntime pre-populates a target dir with the entries a real ~/.claude has:
+// a hand-installed hook, a hand-written agent, and a skill with no counterpart
+// in the payload.
+func seedRuntime(t *testing.T, target string) {
+	t.Helper()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(os.MkdirAll(filepath.Join(target, "hooks"), 0755))
+	must(os.WriteFile(filepath.Join(target, "hooks", "pre-push"), []byte("#!/bin/sh\n"), 0755))
+	must(os.MkdirAll(filepath.Join(target, "agents"), 0755))
+	must(os.WriteFile(filepath.Join(target, "agents", "my-agent.md"), []byte("agent"), 0644))
+	must(os.MkdirAll(filepath.Join(target, "skills", "handwritten"), 0755))
+	must(os.WriteFile(filepath.Join(target, "skills", "handwritten", "SKILL.md"), []byte("mine"), 0644))
+}
+
+// TestPruneSubtreesScopedDeployKeepsHooksAndAgents is the primary safety guard:
+// with PruneSubtrees narrowed to skills+templates, hooks/ and agents/ at the
+// target survive, while a skill absent from the payload IS pruned.
+func TestPruneSubtreesScopedDeployKeepsHooksAndAgents(t *testing.T) {
+	src := setupPayloadRepo(t)
+	target := filepath.Join(t.TempDir(), ".claude")
+	seedRuntime(t, target)
+
+	if _, err := Deploy(DeployOpts{
+		SourceDir:     src,
+		TargetDir:     target,
+		PruneSubtrees: []string{"skills", "templates"},
+	}); err != nil {
+		t.Fatalf("scoped deploy: %v", err)
+	}
+
+	for _, keep := range []string{"hooks/pre-push", "agents/my-agent.md"} {
+		if _, err := os.Stat(filepath.Join(target, keep)); err != nil {
+			t.Errorf("%s must survive a scoped payload deploy: %v", keep, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(target, "skills", "handwritten")); !os.IsNotExist(err) {
+		t.Errorf("skills/handwritten is absent from the payload and must be pruned (stat err: %v)", err)
+	}
+}
+
+// TestPruneSubtreesScopingHoldsWhenPayloadShipsEmptyDirs removes the
+// absent-source guard from the equation: the payload here DOES contain hooks/
+// and agents/ (empty), so detectOrphans' "skip subtrees missing from source"
+// short-circuit never fires. Only PruneSubtrees scoping protects the target.
+// The control half proves the scoping is what does the work.
+func TestPruneSubtreesScopingHoldsWhenPayloadShipsEmptyDirs(t *testing.T) {
+	src := setupPayloadRepo(t, "hooks", "agents")
+
+	scoped := filepath.Join(t.TempDir(), ".claude")
+	seedRuntime(t, scoped)
+	if _, err := Deploy(DeployOpts{
+		SourceDir:     src,
+		TargetDir:     scoped,
+		PruneSubtrees: []string{"skills", "templates"},
+	}); err != nil {
+		t.Fatalf("scoped deploy: %v", err)
+	}
+	for _, keep := range []string{"hooks/pre-push", "agents/my-agent.md"} {
+		if _, err := os.Stat(filepath.Join(scoped, keep)); err != nil {
+			t.Errorf("%s must survive even when the payload ships an empty counterpart dir: %v", keep, err)
+		}
+	}
+
+	// Control: same source, default (unscoped) prune set — those entries go.
+	unscoped := filepath.Join(t.TempDir(), ".claude")
+	seedRuntime(t, unscoped)
+	if _, err := Deploy(DeployOpts{SourceDir: src, TargetDir: unscoped}); err != nil {
+		t.Fatalf("unscoped deploy: %v", err)
+	}
+	for _, gone := range []string{"hooks/pre-push", "agents/my-agent.md"} {
+		if _, err := os.Stat(filepath.Join(unscoped, gone)); !os.IsNotExist(err) {
+			t.Errorf("control: %s should have been pruned by the default prune set (stat err: %v)", gone, err)
+		}
+	}
+}
+
+// TestPruneSubtreesScopedDeployHonorsPreserveSkills — a preserved skill is never
+// an orphan, scoping or not.
+func TestPruneSubtreesScopedDeployHonorsPreserveSkills(t *testing.T) {
+	src := setupPayloadRepo(t)
+	target := filepath.Join(t.TempDir(), ".claude")
+	seedRuntime(t, target)
+	if err := os.MkdirAll(filepath.Join(target, "skills", "graphify"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "skills", "graphify", "SKILL.md"), []byte("graphify"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Deploy(DeployOpts{
+		SourceDir:      src,
+		TargetDir:      target,
+		PruneSubtrees:  []string{"skills", "templates"},
+		PreserveSkills: []string{"graphify"},
+	})
+	if err != nil {
+		t.Fatalf("scoped deploy: %v", err)
+	}
+	for _, p := range result.Pruned {
+		if p == filepath.Join("skills", "graphify") {
+			t.Errorf("preserved skill proposed as orphan: %v", result.Pruned)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(target, "skills", "graphify", "SKILL.md")); err != nil {
+		t.Errorf("preserved skill must survive a scoped payload deploy: %v", err)
+	}
+	// The non-preserved orphan still goes — preserve is an allowlist, not an off switch.
+	if _, err := os.Stat(filepath.Join(target, "skills", "handwritten")); !os.IsNotExist(err) {
+		t.Errorf("non-preserved orphan should still be pruned (stat err: %v)", err)
+	}
+}
+
+// TestResolvePruneSubtrees pins the narrow-only contract: an empty request means
+// the package default, and a request can never widen the prunable set.
+func TestResolvePruneSubtrees(t *testing.T) {
+	tests := []struct {
+		name      string
+		requested []string
+		want      []string
+	}{
+		{"empty means package default", nil, pruneSubtrees},
+		{"payload scope", []string{"skills", "templates"}, []string{"skills", "templates"}},
+		{"order follows pruneSubtrees, not the caller", []string{"templates", "skills"}, []string{"skills", "templates"}},
+		{"cannot widen to a non-prunable subtree", []string{"output-styles", "bin", "projects"}, nil},
+		{"unknown names are dropped, known ones kept", []string{"skills", "plugins"}, []string{"skills"}},
+	}
+	for _, tt := range tests {
+		got := resolvePruneSubtrees(tt.requested)
+		if len(got) != len(tt.want) {
+			t.Errorf("%s: resolvePruneSubtrees(%v) = %v, want %v", tt.name, tt.requested, got, tt.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tt.want[i] {
+				t.Errorf("%s: resolvePruneSubtrees(%v) = %v, want %v", tt.name, tt.requested, got, tt.want)
+				break
+			}
+		}
 	}
 }

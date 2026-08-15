@@ -74,15 +74,26 @@ func TestRun_stderrCapture(t *testing.T) {
 	}
 }
 
-// --- Integration tests against real repo sbravros/claude ---
+// --- Integration tests that shell out to a real `gh` against the current repo ---
 
+// TestGetRepo asserts the SHAPE of GetRepo's result, not a specific repository.
+// GetRepo returns `gh repo view --json nameWithOwner` for whatever checkout the
+// test runs in, so pinning it to a literal slug makes the test a property of the
+// developer's working directory rather than of the function. The previous version
+// accepted only "sbravros/claude" or "bravros/bravros" and therefore failed on
+// every checkout of bravros/private — a permanent red that said nothing about
+// GetRepo. The contract worth testing is: a non-empty "owner/name" pair.
 func TestGetRepo(t *testing.T) {
 	repo, err := GetRepo()
 	if err != nil {
 		t.Skipf("skipping: gh not available or not in a repo: %v", err)
 	}
-	if repo != "sbravros/claude" && repo != "bravros/bravros" {
-		t.Fatalf("expected 'sbravros/claude' or 'bravros/bravros', got %q", repo)
+	owner, name, ok := strings.Cut(repo, "/")
+	if !ok || owner == "" || name == "" {
+		t.Fatalf("GetRepo() = %q, want a non-empty \"owner/name\" pair", repo)
+	}
+	if strings.ContainsAny(repo, " \t\n") {
+		t.Errorf("GetRepo() = %q, want no surrounding or embedded whitespace", repo)
 	}
 }
 

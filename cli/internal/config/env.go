@@ -3,19 +3,16 @@ package config
 import (
 	"os"
 	"path/filepath"
-
-	"github.com/bravros/bravros/cli/internal/paths"
 )
 
 // Env-var externalization — B-0115.
 //
-// Each getter reads its BRAVROS_* environment variable first; if unset, it
-// falls back to the OS-aware default.  This allows operators and CI systems to
-// override every hardcoded path/vault without modifying any config file.
+// Each getter below reads its BRAVROS_* environment variable first; if unset,
+// it falls back to the OS-aware default. This allows operators and CI systems
+// to override every hardcoded path/vault without modifying any config file.
 //
 // Env var → default mapping:
 //
-//   BRAVROS_PORTABLE_REPO   ~/Sites/claude (macOS) / ~/claude (Linux)
 //   BRAVROS_CONFIG_DIR      ~/.claude
 //   BRAVROS_PLANNING_DIR    .planning
 //   BRAVROS_OP_VAULT        ClaudeCode
@@ -23,15 +20,12 @@ import (
 //   BRAVROS_HASS_SERVER     homeassistant.local:8123
 //   BRAVROS_HASS_ENTITY_ID  input_boolean.claude_session_lock
 //   BRAVROS_DEPLOY_MODE     symlinks
-
-// PortableRepo returns the path to the bravros source repository.
-// Reads BRAVROS_PORTABLE_REPO; defaults to the OS-aware path from paths package.
-func PortableRepo() string {
-	if v := os.Getenv("BRAVROS_PORTABLE_REPO"); v != "" {
-		return v
-	}
-	return paths.PortableRepoDir()
-}
+//
+// BRAVROS_PORTABLE_REPO has no getter in this file. It is no longer a
+// selfupdate source (the clone-based selfupdate lane was retired) — it now
+// serves only as a lookup hint consumed directly by
+// config.PreservedSkills() (see preserve.go), used as step 2 of the
+// .bravros.yml resolution chain (cwd → $BRAVROS_PORTABLE_REPO → $HOME).
 
 // ConfigDir returns the path to the deployed ~/.claude directory.
 // Reads BRAVROS_CONFIG_DIR; defaults to ~/.claude.

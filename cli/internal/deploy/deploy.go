@@ -25,6 +25,13 @@ type DeployOpts struct {
 	PreserveSkills []string // skill dir names that must NOT be pruned even when absent from source
 	EnabledSkills  []string // opt-in allowlist; when non-empty only listed + core skills deploy
 	FilterMode     bool     // when true, EnabledSkills is a per-invocation additive filter (--filter flag); non-filtered skills are preserved and never pruned
+	// PruneSubtrees narrows orphan pruning to the named TargetDir subtrees.
+	// Empty (the default for `bravros deploy` and install.sh) means the package
+	// default, pruneSubtrees. A caller whose SourceDir is not a full repo
+	// checkout sets this to exactly the subtrees that source ships, so a
+	// category it never carries can never be proposed as an orphan. Names are
+	// intersected with pruneSubtrees — this can only ever narrow, never widen.
+	PruneSubtrees []string
 }
 
 // DeployResult holds the outcome of a deploy operation.
@@ -57,6 +64,30 @@ type DeployResult struct {
 //                  clobber the user's personal content outside the markers)
 //   - mcp.json    (machine-specific)
 var pruneSubtrees = []string{"skills", "templates", "hooks", "agents"}
+
+// resolvePruneSubtrees returns the subtrees orphan-pruning may walk for this
+// deploy. An empty request yields the package default; a non-empty one is
+// INTERSECTED with pruneSubtrees, never unioned — a caller can narrow the
+// prunable set but can never make a subtree prunable that the package does not
+// already consider prunable (output-styles/, bin/, projects/, state/ stay
+// unreachable no matter what a caller asks for). Order follows pruneSubtrees so
+// orphan detection stays deterministic regardless of caller ordering.
+func resolvePruneSubtrees(requested []string) []string {
+	if len(requested) == 0 {
+		return pruneSubtrees
+	}
+	want := make(map[string]struct{}, len(requested))
+	for _, s := range requested {
+		want[s] = struct{}{}
+	}
+	var out []string
+	for _, sub := range pruneSubtrees {
+		if _, ok := want[sub]; ok {
+			out = append(out, sub)
+		}
+	}
+	return out
+}
 
 // pluginManagedDirs are runtime locations owned by a host's own plugin or
 // extension system. bravros must never write to or prune inside them: Claude
@@ -514,11 +545,12 @@ func Deploy(opts DeployOpts) (*DeployResult, error) {
 	// dry-run and real deploys. Pruning is the default; --no-prune preserves
 	// orphans for migration scenarios where the user wants the old behavior.
 	//
-	// detectOrphans covers all pruneSubtrees (skills, hooks, templates, agents). For
-	// skills, it catches entries in the runtime that were never managed by the
-	// manifest (e.g. manually placed skill dirs, nonRuntime dirs like "shared").
+	// detectOrphans covers all pruneSubtrees (skills, hooks, templates, agents)
+	// unless the caller narrowed the set via opts.PruneSubtrees. For skills, it
+	// catches entries in the runtime that were never managed by the manifest
+	// (e.g. manually placed skill dirs, nonRuntime dirs like "shared").
 	if !opts.NoPrune {
-		orphans, err := detectOrphans(opts.SourceDir, opts.TargetDir, opts.PreserveSkills)
+		orphans, err := detectOrphans(opts.SourceDir, opts.TargetDir, opts.PreserveSkills, resolvePruneSubtrees(opts.PruneSubtrees))
 		if err != nil {
 			return nil, fmt.Errorf("detect orphans: %w", err)
 		}
@@ -946,8 +978,12 @@ func mergeMaps(dst, src map[string]interface{}) {
 // for manually-added out-of-source skills (e.g. graphify). Pass nil or empty
 // for the default prune-all behaviour.
 //
+// subtrees is the resolved prunable set for this deploy — pass the result of
+// resolvePruneSubtrees(opts.PruneSubtrees), never a raw caller list, so the
+// intersection with pruneSubtrees is always applied.
+//
 // Returns paths sorted ascending; nil when no orphans found.
-func detectOrphans(srcDir, targetDir string, preserveSkills []string) ([]string, error) {
+func detectOrphans(srcDir, targetDir string, preserveSkills, subtrees []string) ([]string, error) {
 	// Build a fast-lookup set for the preserve list.
 	preserveSet := make(map[string]struct{}, len(preserveSkills))
 	for _, name := range preserveSkills {
@@ -957,7 +993,7 @@ func detectOrphans(srcDir, targetDir string, preserveSkills []string) ([]string,
 	}
 
 	var orphans []string
-	for _, sub := range pruneSubtrees {
+	for _, sub := range subtrees {
 		// Absent source subtree means "unknown", not "empty". A source tree
 		// that simply doesn't ship this category at all (e.g. a selfupdate
 		// fetched payload, which carries only skills/ + templates/ — see

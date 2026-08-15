@@ -8,10 +8,10 @@ Skills reach your machine through two different paths depending on your host. Th
 |---|---|---|---|
 | **Claude Code** | A | `/plugin marketplace add bravros/bravros` then `/plugin install bravros` | Automatic background refresh |
 | **Gemini CLI** | A | `gemini extensions install https://github.com/bravros/bravros --auto-update` | Automatic on launch |
-| **Cursor** | B | `curl -fsSL https://install.bravros.dev \| sh` | Automatic, every session |
-| **Codex** | B | `curl -fsSL https://install.bravros.dev \| sh` | Automatic, every session |
-| **Copilot** | B | `curl -fsSL https://install.bravros.dev \| sh` | Automatic, every session |
-| **Aider** | B | `curl -fsSL https://install.bravros.dev \| sh` | Automatic, every session |
+| **Cursor** | B | `curl -fsSL https://install.bravros.dev \| sh` | Automatic, on each new CLI release |
+| **Codex** | B | `curl -fsSL https://install.bravros.dev \| sh` | Automatic, on each new CLI release |
+| **Copilot** | B | `curl -fsSL https://install.bravros.dev \| sh` | Automatic, on each new CLI release |
+| **Aider** | B | `curl -fsSL https://install.bravros.dev \| sh` | Automatic, on each new CLI release |
 
 ---
 
@@ -36,7 +36,7 @@ gemini extensions install https://github.com/bravros/bravros --auto-update
 
 The extension is fetched when you launch Gemini CLI, and Gemini automatically checks for updates on each launch.
 
-**How it works:** Claude Code and Gemini CLI pull skills from the public GitHub repository through their own mechanisms. The bravros binary never writes into their plugin directories (`~/.claude/plugins/`, `.claude-plugin/`, `~/.gemini/extensions/`). If the binary ever tried, a guard (`deploy.IsPluginManaged`) fails the operation loudly — two writers on the same skills is a conflict, not redundancy.
+**How it works:** Claude Code and Gemini CLI pull skills from the public GitHub repository through their own mechanisms. The bravros binary never writes into their plugin directories (`~/.claude/plugins/`, `.claude-plugin/`, `~/.gemini/extensions/`). If the binary ever tried, a guard (`deploy.IsPluginManaged`) fails the operation loudly — two writers on the same skills is a conflict, not redundancy. Path A is unaffected by `bravros selfupdate`, release cadence, or any of the mechanisms described in this document — Claude Code and Gemini CLI extensions pull skills straight from the public repo on their own schedule, independent of the binary and the fetch mechanism.
 
 ---
 
@@ -71,7 +71,7 @@ When a new session starts:
 
 3. **Verify before trusting** — The minisign signature over `checksums.txt` is verified against a key pinned in the binary. The same key `install.sh` pins during initial installation. Only after signature verification passes do we compare the payload's SHA-256. Only then is anything extracted.
 
-4. **Land on disk** — Skills and templates are deployed to `~/.claude/skills/` and `~/.claude/templates/`, with pruning disabled. Hand-installed hooks, agents, and skills are never removed.
+4. **Land on disk** — Skills and templates are deployed to `~/.claude/skills/` and `~/.claude/templates/`, with pruning enabled but scoped to those two directories. A skill removed upstream is removed locally, while skills you marked preserved in `.bravros.yml` are kept, and `~/.claude/hooks/` and `~/.claude/agents/` are never touched.
 
 5. **Continue** — Your session proceeds unchanged. If the fetch failed for any reason (offline, GitHub temporarily down, corrupted download), the previous skill tree is left exactly as it was, and the session continues using the already-installed skills.
 
@@ -83,6 +83,8 @@ Updates are **automatic and silent** on every session start — but two rate lim
 - **Remote request minimum:** 1 hour between checks (`BRAVROS_REMOTE_CHECK_TTL`, set to `0` to disable)
 
 A second run within those windows makes no remote request and prints nothing at all.
+
+**Release schedule:** `bravros selfupdate` checks on every session (behind the TTLs), but a new payload only exists once a new release is published. Releases are triggered by changes under `cli/**`, so a skills-only change ships with the next CLI release rather than immediately.
 
 ### Forcing an update
 
