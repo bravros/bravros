@@ -65,7 +65,9 @@ def main() -> int:
     labels_path.write_text(json.dumps({str(k): v for k, v in sorted(all_labels.items())}, indent=2))
     print(f"\n✓ wrote {labels_path}", file=sys.stderr)
 
-    # Patch graph.json — add community_label per node
+    # Patch graph.json — stamp the community name on every node. graphify renamed this
+    # field `community_label` -> `community_name`, so write both: the graph then reads
+    # correctly whichever key this build looks for.
     with open(graph_path) as f:
         g = json.load(f)
 
@@ -76,11 +78,11 @@ def main() -> int:
         if cid is None:
             continue
         if cid in all_labels:
-            n["community_label"] = all_labels[cid]
+            n["community_label"] = n["community_name"] = all_labels[cid]
             patched += 1
         else:
             # Fallback for any community the swarm didn't label
-            n["community_label"] = f"Community {cid}"
+            n["community_label"] = n["community_name"] = f"Community {cid}"
             unmatched += 1
 
     graph_path.write_text(json.dumps(g, ensure_ascii=False, separators=(",", ":")))

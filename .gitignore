@@ -13,6 +13,7 @@
 /bravros
 /cli/bravros
 /tools/skillgen/skillgen
+/bravros-payload.tar.gz
 
 # Local environment/scratch files
 /scratch/
@@ -22,12 +23,17 @@
 !.env.example
 go.work
 
-# Internal planning — NEVER publish. This repo is public.
-# Root-anchored so templates/.planning/ (a shipped template) is unaffected.
-/.planning/
-/docs/prd/
-/docs/prdv2/
+# This repo is PRIVATE and is the source of truth. Nothing here is published by
+# being committed — publication is an explicit act: the workflow in
+# .github/workflows/ copies an ALLOWLIST of paths to the public bravros/bravros.
+# Adding a folder here does NOT make it public; adding it to that allowlist does.
+#
+# So /.planning/ and /docs/prd*/ are TRACKED here on purpose. They were ignored
+# back when this tree lived in the public repo; that constraint is gone.
 
 # Python cache
 __pycache__/
 *.pyc
+.planning/
+docs/prd/
+docs/prdv2/

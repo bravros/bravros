@@ -46,13 +46,18 @@ def main() -> int:
     old = json.load(open(old_p))
     new = json.load(open(new_p))
 
+    # graphify renamed the node field `community_label` -> `community_name`; a graph
+    # carries whichever key was current when it was built. Reading one key only would
+    # snapshot nothing from a new-format graph and silently strip every label here.
     snap = {}
     for n in old.get("nodes", []):
-        lbl = n.get("community_label")
+        lbl = n.get("community_label") or n.get("community_name")
         k = node_key(n)
         if lbl and k is not None:
             snap[k] = lbl
 
+    # The new graph is a fresh AST rebuild and carries neither key, so stamp both —
+    # whichever one this graphify build reads back, it finds the label.
     applied = 0
     for n in new.get("nodes", []):
         k = node_key(n)
@@ -61,6 +66,7 @@ def main() -> int:
         lbl = snap.get(k)
         if lbl:
             n["community_label"] = lbl
+            n["community_name"] = lbl
             applied += 1
 
     new_p.write_text(json.dumps(new, ensure_ascii=False, separators=(",", ":")))

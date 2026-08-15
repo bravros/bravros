@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,6 +13,7 @@ import (
 
 	"github.com/bravros/bravros/cli/internal/config"
 	"github.com/bravros/bravros/cli/internal/deploy"
+	"github.com/bravros/bravros/cli/internal/fetch"
 	"github.com/bravros/bravros/cli/internal/hooks"
 	"github.com/bravros/bravros/cli/internal/nowtime"
 	"github.com/bravros/bravros/cli/internal/selfupdate"
@@ -107,7 +110,10 @@ always bypass the cache and run the real check.`,
 
 		gitDir := filepath.Join(repo, ".git")
 		if info, err := os.Stat(gitDir); err != nil || !info.IsDir() {
-			return nil
+			// No portable repo clone on disk — the curl|sh install path. Fall
+			// back to fetching the published payload directly instead of
+			// silently exiting 0 (P-0003: that silent-0 was the bug).
+			return selfupdateViaFetch(home)
 		}
 
 		// Fetch origin/main to get the latest remote state.
@@ -329,6 +335,128 @@ always bypass the cache and run the real check.`,
 
 		return nil
 	},
+}
+
+// selfupdateFetchClient is the minimal surface selfupdateViaFetch needs from
+// *fetch.Client. Declared here (consumer-side interface) so tests can inject
+// a fake without touching the network or the filesystem outside a temp dir.
+type selfupdateFetchClient interface {
+	ResolveLatestTag(ctx context.Context) (string, error)
+	FetchPayload(ctx context.Context, tag, destDir string) (string, error)
+}
+
+var (
+	// selfupdateFetchClientOverride replaces fetch.NewClient() in tests.
+	// Tests set this via t.Cleanup to restore the original (nil) value.
+	selfupdateFetchClientOverride selfupdateFetchClient
+
+	// selfupdateFetchPayloadDirOverride replaces fetch.DefaultPayloadDir() in
+	// tests. Tests set this via t.Cleanup to restore the original ("") value.
+	selfupdateFetchPayloadDirOverride string
+
+	// selfupdateFetchTargetDirOverride replaces deploy's default TargetDir
+	// (~/.claude) in tests, so tests never write outside their own temp dirs.
+	// Tests set this via t.Cleanup to restore the original ("") value.
+	selfupdateFetchTargetDirOverride string
+)
+
+// payloadTagFileName records, inside the payload dir itself, the tag of the
+// payload currently on disk — the fetch-path analogue of the git-clone path's
+// "installed version" probe.
+const payloadTagFileName = ".bravros-payload-tag"
+
+// selfupdateViaFetch is the no-clone path: resolve the published release, and if
+// the payload on disk is behind it, fetch + verify + deploy it. Returns the
+// process exit code (0 = success or nothing-to-do, non-zero = a real failure).
+func selfupdateViaFetch(home string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	var client selfupdateFetchClient
+	if selfupdateFetchClientOverride != nil {
+		client = selfupdateFetchClientOverride
+	} else {
+		client = fetch.NewClient()
+	}
+
+	payloadDir := selfupdateFetchPayloadDirOverride
+	if payloadDir == "" {
+		payloadDir = fetch.DefaultPayloadDir()
+	}
+
+	installedTag := readPayloadTag(payloadDir)
+
+	res, err := selfupdate.CheckRemote(ctx, client, selfupdate.RemoteStatePath(), selfupdate.RemoteCheckTTL(), installedTag)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "⚠️  bravros: remote check failed: %v\n", err)
+		return err
+	}
+
+	if res.Offline {
+		// Offline is normal — previously-fetched skills keep working.
+		if selfupdateVerbose {
+			fmt.Fprintln(os.Stderr, "ℹ️  bravros: offline — skipping remote skills check")
+		}
+		return nil
+	}
+
+	if !res.Behind {
+		// In-sync: must produce no output whatsoever.
+		return nil
+	}
+
+	if _, fetchErr := client.FetchPayload(ctx, res.RemoteTag, payloadDir); fetchErr != nil {
+		if errors.Is(fetchErr, fetch.ErrNoPayload) {
+			// Every release cut before P-0003 publishes no payload asset —
+			// that is "nothing to do", not a failure.
+			if selfupdateVerbose {
+				fmt.Fprintf(os.Stderr, "ℹ️  bravros: release %s publishes no payload asset — skipping\n", res.RemoteTag)
+			}
+			return nil
+		}
+		fmt.Fprintf(os.Stderr, "⚠️  bravros: fetch failed for %s: %v\n", res.RemoteTag, fetchErr)
+		return fetchErr
+	}
+
+	deployResult, deployErr := deploy.Deploy(deploy.DeployOpts{
+		SourceDir: payloadDir,
+		TargetDir: selfupdateFetchTargetDirOverride,
+		// NoPrune: orphan-pruning compares TargetDir against SourceDir and
+		// deletes anything with no counterpart. The fetched payload is a
+		// PARTIAL source tree by construction (only skills/ + templates/ ship
+		// in it — no hooks/, no agents/), so "absent from the payload" means
+		// "not shipped in the payload", never "deleted upstream". Pruning is
+		// sound only when SourceDir is a full repo checkout (the clone path);
+		// here it would wipe every hand-installed hook/agent/skill on the
+		// first automatic SessionStart fetch.
+		NoPrune:        true,
+		PreserveSkills: config.PreservedSkills(),
+		EnabledSkills:  config.EnabledSkills(),
+	})
+	if deployErr != nil {
+		fmt.Fprintf(os.Stderr, "⚠️  bravros: deploy failed for %s: %v\n", res.RemoteTag, deployErr)
+		return deployErr
+	}
+
+	tagFile := filepath.Join(payloadDir, payloadTagFileName)
+	if err := os.MkdirAll(filepath.Dir(tagFile), 0755); err == nil {
+		_ = os.WriteFile(tagFile, []byte(res.RemoteTag), 0644)
+	}
+	writeSelfupdateMarkers(home, res.RemoteTag)
+
+	fmt.Fprintf(os.Stderr, "✨ bravros fetched skills from %s (%d skill(s))\n", res.RemoteTag, len(deployResult.SkillsDeployed))
+	return nil
+}
+
+// readPayloadTag reads the tag recorded for the payload currently on disk.
+// Missing or unreadable → "" (treated the same as "no payload ever fetched",
+// which CheckRemote always reports as Behind once a remote tag is known).
+func readPayloadTag(payloadDir string) string {
+	data, err := os.ReadFile(filepath.Join(payloadDir, payloadTagFileName))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }
 
 func writeSelfupdateMarkers(home, version string) {

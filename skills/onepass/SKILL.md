@@ -1,0 +1,38 @@
+---
+name: onepass
+description: Store, read, inject, and rotate secrets via the 1Password CLI (op). Enforces op:// references so secrets never touch env files. Use when the user mentions 1Password, op:// secrets, credential rotation, or safe secret injection into code.
+---
+
+# onepass — secrets live in 1Password, code holds only `op://` references
+
+## Step 0 — Preflight (every invocation)
+
+Run `bash <skill-dir>/scripts/preflight.sh`: exit `0` (desktop or service-account mode) → proceed; exit `2` → offer `scripts/install-op.sh` (Linux path adds the signed repo + uses `sudo` — announce first), rerun; exit `1` → auth failed: fire the announce below, then `ask_question` for the mode and follow `references/auth-setup.md` — **auth happens in a separate terminal** (this session shares no TTY with the biometric prompt, and exports here don't persist). Never run `op item create`/`edit` before preflight returns 0 — failed writes leave half-created items and burn service-account rate limit.
+
+<!-- announce-template: "Autenticação do 1Password necessária. Aguardando escolha do modo de acesso. Projeto {PROJECT}." -->
+```bash
+bravros ha say --force "Autenticação do 1Password necessária. Aguardando escolha do modo de acesso. Projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio >/dev/null 2>&1 || true
+```
+
+## Naming & metadata — enforce before create (non-negotiable)
+
+`op://` references are parsed strictly — a title with an em-dash or parens **silently** breaks every script that reads it.
+
+- **Title:** `<Service> - <Project> <Purpose>`, ASCII only (letters, digits, spaces, `-`, `_`). Auto-rewrite anything with `— ( ) + & @ /` or emoji; show the rewrite and confirm. `scripts/validate-title.sh` checks + suggests.
+- **Category** `API Credential` by default (SSH key → `SSH Key`, DB URL → `Database`, seed phrase → `Wallet`). **Vault** `HomeLab` unless the user says otherwise; CI service accounts → dedicated `CI` vault. **Tags:** minimum 2 — service + project; add role/env when relevant.
+- **Required fields — refuse to create without them:** `credential` (concealed) · `token type` · `permissions` · `used by` · `env var` · `owner` · `rotated` (date, today on every create/rotation). Recommended: `rotation_interval`, `provider_url`, `expires`.
+- After create, verify `op read "op://HomeLab/<Title>/credential" | head -c 20` — failure means an invalid title char; archive and recreate. Print the `op://` reference and the `.env` line, never the raw token.
+
+## Workflows
+
+- **Read/inject:** one-shot `TOKEN="$(op read 'op://…')" cmd` · long-running `op run --env-file=.env -- <cmd>` (`.env` holds only `VAR=op://…` refs — safe to commit) · templates `op inject -i tpl -o out`.
+- **Wire a project** ("load env from 1password"): grep `.env*` for plaintext secrets → replace each with an existing item's ref or create via the rules above → `.env.example` carries the refs → prefix dev/deploy scripts with `op run --env-file=.env --`. Never commit a plaintext secret as a "temporary" workaround.
+- **Rotation:** keep the **same item ID and title** — only `credential` changes, so refs keep working. `op item edit <ID> "credential[password]=<NEW>" "rotated[date]=$(date "+%Y-%m-%dT%H:%M")"` (or `--generate-password=letters,digits,64`). Propagate to the sinks named in `used by` (`op read … | gh secret set / vercel env add / wrangler secret put`). **Then revoke the old token at the provider — rotation without revocation is theater.**
+
+## Refuse / warn
+
+Plaintext secret in a committed file · duplicate items (search by tags first) · `op item delete` without `--archive` (hard delete needs explicit confirmation) · rotating without revoking · echoing a raw token in chat · `op run --no-masking` without need · secrets in `Login`/`Secure Note` items · service-account fetches by name when UUIDs exist (UUIDs cut API calls 3x→1x).
+
+Autonomous mode (`OP_SERVICE_ACCOUNT_TOKEN`): fail fast, UUIDs everywhere, treat `op read` failures as hard stops (usually a malformed ref, not transient), check `op service-account ratelimit` before long jobs, never write the token to disk.
+
+Field syntax, rate limits, secret-reference spec: `references/op-cli-reference.md`. Auth-mode setup: `references/auth-setup.md`.

@@ -56,15 +56,22 @@ the repo.
 
 ### Getting the skills into your agent
 
-Skills are fetched from this repo, not from the binary — so publishing a skill never requires a
-release, and you never run an update command.
+Skills come from this repo, never from the binary — so publishing a skill needs no release, and
+you never run an update command. Two mechanisms deliver them, and which one you get depends on
+whether your host has a plugin system. Neither ever writes where the other does. Full detail:
+[**Skill Delivery**](docs/skill-delivery.md).
 
-| Host | How to add it | Updates |
+| Host | Install | Updates |
 |---|---|---|
-| **Claude Code** | `/plugin marketplace add bravros/bravros` then `/plugin install bravros` | Background refresh, automatic |
-| **Gemini CLI** | `gemini extensions install https://github.com/bravros/bravros --auto-update` | On launch, automatic |
-| **Cursor** | ships `.cursorrules` | `git pull` |
-| **Codex / any AGENTS.md host** | ships `AGENTS.md` | `git pull` |
+| **Claude Code** | `/plugin marketplace add bravros/bravros` then `/plugin install bravros` | Its own marketplace, background refresh |
+| **Gemini CLI** | `gemini extensions install https://github.com/bravros/bravros --auto-update` | Its own extension system, on launch |
+| **Cursor** | `curl -fsSL https://install.bravros.dev \| sh` | The CLI fetches a signed payload, every session |
+| **Codex** | `curl -fsSL https://install.bravros.dev \| sh` | The CLI fetches a signed payload, every session |
+| **Copilot** | `curl -fsSL https://install.bravros.dev \| sh` | The CLI fetches a signed payload, every session |
+| **Aider** | `curl -fsSL https://install.bravros.dev \| sh` | The CLI fetches a signed payload, every session |
+
+No clone, no GitHub token, no account. The CLI path verifies a minisign signature before it
+trusts a single downloaded byte, and leaves your existing skills untouched when offline.
 
 Install only the core plugin, or add category plugins (`bravros-sdlc`, `bravros-design`,
 `bravros-deploy`, `bravros-tools`) if you want the long tail. Core stays small on purpose: an

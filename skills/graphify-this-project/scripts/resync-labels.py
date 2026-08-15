@@ -94,9 +94,11 @@ def main() -> int:
     #    (label, source_file) are only recorded when unambiguous — if two old nodes in
     #    different communities share a source_file, that key is poisoned and dropped, so a
     #    coarse match can never silently pick the wrong community.
+    #    graphify renamed this field `community_label` -> `community_name`; a graph carries
+    #    whichever key was current when it was built, so read both or snapshot nothing.
     carried, poisoned = {}, set()
     for n in old.get("nodes", []):
-        lbl = n.get("community_label")
+        lbl = n.get("community_label") or n.get("community_name")
         if not real(lbl):
             continue
         for k in node_keys(n):
@@ -168,7 +170,10 @@ def main() -> int:
         # restore it from HEAD and do not commit."
         return 3
 
-    # 4. stamp every node from the resolved map so each community is internally consistent
+    # 4. stamp every node from the resolved map so each community is internally consistent.
+    #    Both key spellings are written (and both cleared), so the graph reads correctly
+    #    whichever one this graphify build looks for — and a stale name under the other
+    #    key can never outlive the clear.
     stamped = 0
     for n in new.get("nodes", []):
         cid = n.get("community")
@@ -177,9 +182,11 @@ def main() -> int:
         lbl = resolved.get(int(cid))
         if lbl:
             n["community_label"] = lbl
+            n["community_name"] = lbl
             stamped += 1
         else:
             n.pop("community_label", None)
+            n.pop("community_name", None)
 
     new_p.write_text(json.dumps(new, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     labels_p.write_text(

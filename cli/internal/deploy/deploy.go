@@ -58,6 +58,60 @@ type DeployResult struct {
 //   - mcp.json    (machine-specific)
 var pruneSubtrees = []string{"skills", "templates", "hooks", "agents"}
 
+// pluginManagedDirs are runtime locations owned by a host's own plugin or
+// extension system. bravros must never write to or prune inside them: Claude
+// Code's marketplace and Gemini's extension mechanism deliver skills to those
+// hosts straight from the public repo, and a second writer would fight them
+// (P-0003 closed decision: "two mechanisms writing the same skills is a
+// conflict, not redundancy").
+//
+// This is a top-level, TargetDir-relative allowlist — nothing in pruneSubtrees
+// or dirMappings names any of these today, so the guard below is currently a
+// no-op in practice. Its job is to keep it that way: a future edit that widens
+// pruneSubtrees or dirMappings to reach one of these names is caught by
+// IsPluginManaged (wired into the orphan detector, the per-file copy loop, and
+// the Deploy() exit assertion) instead of silently starting to eat a host's
+// plugin tree.
+var pluginManagedDirs = []string{"plugins", ".claude-plugin", "extensions"}
+
+// IsPluginManaged reports whether rel — a path relative to TargetDir — falls
+// inside a host's plugin-managed tree. Matching is path-segment aware on the
+// FIRST segment only: "plugins/x" and ".claude-plugin/y" are plugin-managed,
+// but "skills/plugins-helper" is NOT (string-prefix matching would wrongly
+// flag it) and "skills/a/plugins/b" is NOT either — a "plugins" segment nested
+// under a non-plugin-managed top-level directory (here "skills") is just a
+// regularly-named subdirectory of that tree, not a host's plugin root. Only
+// entries whose path starts AT TargetDir with one of pluginManagedDirs count.
+func IsPluginManaged(rel string) bool {
+	rel = filepath.ToSlash(filepath.Clean(rel))
+	first := strings.SplitN(rel, "/", 2)[0]
+	for _, d := range pluginManagedDirs {
+		if first == d {
+			return true
+		}
+	}
+	return false
+}
+
+// assertNoPluginManagedEntries defends the pluginManagedDirs invariant at
+// every Deploy() return point: if any entry in result.Pruned or result.Files
+// ever resolves to a plugin-managed path, something upstream (pruneSubtrees,
+// dirMappings, or the per-file copy loop) was widened unsafely. Fail loud
+// instead of silently pruning or deploying into a host's plugin tree.
+func assertNoPluginManagedEntries(result *DeployResult) error {
+	for _, p := range result.Pruned {
+		if IsPluginManaged(p) {
+			return fmt.Errorf("internal invariant violated: %q in DeployResult.Pruned is plugin-managed — refusing to prune", p)
+		}
+	}
+	for _, f := range result.Files {
+		if IsPluginManaged(f) {
+			return fmt.Errorf("internal invariant violated: %q in DeployResult.Files is plugin-managed — refusing to deploy", f)
+		}
+	}
+	return nil
+}
+
 // dirMappings maps source subdirs to target subdirs for the per-file copy loop.
 // skills/ is included here for file-counting and Dirs population; the actual
 // per-skill atomic deployment is handled by the SHA-manifest loop in Deploy().
@@ -214,6 +268,11 @@ func Deploy(opts DeployOpts) (*DeployResult, error) {
 		}
 		opts.TargetDir = filepath.Join(home, ".claude")
 	}
+
+	// The skills tree is written host-agnostically (skillgen forbids `~/.claude`),
+	// so on a Claude install its toolkit paths must be rewritten on the way out or
+	// they name directories that do not exist. See hostpaths.go.
+	rewriteHostPaths := isClaudeTarget(opts.TargetDir)
 
 	// Load the manifest from the runtime skills directory.
 	manifestPath := filepath.Join(opts.TargetDir, "skills", manifestFileName)
@@ -385,7 +444,7 @@ func Deploy(opts DeployOpts) (*DeployResult, error) {
 				if err := os.RemoveAll(dstSkillDir); err != nil {
 					return nil, fmt.Errorf("remove skill %s before redeploy: %w", skillName, err)
 				}
-				if err := copySkillDir(skillSrcDir, dstSkillDir); err != nil {
+				if err := copySkillDir(skillSrcDir, dstSkillDir, rewriteHostPaths); err != nil {
 					return nil, fmt.Errorf("copy skill %s: %w", skillName, err)
 				}
 			}
@@ -482,6 +541,9 @@ func Deploy(opts DeployOpts) (*DeployResult, error) {
 	// of forcing.
 	if opts.DryRun {
 		result.Files = files
+		if err := assertNoPluginManagedEntries(result); err != nil {
+			return nil, err
+		}
 		return result, nil
 	}
 
@@ -498,6 +560,16 @@ func Deploy(opts DeployOpts) (*DeployResult, error) {
 		}
 
 		dstRel := mapSourceToDest(rel)
+
+		// Defensive — see pluginManagedDirs: the per-file copy loop must skip
+		// any destination that falls inside a host's plugin-managed tree
+		// (unreachable today since dirMappings/fileMappings never target one,
+		// but this stays true even if that changes).
+		if IsPluginManaged(dstRel) {
+			result.Skipped = append(result.Skipped, rel)
+			continue
+		}
+
 		src := filepath.Join(opts.SourceDir, rel)
 		dst := filepath.Join(opts.TargetDir, dstRel)
 
@@ -567,6 +639,10 @@ func Deploy(opts DeployOpts) (*DeployResult, error) {
 		}
 	}
 
+	if err := assertNoPluginManagedEntries(result); err != nil {
+		return nil, err
+	}
+
 	return result, nil
 }
 
@@ -582,7 +658,7 @@ func Deploy(opts DeployOpts) (*DeployResult, error) {
 // The manifest file (.deploy-manifest.json) is skipped if encountered (defensive
 // guard — it lives at skills/.deploy-manifest.json, sibling to skill dirs, but
 // guard here for safety).
-func copySkillDir(src, dst string) error {
+func copySkillDir(src, dst string, rewrite bool) error {
 	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -613,6 +689,17 @@ func copySkillDir(src, dst string) error {
 		// Regular file (or symlink resolved to file): materialize as a real file.
 		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
 			return err
+		}
+
+		// Text files get their host-agnostic toolkit paths rewritten to the
+		// Claude equivalents (see hostpaths.go). Read-modify-write rather than
+		// stream, since a replacement can straddle any chunk boundary.
+		if rewrite && isTextFile(d.Name()) {
+			content, readErr := os.ReadFile(path) // follows symlinks
+			if readErr != nil {
+				return readErr
+			}
+			return os.WriteFile(target, desanitizeHostPaths(content), info.Mode())
 		}
 
 		in, err := os.Open(path) // os.Open follows symlinks
@@ -657,15 +744,46 @@ func fileUpToDate(src, dst string) bool {
 // failed it — and is simply wrong here, where the repo is called "bravros".
 // A source checkout is identified by the two things it always has: a skills/
 // directory and a cli/go.mod declaring this module.
+//
+// A second, narrower shape is also accepted: a payload fetched by
+// `bravros selfupdate` (cli/internal/fetch) on a machine with no bravros
+// clone. That payload ships exactly skills/ + templates/ — no cli/go.mod,
+// since it isn't a repo checkout at all. It is accepted as a valid deploy
+// source when templates/ exists AND at least one skills/*/SKILL.md file is
+// present — a bravros-specific marker no incidental "skills" + "templates"
+// directory pairing would produce by accident.
 func IsClaudeRepo(dir string) bool {
 	if fi, err := os.Stat(filepath.Join(dir, "skills")); err != nil || !fi.IsDir() {
 		return false
 	}
-	data, err := os.ReadFile(filepath.Join(dir, "cli", "go.mod"))
+	if data, err := os.ReadFile(filepath.Join(dir, "cli", "go.mod")); err == nil &&
+		strings.Contains(string(data), "module github.com/bravros/bravros/cli") {
+		return true
+	}
+	// Fetched-payload fallback (see doc comment above).
+	if fi, err := os.Stat(filepath.Join(dir, "templates")); err != nil || !fi.IsDir() {
+		return false
+	}
+	return hasAnySkillMD(dir)
+}
+
+// hasAnySkillMD reports whether dir/skills contains at least one subdirectory
+// with a SKILL.md file — the bravros-specific marker used by IsClaudeRepo's
+// fetched-payload fallback.
+func hasAnySkillMD(dir string) bool {
+	entries, err := os.ReadDir(filepath.Join(dir, "skills"))
 	if err != nil {
 		return false
 	}
-	return strings.Contains(string(data), "module github.com/bravros/bravros/cli")
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(dir, "skills", e.Name(), "SKILL.md")); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 // mapSourceToDest converts a source-relative path to its target-relative path.
@@ -840,6 +958,17 @@ func detectOrphans(srcDir, targetDir string, preserveSkills []string) ([]string,
 
 	var orphans []string
 	for _, sub := range pruneSubtrees {
+		// Absent source subtree means "unknown", not "empty". A source tree
+		// that simply doesn't ship this category at all (e.g. a selfupdate
+		// fetched payload, which carries only skills/ + templates/ — see
+		// cli/internal/fetch) is NOT the same signal as "every entry here was
+		// deliberately removed upstream". Treating the former like the latter
+		// would wipe an entire deployed category (hooks/, agents/) on every
+		// deploy from such a source. Skip the subtree entirely when its
+		// source counterpart doesn't exist — propose no orphans from it.
+		if _, err := os.Stat(filepath.Join(srcDir, sub)); os.IsNotExist(err) {
+			continue
+		}
 		dstSub := filepath.Join(targetDir, sub)
 		entries, err := os.ReadDir(dstSub)
 		if err != nil {
@@ -854,7 +983,14 @@ func detectOrphans(srcDir, targetDir string, preserveSkills []string) ([]string,
 				if err != nil {
 					return nil, err
 				}
-				orphans = append(orphans, githookOrphans...)
+				for _, o := range githookOrphans {
+					// Defensive — see pluginManagedDirs: the orphan detector must
+					// never propose a plugin-managed path.
+					if IsPluginManaged(o) {
+						continue
+					}
+					orphans = append(orphans, o)
+				}
 				continue
 			}
 			// global-CLAUDE.md is a deploy-generated artifact (stashed from
@@ -876,7 +1012,9 @@ func detectOrphans(srcDir, targetDir string, preserveSkills []string) ([]string,
 			// artifacts, not user skills).
 			if sub == "skills" {
 				if NonRuntimeSkillDir(e.Name()) {
-					orphans = append(orphans, filepath.Join(sub, e.Name()))
+					if cand := filepath.Join(sub, e.Name()); !IsPluginManaged(cand) {
+						orphans = append(orphans, cand)
+					}
 					continue
 				}
 				if _, preserved := preserveSet[e.Name()]; preserved {
@@ -885,7 +1023,13 @@ func detectOrphans(srcDir, targetDir string, preserveSkills []string) ([]string,
 			}
 			srcPath := filepath.Join(srcDir, sub, e.Name())
 			if _, err := os.Stat(srcPath); os.IsNotExist(err) {
-				orphans = append(orphans, filepath.Join(sub, e.Name()))
+				// Defensive — see pluginManagedDirs: the orphan detector must
+				// never propose a plugin-managed path (unreachable today since
+				// pruneSubtrees never names a plugin-managed dir, but this stays
+				// true even if that changes).
+				if cand := filepath.Join(sub, e.Name()); !IsPluginManaged(cand) {
+					orphans = append(orphans, cand)
+				}
 			}
 		}
 	}
@@ -894,9 +1038,26 @@ func detectOrphans(srcDir, targetDir string, preserveSkills []string) ([]string,
 }
 
 func detectNestedOrphans(srcDir, targetDir, relRoot string) ([]string, error) {
+	// Defensive — see pluginManagedDirs: the orphan detector must never
+	// propose a plugin-managed path, even nested.
+	if IsPluginManaged(relRoot) {
+		return nil, nil
+	}
+
 	dstRoot := filepath.Join(targetDir, relRoot)
 	srcRoot := filepath.Join(srcDir, relRoot)
 	if _, err := os.Stat(srcRoot); os.IsNotExist(err) {
+		// Same "absent means unknown, not empty" reasoning as detectOrphans'
+		// subtree guard, applied at this nested level too: only propose
+		// relRoot itself as an orphan when its PARENT exists in source (a
+		// genuine, deliberate removal of this one nested dir). If the parent
+		// is also absent, the whole category isn't shipped by this source at
+		// all — that's ambiguous, not evidence of removal, so propose nothing.
+		if parent := filepath.Dir(relRoot); parent != "." {
+			if _, perr := os.Stat(filepath.Join(srcDir, parent)); os.IsNotExist(perr) {
+				return nil, nil
+			}
+		}
 		return []string{relRoot}, nil
 	}
 
@@ -911,6 +1072,12 @@ func detectNestedOrphans(srcDir, targetDir, relRoot string) ([]string, error) {
 		rel, err := filepath.Rel(targetDir, path)
 		if err != nil {
 			return err
+		}
+		if IsPluginManaged(rel) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		srcPath := filepath.Join(srcDir, rel)
 		if _, err := os.Stat(srcPath); os.IsNotExist(err) {

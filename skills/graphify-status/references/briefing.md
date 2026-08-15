@@ -33,9 +33,17 @@ Options:
 
 - **communities** — clusters in `graph.json` that need a name.
 - **labels** — entries in `community-labels.json`. **This should equal `communities`.** The gap is the defect.
-- **nodes showing Community NN** — the number that matters. **Lower is better; 0% means every community is named.** A node counts as uncovered if it has no `community_label` *or* carries the `Community NN` placeholder — a never-labelled graph must not score 0%.
+- **nodes showing Community NN** — the number that matters. **Lower is better; 0% means every community is named.** A node counts as uncovered if it carries no name *or* the `Community NN` placeholder — a never-labelled graph must not score 0%.
 
 Rows are sorted healthiest first; unbuilt or unreadable graphs sink to the bottom.
+
+### The node's name lives under one of TWO keys
+
+graphify renamed the field `community_label` → `community_name`, and a `graph.json` carries whichever key was current when it was **built** — so two healthy graphs on the same machine disagree. Every script in `graphify-status/` and `graphify-this-project/` reads both keys and writes both.
+
+**A row reading `labels == communities` yet `100%` uncovered is this bug, not a degraded graph** — the names are all there, the reader is looking at the wrong key. Confirm before relabelling anything: `python3 -c "import json;n=json.load(open('graphify-out/graph.json'))['nodes'];print(sorted(n[0]))"`. private-homelab tripped exactly this on 2026-08-15 and nearly got 721 good labels rewritten.
+
+The same single-key assumption was load-bearing in two other places, both fixed: the `.githooks/pre-push` label-degradation guard (would block every push after a new-format rebuild) and `reapply-labels-by-node.py` / `resync-labels.py`, which snapshot labels off the old graph before an AST rebuild — reading one key there carries **nothing** forward and strips the graph on every merge.
 
 ## What it does NOT tell you
 

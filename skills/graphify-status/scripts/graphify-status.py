@@ -56,6 +56,21 @@ def discover(roots: list[Path], depth: int) -> list[Path]:
     return sorted(found)
 
 
+def node_label(node: dict) -> str | None:
+    """Real community name on a node, or None if it is unnamed.
+
+    graphify renamed this node field `community_label` -> `community_name`. A graph
+    carries whichever key was current when it was built, so read both — reading only
+    the old key scores a correctly-labelled new-format graph as 100% uncovered.
+    The "Community NN" placeholder counts as unnamed.
+    """
+    for key in ("community_label", "community_name"):
+        value = node.get(key)
+        if value and not str(value).startswith("Community "):
+            return str(value)
+    return None
+
+
 def measure(project: Path) -> dict:
     row = {
         "project": project.name,
@@ -83,11 +98,9 @@ def measure(project: Path) -> dict:
     # A node is uncovered if it has no label at all OR the placeholder "Community NN".
     # Counting only the placeholder would score a never-labelled graph as 0% — healthy-
     # looking, and wrong: those nodes render as bare numbers too.
-    row["numeric"] = sum(
-        1 for n in nodes
-        if not n.get("community_label")
-        or str(n["community_label"]).startswith("Community ")
-    )
+    # graphify renamed the node field `community_label` -> `community_name`; graphs
+    # carry one or the other depending on when they were built, so read both.
+    row["numeric"] = sum(1 for n in nodes if not node_label(n))
     row["pct"] = (100.0 * row["numeric"] / len(nodes)) if nodes else 0.0
 
     labels = project / "graphify-out" / "community-labels.json"

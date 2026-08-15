@@ -31,6 +31,11 @@ func makeTestRepo(t *testing.T, skillSpecs map[string]string) string {
 	must(os.WriteFile(filepath.Join(base, "config", "settings.json"), []byte("{}"), 0644))
 	must(os.WriteFile(filepath.Join(base, "config", "statusline.sh"), []byte("echo ok"), 0644))
 
+	// IsClaudeRepo detects a source checkout by content (skills/ + cli/go.mod
+	// declaring this module) — write the marker so Deploy() accepts base.
+	must(os.MkdirAll(filepath.Join(base, "cli"), 0755))
+	must(os.WriteFile(filepath.Join(base, "cli", "go.mod"), []byte("module github.com/bravros/bravros/cli\n\ngo 1.26.2\n"), 0644))
+
 	for name, content := range skillSpecs {
 		dir := filepath.Join(base, "skills", name)
 		must(os.MkdirAll(dir, 0755))

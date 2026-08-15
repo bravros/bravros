@@ -124,6 +124,7 @@ var (
 	deployNoPrune   bool
 	deployJSON      bool   // emit the full DeployResult JSON object instead of the human summary
 	deployFilter    string // comma-separated skill names; overrides .bravros.yml:skills.enabled
+	deploySource    string // --source: deploy from an explicit dir instead of cwd (e.g. a selfupdate-fetched payload)
 )
 
 // printDeploySummary writes a concise, human-readable deploy summary to w.
@@ -189,6 +190,7 @@ full DeployResult object (deployed files, skipped, pruned, skill lists) or
 			CountOnly:      deployCountOnly,
 			Force:          deployForce,
 			NoPrune:        deployNoPrune,
+			SourceDir:      deploySource,
 			PreserveSkills: config.PreservedSkills(),
 			EnabledSkills:  enabledSkills,
 			FilterMode:     filterMode,
@@ -198,7 +200,12 @@ full DeployResult object (deployed files, skipped, pruned, skill lists) or
 		// Refuses by default when any source SKILL.md contains an unsafe
 		// `for X in $VAR` zsh word-split pattern. --force downgrades to a
 		// warning so emergency deploys can proceed with the violation logged.
-		if err := preDeployBashHygieneLint("", deployForce, os.Stderr); err != nil {
+		//
+		// Must lint the SAME resolved source dir the deploy itself will use —
+		// deploySource when --source was passed, cwd otherwise (mirroring
+		// deploy.Deploy's own SourceDir default). Linting cwd while deploying
+		// from an explicit --source would silently skip the gate.
+		if err := preDeployBashHygieneLint(deploySource, deployForce, os.Stderr); err != nil {
 			os.Exit(1)
 		}
 
@@ -303,6 +310,7 @@ func init() {
 	deployCmd.Flags().BoolVar(&deployForce, "force", false, "Force overwrite every source file at destination, skipping any mtime/hash skip-unchanged comparison; also downgrades the pre-deploy bash-hygiene lint (skill word-split refusal) to a warning")
 	deployCmd.Flags().BoolVar(&deployNoPrune, "no-prune", false, "Preserve orphan skills/templates/hooks at the destination instead of removing them (default: prune orphans)")
 	deployCmd.Flags().StringVar(&deployFilter, "filter", "", "Comma-separated skill names to deploy; overrides .bravros.yml:skills.enabled (core skills always deploy)")
+	deployCmd.Flags().StringVar(&deploySource, "source", "", "Deploy from an explicit source dir instead of cwd — e.g. a payload fetched by 'bravros selfupdate' on a machine with no bravros clone (must contain skills/ and cli/go.mod, or a subset like skills/+templates/ for a fetched payload)")
 	deployCmd.MarkFlagsMutuallyExclusive("json", "field", "count-only")
 	rootCmd.AddCommand(deployCmd)
 }

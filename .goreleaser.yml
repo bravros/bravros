@@ -2,6 +2,13 @@ version: 2
 
 project_name: bravros
 
+# Builds the signed payload asset (skills/ + templates/) that `bravros selfupdate`
+# fetches at runtime — see cli/internal/fetch. Runs from the repo root (this file's
+# directory), so the paths inside the tarball are `skills/...` and `templates/...`.
+before:
+  hooks:
+    - sh -c "tar -czf bravros-payload.tar.gz skills templates"
+
 builds:
   - id: bravros
     dir: cli
@@ -34,6 +41,10 @@ archives:
 
 checksum:
   name_template: 'checksums.txt'
+  # Folds bravros-payload.tar.gz's sha256 into checksums.txt so it rides the same
+  # minisign signature chain as the platform binaries — no second signing key.
+  extra_files:
+    - glob: bravros-payload.tar.gz
 
 signs:
   - artifacts: checksum
@@ -64,6 +75,7 @@ release:
   # installs, since each release carries the script that fetches it.
   extra_files:
     - glob: install.sh
+    - glob: bravros-payload.tar.gz
 
 brews:
   - name: bravros

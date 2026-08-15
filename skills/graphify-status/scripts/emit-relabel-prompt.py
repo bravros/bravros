@@ -42,16 +42,17 @@ INLINE_MAX = 25
 def uncovered(graph: dict, labels: dict) -> dict[int, list[dict]]:
     """Communities whose nodes render as a bare number.
 
-    Uncovered = no community_label, the "Community NN" placeholder, or absent from
+    Uncovered = no name on the node, the "Community NN" placeholder, or absent from
     community-labels.json. Same three-way test graphify-status.py uses, so the two
-    always agree on the count.
+    always agree on the count. The node's name lives under `community_label` on older
+    graphs and `community_name` on newer ones, so both keys are read.
     """
     by_cid: dict[int, list[dict]] = {}
     for n in graph.get("nodes", []):
         cid = n.get("community")
         if cid is None:
             continue
-        cl = n.get("community_label")
+        cl = n.get("community_label") or n.get("community_name")
         if cl and not str(cl).startswith("Community ") and str(cid) in labels:
             continue
         label = n.get("label") or n.get("norm_label") or ""

@@ -8,6 +8,8 @@ package cmd
 
 import (
 	"bufio"
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -18,6 +20,7 @@ import (
 	"time"
 
 	"github.com/bravros/bravros/cli/internal/deploy"
+	"github.com/bravros/bravros/cli/internal/fetch"
 	"github.com/bravros/bravros/cli/internal/hooks"
 	"github.com/bravros/bravros/cli/internal/selfupdate"
 )
@@ -59,6 +62,9 @@ func resetSelfupdateFlags(t *testing.T) {
 	origOverride := selfupdateRepoOverride
 	origDeep := selfupdateDeep
 	origForce := selfupdateForce
+	origFetchClient := selfupdateFetchClientOverride
+	origFetchPayloadDir := selfupdateFetchPayloadDirOverride
+	origFetchTargetDir := selfupdateFetchTargetDirOverride
 	origCodexHome, hadCodexHome := os.LookupEnv("BRAVROS_CODEX_HOME")
 	origOpenCodeHome, hadOpenCodeHome := os.LookupEnv("BRAVROS_OPENCODE_HOME")
 	origPiHome, hadPiHome := os.LookupEnv("BRAVROS_PI_HOME")
@@ -70,6 +76,9 @@ func resetSelfupdateFlags(t *testing.T) {
 	selfupdateRepoOverride = ""
 	selfupdateDeep = false
 	selfupdateForce = false
+	selfupdateFetchClientOverride = nil
+	selfupdateFetchPayloadDirOverride = ""
+	selfupdateFetchTargetDirOverride = ""
 	// Disable the check-TTL cache (B-0345) so tests exercise the real check path
 	// and never read/write the developer's real ~/.claude/state marker. Cache
 	// tests opt back in with t.Setenv + a HOME override.
@@ -92,6 +101,9 @@ func resetSelfupdateFlags(t *testing.T) {
 		selfupdateRepoOverride = origOverride
 		selfupdateDeep = origDeep
 		selfupdateForce = origForce
+		selfupdateFetchClientOverride = origFetchClient
+		selfupdateFetchPayloadDirOverride = origFetchPayloadDir
+		selfupdateFetchTargetDirOverride = origFetchTargetDir
 		if hadCodexHome {
 			_ = os.Setenv("BRAVROS_CODEX_HOME", origCodexHome)
 		} else {
@@ -1567,5 +1579,347 @@ func TestSelfupdateCheckTTL_Parsing(t *testing.T) {
 		if got := selfupdateCheckTTL(); got != c.want {
 			t.Errorf("BRAVROS_SELFUPDATE_TTL=%q: got %v, want %v", c.raw, got, c.want)
 		}
+	}
+}
+
+// ── selfupdateViaFetch (P-0003 Phase 3: no-clone fetch path) ────────────────
+
+// fakeFetchClient is a selfupdateFetchClient test double — no network, no
+// filesystem access beyond what writePayload chooses to do.
+type fakeFetchClient struct {
+	resolveCalls int
+	fetchCalls   int
+
+	resolveTag string
+	resolveErr error
+
+	fetchErr error
+	// writePayload, when set, is invoked with destDir on a successful
+	// FetchPayload call so tests can populate a fake payload tree.
+	writePayload func(destDir string) error
+}
+
+func (f *fakeFetchClient) ResolveLatestTag(ctx context.Context) (string, error) {
+	f.resolveCalls++
+	if f.resolveErr != nil {
+		return "", f.resolveErr
+	}
+	return f.resolveTag, nil
+}
+
+func (f *fakeFetchClient) FetchPayload(ctx context.Context, tag, destDir string) (string, error) {
+	f.fetchCalls++
+	if f.fetchErr != nil {
+		return "", f.fetchErr
+	}
+	if f.writePayload != nil {
+		if err := f.writePayload(destDir); err != nil {
+			return "", err
+		}
+	}
+	return "fakesha256", nil
+}
+
+// writeFakePayloadTree populates destDir with a minimal skills/ + cli/go.mod
+// pair so deploy.IsClaudeRepo accepts it as a deployable source, mirroring
+// deploy package's own writeRepoMarkers test fixture.
+func writeFakePayloadTree(t *testing.T, destDir string) {
+	t.Helper()
+	skillDir := filepath.Join(destDir, "skills", "fakeskill")
+	if err := os.MkdirAll(skillDir, 0755); err != nil {
+		t.Fatalf("mkdir fake skill dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# fakeskill"), 0644); err != nil {
+		t.Fatalf("write fake SKILL.md: %v", err)
+	}
+	cliDir := filepath.Join(destDir, "cli")
+	if err := os.MkdirAll(cliDir, 0755); err != nil {
+		t.Fatalf("mkdir fake cli dir: %v", err)
+	}
+	gomod := "module github.com/bravros/bravros/cli\n\ngo 1.26.2\n"
+	if err := os.WriteFile(filepath.Join(cliDir, "go.mod"), []byte(gomod), 0644); err != nil {
+		t.Fatalf("write fake cli/go.mod: %v", err)
+	}
+}
+
+// setupFetchPathTest wires resetSelfupdateFlags, an isolated BRAVROS_CONFIG_DIR
+// (so selfupdate.RemoteStatePath() never touches the developer's real
+// ~/.claude/state), and a fresh payload dir. Returns (home, payloadDir).
+func setupFetchPathTest(t *testing.T) (home, payloadDir string) {
+	t.Helper()
+	resetSelfupdateFlags(t)
+	t.Setenv("BRAVROS_CONFIG_DIR", t.TempDir())
+	home = t.TempDir()
+	payloadDir = t.TempDir()
+	selfupdateFetchPayloadDirOverride = payloadDir
+	return home, payloadDir
+}
+
+// writeInstalledTag seeds payloadDir with the one-line tag file selfupdateViaFetch
+// reads to learn what's currently installed.
+func writeInstalledTag(t *testing.T, payloadDir, tag string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(payloadDir, payloadTagFileName), []byte(tag), 0644); err != nil {
+		t.Fatalf("write installed tag: %v", err)
+	}
+}
+
+// TestSelfupdateFetchPathInSyncIsSilent verifies that when the installed tag
+// matches the remote tag, selfupdateViaFetch produces no output at all and
+// never calls FetchPayload.
+func TestSelfupdateFetchPathInSyncIsSilent(t *testing.T) {
+	home, payloadDir := setupFetchPathTest(t)
+	writeInstalledTag(t, payloadDir, "v1.0.0")
+
+	fake := &fakeFetchClient{resolveTag: "v1.0.0"}
+	selfupdateFetchClientOverride = fake
+
+	var err error
+	stderr := captureStderr(t, func() {
+		err = selfupdateViaFetch(home)
+	})
+
+	if err != nil {
+		t.Fatalf("in-sync run must not error, got: %v", err)
+	}
+	if stderr != "" {
+		t.Errorf("in-sync run must produce no output whatsoever, got: %q", stderr)
+	}
+	if fake.fetchCalls != 0 {
+		t.Errorf("in-sync run must not call FetchPayload, got %d calls", fake.fetchCalls)
+	}
+}
+
+// TestSelfupdateFetchPathOfflineIsSilentAndSucceeds verifies that a failed
+// remote resolve is treated as offline: nil error, no output (default
+// verbosity), FetchPayload never called, and any pre-existing payload dir
+// content survives untouched.
+func TestSelfupdateFetchPathOfflineIsSilentAndSucceeds(t *testing.T) {
+	home, payloadDir := setupFetchPathTest(t)
+	// Pre-existing payload content that must survive untouched.
+	marker := filepath.Join(payloadDir, "skills", "existing", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(marker), 0755); err != nil {
+		t.Fatalf("mkdir pre-existing skill dir: %v", err)
+	}
+	const preExistingContent = "pre-existing skill, must not be touched"
+	if err := os.WriteFile(marker, []byte(preExistingContent), 0644); err != nil {
+		t.Fatalf("write pre-existing skill: %v", err)
+	}
+
+	fake := &fakeFetchClient{resolveErr: errors.New("dial tcp: network is unreachable")}
+	selfupdateFetchClientOverride = fake
+
+	var err error
+	stderr := captureStderr(t, func() {
+		err = selfupdateViaFetch(home)
+	})
+
+	if err != nil {
+		t.Fatalf("offline run must not error, got: %v", err)
+	}
+	if stderr != "" {
+		t.Errorf("offline run must be silent at default verbosity, got: %q", stderr)
+	}
+	if fake.fetchCalls != 0 {
+		t.Errorf("offline run must not call FetchPayload, got %d calls", fake.fetchCalls)
+	}
+	got, readErr := os.ReadFile(marker)
+	if readErr != nil {
+		t.Fatalf("pre-existing payload must survive offline run: %v", readErr)
+	}
+	if string(got) != preExistingContent {
+		t.Errorf("pre-existing payload content changed: got %q, want %q", got, preExistingContent)
+	}
+}
+
+// TestSelfupdateFetchPathNoPayloadAssetIsSilent verifies that fetch.ErrNoPayload
+// (a release with no published payload asset — every pre-P-0003 release) is
+// treated as "nothing to do", not a failure: nil error, no output.
+func TestSelfupdateFetchPathNoPayloadAssetIsSilent(t *testing.T) {
+	home, payloadDir := setupFetchPathTest(t)
+	writeInstalledTag(t, payloadDir, "v1.0.0")
+
+	fake := &fakeFetchClient{
+		resolveTag: "v2.0.0",
+		fetchErr:   fmt.Errorf("%s: %w", fetch.PayloadAsset, fetch.ErrNoPayload),
+	}
+	selfupdateFetchClientOverride = fake
+
+	var err error
+	stderr := captureStderr(t, func() {
+		err = selfupdateViaFetch(home)
+	})
+
+	if err != nil {
+		t.Fatalf("no-payload-asset run must not error, got: %v", err)
+	}
+	if stderr != "" {
+		t.Errorf("no-payload-asset run must be silent at default verbosity, got: %q", stderr)
+	}
+}
+
+// TestSelfupdateFetchPathVerificationFailureIsLoud is the regression test for
+// the silent-0 bug this dossier exists to fix: any OTHER fetch error (checksum
+// mismatch, signature failure, network error mid-download, ...) must be loud
+// — non-nil error AND a "⚠️" stderr line — never look like success.
+func TestSelfupdateFetchPathVerificationFailureIsLoud(t *testing.T) {
+	home, payloadDir := setupFetchPathTest(t)
+	writeInstalledTag(t, payloadDir, "v1.0.0")
+
+	fake := &fakeFetchClient{
+		resolveTag: "v2.0.0",
+		fetchErr:   errors.New("checksum mismatch for bravros-payload.tar.gz"),
+	}
+	selfupdateFetchClientOverride = fake
+
+	var err error
+	stderr := captureStderr(t, func() {
+		err = selfupdateViaFetch(home)
+	})
+
+	if err == nil {
+		t.Fatal("verification failure must return a non-nil error, got nil")
+	}
+	if !strings.Contains(stderr, "⚠️") {
+		t.Errorf("verification failure must emit a loud ⚠️ stderr line, got: %q", stderr)
+	}
+}
+
+// TestSelfupdateFetchPathBehindFetchesAndDeploys verifies the full happy path:
+// behind → fetch → deploy → tag file written → markers written → exactly one
+// stderr line.
+func TestSelfupdateFetchPathBehindFetchesAndDeploys(t *testing.T) {
+	home, payloadDir := setupFetchPathTest(t)
+	writeInstalledTag(t, payloadDir, "v1.0.0")
+
+	targetDir := t.TempDir()
+	selfupdateFetchTargetDirOverride = targetDir
+
+	fake := &fakeFetchClient{
+		resolveTag:   "v2.0.0",
+		writePayload: func(destDir string) error { writeFakePayloadTree(t, destDir); return nil },
+	}
+	selfupdateFetchClientOverride = fake
+
+	var err error
+	stderr := captureStderr(t, func() {
+		err = selfupdateViaFetch(home)
+	})
+
+	if err != nil {
+		t.Fatalf("behind run must not error, got: %v", err)
+	}
+	if fake.fetchCalls != 1 {
+		t.Errorf("expected exactly 1 FetchPayload call, got %d", fake.fetchCalls)
+	}
+
+	// Deployed into the isolated target dir.
+	deployedSkill := filepath.Join(targetDir, "skills", "fakeskill", "SKILL.md")
+	if _, statErr := os.Stat(deployedSkill); statErr != nil {
+		t.Errorf("expected fakeskill deployed at %s: %v", deployedSkill, statErr)
+	}
+
+	// Tag file updated to the new remote tag.
+	gotTag, readErr := os.ReadFile(filepath.Join(payloadDir, payloadTagFileName))
+	if readErr != nil {
+		t.Fatalf("read updated tag file: %v", readErr)
+	}
+	if strings.TrimSpace(string(gotTag)) != "v2.0.0" {
+		t.Errorf("expected tag file to contain v2.0.0, got %q", gotTag)
+	}
+
+	// Exactly one stderr line.
+	trimmed := strings.TrimRight(stderr, "\n")
+	lines := strings.Split(trimmed, "\n")
+	if len(lines) != 1 || trimmed == "" {
+		t.Errorf("expected exactly one stderr line, got %d: %q", len(lines), stderr)
+	}
+	if !strings.Contains(stderr, "v2.0.0") {
+		t.Errorf("expected the single stderr line to name the new tag, got: %q", stderr)
+	}
+}
+
+// TestSelfupdateFetchPathDoesNotPruneTargetDir verifies that the fetch path's
+// deploy call never orphan-prunes the target dir. The fetched payload is a
+// PARTIAL source tree by construction (skills/ + templates/ only — no hooks/
+// or agents/ ship in it at all), so "absent from payload" must never be read
+// as "deleted upstream, prune it". Pruning against a partial source tree would
+// wipe every hand-installed hook, agent, and skill on the very first automatic
+// SessionStart fetch.
+func TestSelfupdateFetchPathDoesNotPruneTargetDir(t *testing.T) {
+	home, payloadDir := setupFetchPathTest(t)
+	writeInstalledTag(t, payloadDir, "v1.0.0")
+
+	targetDir := t.TempDir()
+	selfupdateFetchTargetDirOverride = targetDir
+
+	// Pre-populate the target dir with user-owned content that has NO
+	// counterpart in the fetched payload (fake payload only ships
+	// skills/fakeskill and templates/fake.md — see writeFakePayloadTree).
+	preExisting := map[string]string{
+		filepath.Join(targetDir, "hooks", "pre-push"):                 "#!/bin/sh\necho pre-push\n",
+		filepath.Join(targetDir, "agents", "my-agent.md"):             "# my-agent\n",
+		filepath.Join(targetDir, "skills", "handwritten", "SKILL.md"): "# handwritten\n",
+	}
+	for path, content := range preExisting {
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatalf("mkdir %s: %v", filepath.Dir(path), err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+
+	fake := &fakeFetchClient{
+		resolveTag:   "v2.0.0",
+		writePayload: func(destDir string) error { writeFakePayloadTree(t, destDir); return nil },
+	}
+	selfupdateFetchClientOverride = fake
+
+	var err error
+	captureStderr(t, func() {
+		err = selfupdateViaFetch(home)
+	})
+	if err != nil {
+		t.Fatalf("behind run must not error, got: %v", err)
+	}
+
+	for path, want := range preExisting {
+		got, readErr := os.ReadFile(path)
+		if readErr != nil {
+			t.Errorf("pre-existing user-owned file %s must survive the fetch-path deploy, but: %v", path, readErr)
+			continue
+		}
+		if string(got) != want {
+			t.Errorf("pre-existing file %s content changed: got %q, want %q", path, got, want)
+		}
+	}
+}
+
+// TestSelfupdateFetchPathSkippedWhenPortableRepoExists verifies that when a
+// valid portable repo clone exists (.git present), selfupdateCmd.RunE never
+// enters the fetch path at all — the fake resolver must never be called.
+func TestSelfupdateFetchPathSkippedWhenPortableRepoExists(t *testing.T) {
+	home, _ := setupFetchPathTest(t)
+	t.Setenv("HOME", home)
+
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir fake .git: %v", err)
+	}
+	selfupdateRepoOverride = repo
+
+	fake := &fakeFetchClient{resolveTag: "v9.9.9"}
+	selfupdateFetchClientOverride = fake
+
+	if _, err := runSelfupdate(t); err != nil {
+		t.Fatalf("RunE with a valid portable repo must not error, got: %v", err)
+	}
+
+	if fake.resolveCalls != 0 {
+		t.Errorf("fetch path must not be entered when a portable repo exists, but ResolveLatestTag was called %d time(s)", fake.resolveCalls)
+	}
+	if fake.fetchCalls != 0 {
+		t.Errorf("fetch path must not be entered when a portable repo exists, but FetchPayload was called %d time(s)", fake.fetchCalls)
 	}
 }

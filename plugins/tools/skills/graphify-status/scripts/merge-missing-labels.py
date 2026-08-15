@@ -160,12 +160,21 @@ def main() -> int:
         encoding="utf-8",
     )
 
+    # graphify renamed the node field `community_label` -> `community_name`. Stamp the
+    # key this graph already uses; a never-labelled graph carries neither, so write both
+    # rather than guess which one this graphify build will read back.
+    node_keys = [
+        k for k in ("community_label", "community_name")
+        if any(k in n for n in graph.get("nodes", []))
+    ] or ["community_label", "community_name"]
+
     touched = set(added) | set(replaced)
     patched = 0
     for n in graph.get("nodes", []):
         cid = n.get("community")
         if cid in touched:
-            n["community_label"] = final[str(cid)]
+            for k in node_keys:
+                n[k] = final[str(cid)]
             patched += 1
 
     # Match graphify's own on-disk format: compact separators, unicode preserved.

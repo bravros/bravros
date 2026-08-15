@@ -60,12 +60,14 @@ def main() -> int:
             cid_int = int(cid)
         except (ValueError, TypeError):
             cid_int = None
+        # graphify renamed this node field `community_label` -> `community_name`. Stamp
+        # both so the graph reads correctly whichever key this build looks for.
         label = int_labels.get(cid_int) if cid_int is not None else None
         if label is not None:
-            n["community_label"] = label
+            n["community_label"] = n["community_name"] = label
             patched += 1
         else:
-            n["community_label"] = f"Community {cid}"
+            n["community_label"] = n["community_name"] = f"Community {cid}"
             fallback += 1
 
     graph_path.write_text(json.dumps(g, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
