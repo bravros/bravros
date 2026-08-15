@@ -1,10 +1,4 @@
 {
-  "dependencies": {
-    "bravros-deploy": "plugins/deploy",
-    "bravros-design": "plugins/design",
-    "bravros-sdlc": "plugins/sdlc",
-    "bravros-tools": "plugins/tools"
-  },
   "description": "Bravros core agent toolkit: plan, build, test, and ship autonomously.",
   "license": "MIT",
   "name": "bravros",

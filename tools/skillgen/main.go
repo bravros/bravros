@@ -377,20 +377,18 @@ func main() {
 		}
 	}
 
-	// Construct core dependencies (only for categories with actual skills)
-	deps := map[string]string{}
-	for cat, list := range categorySkills {
-		if len(list) > 0 {
-			deps["bravros-"+cat] = "plugins/" + cat
-		}
-	}
-
+	// No "dependencies" key: the category plugins are opt-in, not transitive.
+	// Core is deliberately small (README: "an always-on skill list has a context
+	// budget"), and each category is installable on its own from marketplace.json.
+	// Emitting them as dependencies also broke installs outright — the Claude Code
+	// plugin schema types "dependencies" as an array, so the object form this used
+	// to write failed validation with:
+	//   dependencies: Invalid input: expected array, received object
 	coreManifest := map[string]interface{}{
-		"name":         "bravros",
-		"description":  "Bravros core agent toolkit: plan, build, test, and ship autonomously.",
-		"version":      "0.1.0",
-		"license":      "MIT",
-		"dependencies": deps,
+		"name":        "bravros",
+		"description": "Bravros core agent toolkit: plan, build, test, and ship autonomously.",
+		"version":     "0.1.0",
+		"license":     "MIT",
 	}
 	coreManifestBytes, _ := json.MarshalIndent(coreManifest, "", "  ")
 	_ = os.WriteFile(filepath.Join(corePluginDir, "plugin.json"), coreManifestBytes, 0644)
