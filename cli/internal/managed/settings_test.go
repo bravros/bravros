@@ -351,3 +351,69 @@ func TestSyncClaudeSettings_UnwritableFileFailsLoudly(t *testing.T) {
 		t.Errorf("error should tell the operator how to unlock the file, got: %v", err)
 	}
 }
+
+// TestSyncClaudeSettings_AdoptsLegacyUnmarkedEntries is the regression test for
+// the 4x-duplicated SessionStart hooks observed live (P-0018 follow-up): a
+// pre-marker install wrote bravros hooks with no __managed_by, so every sync
+// preserved them as "user-owned" and appended a marked twin. The sync must
+// adopt (drop) unmarked entries whose command is recognizably bravros's, while
+// still preserving a genuinely user-authored hook that merely mentions bravros.
+func TestSyncClaudeSettings_AdoptsLegacyUnmarkedEntries(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	legacy := `{
+  "hooks": {
+    "SessionStart": [
+      {"matcher": "*", "hooks": [
+        {"type": "command", "command": "sh -c 'exec $HOME/.claude/bin/bravros selfupdate'"},
+        {"type": "command", "command": "sh -c 'exec $HOME/.claude/bin/bravros hook verify-install-check'"}
+      ]},
+      {"matcher": "*", "hooks": [
+        {"type": "command", "command": "echo my own thing that mentions bravros"}
+      ]}
+    ]
+  },
+  "statusLine": {"type": "command", "command": "$HOME/.claude/bin/bravros statusline"}
+}`
+	if err := os.WriteFile(path, []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := SyncClaudeSettings(path); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+
+	entries := sessionStartEntries(t, path)
+	selfupdates, verifies, userHooks := 0, 0, 0
+	for _, e := range entries {
+		cmd, _ := e["command"].(string)
+		switch {
+		case strings.Contains(cmd, "bravros selfupdate"):
+			selfupdates++
+		case strings.Contains(cmd, "verify-install-check"):
+			verifies++
+		case strings.Contains(cmd, "my own thing"):
+			userHooks++
+		}
+	}
+	if selfupdates != 1 || verifies != 1 {
+		t.Errorf("legacy unmarked bravros hooks must be adopted, not duplicated: selfupdate=%d verify=%d\nentries: %v", selfupdates, verifies, entries)
+	}
+	if userHooks != 1 {
+		t.Errorf("user hook mentioning bravros must be preserved, got %d", userHooks)
+	}
+
+	// The unmarked bravros statusLine must be adopted (marked), not skipped.
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		StatusLine map[string]any `json:"statusLine"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc.StatusLine[ManagedByKey] != ManagedByValue {
+		t.Errorf("bravros-command statusLine must be adopted with %s=%s, got %v", ManagedByKey, ManagedByValue, doc.StatusLine)
+	}
+}

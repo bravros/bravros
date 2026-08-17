@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const (
@@ -245,6 +246,14 @@ func stripManagedEntries(group json.RawMessage) (json.RawMessage, bool, error) {
 		if err != nil {
 			return nil, false, err
 		}
+		// Adoption: entries written before the __managed_by marker existed
+		// carry no mark but are recognizably ours by command. Without this,
+		// every sync preserves the unmarked legacy copy as "user-owned" AND
+		// appends a marked twin — observed live as 4x-duplicated SessionStart
+		// hooks (each session start ran selfupdate four times).
+		if !managed {
+			managed = isLegacyBravrosEntry(entry)
+		}
 		if managed {
 			sawManaged = true
 			continue
@@ -278,6 +287,39 @@ func isManagedEntry(entry json.RawMessage) (bool, error) {
 	return probe.ManagedBy == ManagedByValue, nil
 }
 
+// isLegacyBravrosEntry recognizes a hook entry written by a pre-marker bravros
+// install: a command entry whose command invokes the bravros binary with one of
+// the verbs this package has ever registered. Deliberately narrow — "bravros"
+// alone is not enough (a user's own wrapper script may mention it), the verb
+// must match too, so a genuinely user-authored hook is never adopted.
+func isLegacyBravrosEntry(entry json.RawMessage) bool {
+	var probe struct {
+		Type    string `json:"type"`
+		Command string `json:"command"`
+	}
+	if err := json.Unmarshal(entry, &probe); err != nil {
+		return false
+	}
+	if probe.Type != "command" {
+		return false
+	}
+	return commandLooksBravros(probe.Command)
+}
+
+// commandLooksBravros reports whether cmd invokes the bravros binary with a
+// verb this package registers (hooks or statusline).
+func commandLooksBravros(cmd string) bool {
+	if !strings.Contains(cmd, "bravros") {
+		return false
+	}
+	for _, verb := range []string{"bravros selfupdate", "bravros hook verify-install-check", "bravros statusline"} {
+		if strings.Contains(cmd, verb) {
+			return true
+		}
+	}
+	return false
+}
+
 // ownsStatusLine reports whether bravros may write the statusLine key: true
 // when it is absent or already carries the bravros marker, false when the user
 // authored it.
@@ -290,7 +332,21 @@ func ownsStatusLine(existing json.RawMessage) (bool, error) {
 		// A statusLine we cannot parse as an object is the user's business.
 		return false, nil
 	}
-	return managed, nil
+	if managed {
+		return true, nil
+	}
+	// Adoption: a pre-marker install wrote the bravros statusline without
+	// __managed_by, so every later sync warned "your own statusLine was left
+	// untouched" about a statusLine that is literally `bravros statusline`.
+	// Recognize it by command and take ownership (the rewrite adds the marker).
+	var probe struct {
+		Type    string `json:"type"`
+		Command string `json:"command"`
+	}
+	if json.Unmarshal(existing, &probe) == nil && probe.Type == "command" && commandLooksBravros(probe.Command) {
+		return true, nil
+	}
+	return false, nil
 }
 
 // ─── ordered JSON helpers ──────────────────────────────────────────────────
