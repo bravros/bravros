@@ -1,18 +1,39 @@
 # auto-release.yml
 #
-# Purpose: Automatically compute and push a semver tag when cli/ changes land on main.
-#          The existing release.yml workflow then builds the 3 binaries and creates the
-#          GitHub Release — this workflow ONLY decides "should we tag and what version".
+# Purpose: Read the semver version bravros/private already declared for this deploy, and
+#          push the matching tag. The existing release.yml workflow then builds the 3
+#          binaries and creates the GitHub Release — this workflow ONLY decides "should we
+#          tag, and with what version".
 #
 # Trigger:  push to main with paths: ['cli/**']
 #           (GitHub skips this workflow entirely when no cli/ files changed)
 #
+# ── Version source (post decision D6, P-0018) ──────────────────────────────────────────
+# publish-public.yml, on the PRIVATE repo, computes the semver bump at publish time from
+# its own full commit history and writes the result into the deploy commit's subject:
+#   🚀 deploy: vX.Y.Z
+# This workflow CONSUMES that declared version — it does not recompute it. Two independent
+# semver computations of the same number is exactly the trap this avoids: the mirror's
+# history is squashed private commits, so if this workflow tried to recompute from mirror
+# history it would starve for signal and drift from what private actually decided.
+#
+# ── Legacy fallback ─────────────────────────────────────────────────────────────────────
+# Deploy commits from BEFORE this change used a different subject format
+# ("🚀 deploy: sync from private @ <sha>") that declares no version. Any commit whose
+# subject doesn't match the "vX.Y.Z" pattern falls back to the OLD recompute-from-history
+# logic (verbatim, see the "Legacy: recompute bump from history" block below), so a stray
+# pre-D6 commit reaching this workflow during the transition still produces a sane tag.
+# Delete the legacy block once mirror history no longer contains pre-D6 deploy commits
+# that could plausibly trigger this workflow.
+#
 # Skip conditions (evaluated inside the workflow):
 #   1. Latest commit subject contains [skip-release]
-#   2. No conventional-commit type found in commits since last tag (no bump signal)
+#   2. Declared version's tag already exists (idempotent re-run guard)
+#   3. Legacy path only: no conventional-commit type found in commits since last tag
 #      → dry_run input also available for manual testing via gh workflow run
 #
-# Semver bump rules (commit messages since last vX.Y.Z tag):
+# Legacy semver bump rules (commit messages since last vX.Y.Z tag) — used ONLY when the
+# triggering commit predates the declared-version format:
 #   BREAKING CHANGE in body  OR  feat!: / fix!: prefix  → major bump
 #   feat: / feat(scope):                                 → minor bump
 #   anything else (fix:, hotfix:, refactor:, perf:, …)  → patch bump
@@ -62,7 +83,7 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Compute semver bump and tag
+      - name: Compute release tag
         id: semver
         run: |
           set -euo pipefail
@@ -76,23 +97,57 @@ jobs:
             exit 0
           fi
 
-          # ── 2. Find the latest semver tag ──────────────────────────────────────
+          # ── 2. Find the latest semver tag (needed either way: idempotency guard
+          #        for the declared path, base version for the legacy path) ───────
           LAST_TAG=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
           if [ -z "$LAST_TAG" ]; then
             # No previous tag — start at v0.0.0 so first release becomes v0.0.1
             LAST_TAG="v0.0.0"
+          fi
+          echo "last_tag=$LAST_TAG" >> "$GITHUB_OUTPUT"
+
+          # ── 3. Declared-version path (post decision D6, P-0018) ────────────────
+          # publish-public.yml writes "🚀 deploy: vX.Y.Z" — extract and consume it
+          # directly. No bump math here: it was already computed once, on private.
+          DECLARED_TAG=""
+          if [[ "$COMMIT_SUBJECT" =~ ^🚀\ deploy:\ (v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            DECLARED_TAG="${BASH_REMATCH[1]}"
+          fi
+
+          if [ -n "$DECLARED_TAG" ]; then
+            NEXT_TAG="$DECLARED_TAG"
+
+            # Idempotency guard: a re-run (e.g. workflow_dispatch retry) over the
+            # same declared version must not attempt to re-tag it.
+            if git rev-parse --verify --quiet "refs/tags/${NEXT_TAG}" >/dev/null; then
+              echo "skip=true"  >> "$GITHUB_OUTPUT"
+              echo "reason=tag ${NEXT_TAG} already exists (declared version, idempotent re-run)" >> "$GITHUB_OUTPUT"
+              echo "ℹ️  Skipping release: ${NEXT_TAG} already tagged"
+              exit 0
+            fi
+
+            echo "bump=declared" >> "$GITHUB_OUTPUT"
+            echo "next_tag=$NEXT_TAG" >> "$GITHUB_OUTPUT"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "📦 Consuming declared version: $NEXT_TAG (from commit subject, no recompute)"
+            exit 0
+          fi
+
+          # ── 4. Legacy: recompute bump from history ──────────────────────────────
+          # Only reached when the triggering commit predates the declared-version
+          # subject format (pre decision D6, P-0018). Verbatim pre-D6 logic.
+          echo "⚠️  Commit subject has no declared version — falling back to legacy recompute."
+
+          if [ "$LAST_TAG" = "v0.0.0" ] && ! git rev-parse --verify --quiet "refs/tags/v0.0.0" >/dev/null; then
             COMMITS_RANGE="HEAD"
           else
             COMMITS_RANGE="${LAST_TAG}..HEAD"
           fi
-          echo "last_tag=$LAST_TAG" >> "$GITHUB_OUTPUT"
 
-          # ── 3. Collect commit messages since last tag ──────────────────────────
           # Strip leading emoji + whitespace before matching conventional-commit prefix.
           COMMIT_MESSAGES=$(git log "$COMMITS_RANGE" --format="%s%n%b" 2>/dev/null || true)
           STRIPPED=$(echo "$COMMIT_MESSAGES" | sed 's/^[^a-zA-Z]*//')
 
-          # ── 4. Determine bump level ────────────────────────────────────────────
           # Load commit-type slugs from the canonical file (single source of truth).
           # Falls back to a hard-coded list if the file is absent (should never happen on main).
           CANONICAL_FILE="templates/commit-types.txt"
@@ -118,14 +173,13 @@ jobs:
 
           if [ "$BUMP" = "none" ]; then
             echo "skip=true"  >> "$GITHUB_OUTPUT"
-            echo "reason=no conventional-commit typed messages found since $LAST_TAG" >> "$GITHUB_OUTPUT"
+            echo "reason=no conventional-commit typed messages found since $LAST_TAG (legacy recompute path)" >> "$GITHUB_OUTPUT"
             echo "ℹ️  Skipping release: no conventional-commit signal since $LAST_TAG"
             exit 0
           fi
 
           echo "bump=$BUMP" >> "$GITHUB_OUTPUT"
 
-          # ── 5. Parse current version and compute next ─────────────────────────
           VERSION="${LAST_TAG#v}"
           MAJOR=$(echo "$VERSION" | cut -d. -f1)
           MINOR=$(echo "$VERSION" | cut -d. -f2)
@@ -150,7 +204,7 @@ jobs:
           echo "next_tag=$NEXT_TAG" >> "$GITHUB_OUTPUT"
           echo "skip=false" >> "$GITHUB_OUTPUT"
 
-          echo "📦 Computed: $LAST_TAG → $NEXT_TAG (bump: $BUMP)"
+          echo "📦 Computed (legacy recompute): $LAST_TAG → $NEXT_TAG (bump: $BUMP)"
 
       - name: Push tag (or dry-run)
         if: steps.semver.outputs.skip == 'false'
@@ -163,7 +217,11 @@ jobs:
           set -euo pipefail
 
           COMMIT_SHA=$(git rev-parse HEAD)
-          TAG_MESSAGE="🚀 deploy: auto-release ${NEXT_TAG} (${BUMP} bump from ${LAST_TAG})"
+          if [ "$BUMP" = "declared" ]; then
+            TAG_MESSAGE="🚀 deploy: release ${NEXT_TAG} (version declared by bravros/private)"
+          else
+            TAG_MESSAGE="🚀 deploy: auto-release ${NEXT_TAG} (${BUMP} bump from ${LAST_TAG}, legacy recompute)"
+          fi
 
           if [ "$DRY_RUN" = "true" ]; then
             echo "🔍 DRY RUN — would create annotated tag: $NEXT_TAG"
