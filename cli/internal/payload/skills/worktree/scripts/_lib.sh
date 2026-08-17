@@ -79,14 +79,23 @@ resolve_repo() {
         # Inside a LINKED worktree the target must still be the primary repo, so
         # that `<repo>-worktrees/` resolves consistently no matter where we run.
         toplevel=$(primary_worktree_of "$toplevel")
-        if [[ -n "$app" && "$(basename "$toplevel")" != "$app" ]]; then
-            # An app was named but we're inside a different repo. A workspace
-            # root can itself be a git repo AND hold child repos (paylog-
-            # workspace does), so check children before siblings.
+        if [[ -n "$app" ]]; then
+            # An app was named. A workspace root can itself be a git repo AND
+            # hold child repos (paylog-workspace does), so check children first,
+            # then the cwd repo itself, then siblings.
+            #
+            # A CHILD WINS OVER A SAME-NAMED CWD REPO. The workspace root and one
+            # of its children can share a basename (monorepos/paylog holds child
+            # repo paylog). Accepting the cwd repo on a basename match alone made
+            # every verb resolve `paylog` to the docs meta-repo: `list` reported
+            # the child's worktrees as absent, and `destroy` computed teardown
+            # scope against a repo that owns none of them.
             local child="$toplevel/$app" sibling
             sibling="$(dirname "$toplevel")/$app"
             if [[ -d "$child/.git" || -f "$child/.git" ]]; then
                 toplevel="$child"
+            elif [[ "$(basename "$toplevel")" == "$app" ]]; then
+                : # cwd repo IS the named app and has no child by that name
             elif [[ -d "$sibling/.git" || -f "$sibling/.git" ]]; then
                 toplevel="$sibling"
             else
@@ -128,18 +137,46 @@ resolve_repo() {
     WORKSPACE_DIR="$PWD"
 }
 
+# repo_has_worktree <repo-path> <worktree-name>
+# True when <repo-path> registers a worktree directory named exactly
+# <worktree-name>. Ownership settles what the <repo><id> name heuristic cannot:
+# when one repo's basename prefixes another's, both "match" the same name and
+# only one of them actually holds the worktree.
+repo_has_worktree() {
+    git -C "$1" worktree list --porcelain 2>/dev/null | awk -v n="$2" '
+        /^worktree / { p = $2; sub(/.*\//, "", p); if (p == n) found = 1 }
+        END { exit !found }'
+}
+
 # locate_worktree_repo <worktree-name>
-# A worktree is named <repo><id>, so find the repo whose basename prefixes it and
-# re-resolve onto that repo. Search order: the current repo, then its children,
-# then its siblings — a workspace root can be a git repo AND hold child repos.
+# Find the repo that owns the named worktree and re-resolve onto it. Search
+# order: the current repo, then its children, then its siblings — a workspace
+# root can be a git repo AND hold child repos.
 # Leaves TARGET_REPO / REPO_NAME / WORKSPACE_DIR pointing at the owning repo.
 locate_worktree_repo() {
     local name="$1" candidate dir
 
     resolve_repo ""
+    local root="$TARGET_REPO"
+
+    # Pass 1 — ownership. `paylogp2143` prefix-matches the workspace root repo
+    # `paylog` exactly as well as its child repo `paylog`; only one owns it.
+    repo_has_worktree "$root" "$name" && return 0
+    for dir in "$root"/*/ "$(dirname "$root")"/*/; do
+        dir="${dir%/}"
+        [[ -d "$dir/.git" || -f "$dir/.git" ]] || continue
+        candidate=$(basename "$dir")
+        [[ "$name" == "$candidate"* ]] || continue
+        if repo_has_worktree "$dir" "$name"; then
+            resolve_repo "$candidate"
+            return 0
+        fi
+    done
+
+    # Pass 2 — name heuristic, so a worktree registered nowhere (already removed,
+    # or never created) still reports against its most likely repo.
     [[ "$name" == "$REPO_NAME"* ]] && return 0
 
-    local root="$TARGET_REPO"
     for dir in "$root"/*/ "$(dirname "$root")"/*/; do
         [[ -d "$dir/.git" || -f "$dir/.git" ]] || continue
         candidate=$(basename "$dir")

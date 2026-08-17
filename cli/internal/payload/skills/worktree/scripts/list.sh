@@ -35,18 +35,20 @@ list_repo() {
 
     [[ -d "$TARGET_REPO/.git" || -f "$TARGET_REPO/.git" ]] || return 0
 
-    # A workspace root can be a git repo AND hold a child directory named the
-    # same as itself (e.g. a mirror repo named after the workspace) —
-    # resolve_repo() with that name then resolves right back onto the
-    # workspace root instead of the child, printing the same repo twice.
-    # Dedupe by resolved absolute path, not by name.
+    # Backstop against listing one repo twice — e.g. a child entry that is itself
+    # a linked worktree and resolves back onto its primary. Dedupe by resolved
+    # absolute path, not by name: a workspace root and a child can legitimately
+    # share a basename and are then two different repos with one name.
     local seen
     for seen in "${SEEN_REPO_PATHS[@]:-}"; do
         [[ -n "$seen" && "$seen" == "$TARGET_REPO" ]] && return 0
     done
     SEEN_REPO_PATHS+=("$TARGET_REPO")
 
-    echo "${BOLD}${REPO_NAME}${RESET}:"
+    # Path, not just the name: when a workspace root and one of its children
+    # share a basename (monorepos/paylog holds child repo paylog), two bare
+    # `paylog:` headers are indistinguishable.
+    echo "${BOLD}${REPO_NAME}${RESET} ${DIM}(${TARGET_REPO/#$HOME/~})${RESET}:"
 
     entries=$(git -C "$TARGET_REPO" worktree list --porcelain 2>/dev/null | awk -v parent="$(worktree_parent)" '
         /^worktree / { path = $2 }
