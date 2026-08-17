@@ -276,8 +276,11 @@ redeploy_skill() {
 if [ -z "$BRAVROS_BIN" ]; then
     warn "skills integrity" "skipped — no bravros binary" "fix the binary first, then re-run"
 elif [ ! -d "$PORTABLE_REPO/skills" ]; then
-    fail "source repo" "no skills/ at $PORTABLE_REPO" "git clone git@github.com:bravros/bravros.git $PORTABLE_REPO"
-    auto_line "SOURCE_REPO: missing at $PORTABLE_REPO"
+    # No source checkout is the NORMAL state under the embed model (P-0018):
+    # skills ship inside the binary and `bravros selfupdate` owns integrity via
+    # the SHA manifest. Repo-vs-deployed diffing is a dev-machine extra, so its
+    # absence is informational, never a failure.
+    pass "source repo" "none — embed model; integrity owned by bravros selfupdate (clone bravros/bravros only for dev diffing)"
 else
     # The manifest is what `bravros deploy` consults to skip unchanged skills.
     # Its absence forces a full redeploy — worth surfacing, not a blocker here.
@@ -305,7 +308,25 @@ else
         fi
 
         src_sha=$(skill_sha "${src_skill_dir%/}")
-        dep_sha=$(skill_sha "$dep_skill_dir")
+        # Deploy REWRITES host paths in content (~/.bravros/skills becomes the
+        # host config dir's skills/ — cli/internal/deploy/hostpaths.go), so
+        # hashing the deployed tree can NEVER
+        # match the source for any skill that mentions those paths — a permanent
+        # phantom DRIFT that --fix redeploys forever without converging. The deploy
+        # manifest records the SOURCE sha at deploy time, so source-vs-manifest is
+        # the true drift signal; the deployed-tree hash is only a fallback when no
+        # manifest entry exists.
+        dep_sha=""
+        if [ -f "$MANIFEST_PATH" ]; then
+            dep_sha=$(python3 -c "
+import json,sys
+try:
+    m=json.load(open('$MANIFEST_PATH'))
+    print(m.get('skills',{}).get('$skill_name',''))
+except Exception:
+    pass" 2>/dev/null | tr -d '[:space:]')
+        fi
+        [ -n "$dep_sha" ] || dep_sha=$(skill_sha "$dep_skill_dir")
         if [ -z "$src_sha" ] || [ -z "$dep_sha" ]; then
             warn "$skill_name" "SHA unavailable (broken symlink?)" "bravros deploy skill-sha ${src_skill_dir%/}"
             continue
