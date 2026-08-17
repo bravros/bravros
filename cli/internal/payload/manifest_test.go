@@ -369,3 +369,28 @@ func TestDefaultSelections(t *testing.T) {
 		t.Errorf("scope=all resolved %d skills, scope=core resolved %d — all must be strictly larger", len(selAll.Skills), len(skills.Skills))
 	}
 }
+
+// TestInternalComponentsHiddenFromWizard pins the wizard contract for Internal
+// components (P-0018 hotfix): the embedded-fallback plumbing (claude-home,
+// claude-reconcile-script) is marked Internal so setupRunWizard never offers
+// it, and no Internal component may be Default — an invisible pre-checked
+// component would install without ever being seen.
+func TestInternalComponentsHiddenFromWizard(t *testing.T) {
+	internal := map[string]bool{}
+	for _, c := range Components() {
+		if c.Internal {
+			internal[c.ID] = true
+			if c.Default {
+				t.Errorf("internal component %q must not be Default", c.ID)
+			}
+			if c.Required {
+				t.Errorf("internal component %q must not be Required", c.ID)
+			}
+		}
+	}
+	for _, id := range []string{"claude-home", "claude-reconcile-script"} {
+		if !internal[id] {
+			t.Errorf("component %q must be marked Internal", id)
+		}
+	}
+}

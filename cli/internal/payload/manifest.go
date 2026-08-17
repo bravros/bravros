@@ -128,6 +128,12 @@ type Component struct {
 	// Default.
 	Required bool
 
+	// Internal marks plumbing the setup wizard never offers: components that
+	// exist so other machinery (deploy's embedded CLAUDE.md fallback,
+	// verify-install) can address a payload subtree, not as user choices.
+	// Still reachable explicitly via --all / --components= / BRAVROS_COMPONENTS.
+	Internal bool
+
 	// Scoped marks a component whose selection carries a SkillScope.
 	Scoped bool
 
@@ -185,6 +191,7 @@ var components = []Component{
 	},
 	{
 		ID:           "claude-home",
+		Internal:     true,
 		Label:        "Managed CLAUDE.md source (internal)",
 		Description:  "Repo-root home/CLAUDE.md — the managed-global block source deploy.reconcileGlobalClaudeMd falls back to when no source checkout is present. Not part of the setup wizard's default picks.",
 		Kind:         KindEmbeddedTree,
@@ -194,6 +201,7 @@ var components = []Component{
 	},
 	{
 		ID:           "claude-reconcile-script",
+		Internal:     true,
 		Label:        "CLAUDE.md reconcile script (internal)",
 		Description:  "scripts/reconcile-global-claude.py — the deterministic marker-block reconciler deploy.reconcileGlobalClaudeMd falls back to when no source checkout is present. Not part of the setup wizard's default picks.",
 		Kind:         KindEmbeddedTree,

@@ -1145,9 +1145,11 @@ func setupRunWizard(preselect []string, scope payload.SkillScope) ([]string, pay
 
 	var opts []huh.Option[string]
 	for _, c := range payload.Components() {
-		if c.Required {
+		if c.Required || c.Internal {
 			// Required components are not offered: deselecting the binary
-			// would leave nothing able to drive the rest.
+			// would leave nothing able to drive the rest. Internal components
+			// are plumbing (the embedded CLAUDE.md fallback sources), not
+			// choices — offering them only invites confusion.
 			continue
 		}
 		selected := pre[c.ID]
@@ -1161,7 +1163,7 @@ func setupRunWizard(preselect []string, scope payload.SkillScope) ([]string, pay
 	// ids, or huh renders the checkmarks and returns a different answer.
 	chosen := []string{}
 	for _, c := range payload.Components() {
-		if c.Required {
+		if c.Required || c.Internal {
 			continue
 		}
 		sel := pre[c.ID]
