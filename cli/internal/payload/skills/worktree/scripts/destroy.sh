@@ -12,7 +12,7 @@ source "$SCRIPT_DIR/_lib.sh"
 
 usage() {
     cat <<'EOF'
-Usage: bash destroy.sh <name> [--dry-run] [--force] [--yes] [--merged-into=<ref>]
+Usage: bash destroy.sh <name> [--dry-run] [--force] [--yes] [--merged-into=<ref>] [--fresh]
 
 <name>              worktree name (e.g. paylog109, mysiteloginfix)
 --dry-run           print the teardown scope and exit
@@ -21,6 +21,7 @@ Usage: bash destroy.sh <name> [--dry-run] [--force] [--yes] [--merged-into=<ref>
 --merged-into=REF   require the branch to be merged into REF specifically
                     (e.g. --merged-into=main for "only if it shipped to prod").
                     Default: merged into EITHER the base branch or main.
+--fresh             bypass the fetch TTL cache — force a live fetch of merge-status refs
 EOF
     exit 1
 }
@@ -33,6 +34,7 @@ while [[ $# -gt 0 ]]; do
         --force)         FORCE=1;   shift ;;
         --yes)           YES=1;     shift ;;
         --merged-into=*) REQUIRE_REF="${1#*=}"; shift ;;
+        --fresh)         WT_FORCE_FRESH=1; shift ;;
         -h|--help)       usage ;;
         --*)             die "Unknown flag: $1" ;;
         *)
@@ -82,6 +84,11 @@ if [[ -n "$plan_file" ]]; then
     [[ -n "$pb" && "$pb" != "null" ]] && BASE="$pb"
 fi
 
+# Snapshot once — herd_link_exists()/herd_secured_exists() fall back to a live
+# call each if these are skipped, but a single snapshot keeps this run to
+# exactly one `herd links` + one `herd secured` invocation.
+cache_herd_links
+cache_herd_secured
 herd_link_exists "$NAME"      && HERD_LINKED=1
 herd_secured_exists "$DOMAIN" && HERD_SECURED=1
 
@@ -103,7 +110,7 @@ MAIN_REF="main"
 git -C "$TARGET_REPO" show-ref --quiet "refs/remotes/origin/main" || MAIN_REF="master"
 
 if [[ -n "$BRANCH" ]]; then
-    git -C "$TARGET_REPO" fetch origin "$BASE" "$MAIN_REF" --quiet 2>/dev/null || true
+    safe_fetch "$TARGET_REPO" "$BASE" "$MAIN_REF" || true
     ms=$(branch_merge_status "$TARGET_REPO" "$BRANCH" "origin/$BASE")
     STATUS_BASE="${ms%%$'\t'*}"; [[ "$ms" == *$'\t'* ]] && PATHS_BASE="${ms#*$'\t'}"
     if [[ "$MAIN_REF" != "$BASE" ]]; then
@@ -122,7 +129,7 @@ if [[ -n "$REQUIRE_REF" ]]; then
         "$MAIN_REF") [[ "$STATUS_MAIN" == "merged" ]] && GATE_OK=1 ;;
         "$BASE")     [[ "$STATUS_BASE" == "merged" ]] && GATE_OK=1 ;;
         *)
-            git -C "$TARGET_REPO" fetch origin "$REQUIRE_REF" --quiet 2>/dev/null || true
+            safe_fetch "$TARGET_REPO" "$REQUIRE_REF" || true
             ms=$(branch_merge_status "$TARGET_REPO" "$BRANCH" "origin/$REQUIRE_REF")
             [[ "${ms%%$'\t'*}" == "merged" ]] && GATE_OK=1 ;;
     esac

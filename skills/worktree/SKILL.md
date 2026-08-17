@@ -12,10 +12,10 @@ Laravel repos additionally get a Herd URL, isolated `.env`, and optionally a clo
 **Scripts do the real work** — dispatch the right one from the repo/workspace root, relay output.
 
 ```
-/worktree create [<app>] [<id>] [--branch=<name>] [--clone-db] [--live-dump] [--shared-db]
-/worktree destroy <name> [--dry-run] [--force] [--yes] [--merged-into=<ref>]
-/worktree list [--app=<repo>]
-/worktree sync <name> [--onto=<ref>] [--merge] [--dry-run]
+/worktree create [<app>] [<id>] [--branch=<name>] [--clone-db] [--live-dump] [--shared-db] [--fresh]
+/worktree destroy <name> [--dry-run] [--force] [--yes] [--merged-into=<ref>] [--fresh]
+/worktree list [--app=<repo>] [--fresh]
+/worktree sync <name> [--onto=<ref>] [--merge] [--dry-run] [--fresh]
 ```
 
 ## Operator conventions

@@ -13,12 +13,13 @@ source "$SCRIPT_DIR/_lib.sh"
 
 usage() {
     cat <<'EOF'
-Usage: bash sync.sh <name> [--onto=<ref>] [--merge] [--dry-run]
+Usage: bash sync.sh <name> [--onto=<ref>] [--merge] [--dry-run] [--fresh]
 
 <name>        worktree name (e.g. paylog109, mysiteloginfix)
 --onto=REF    branch to sync onto — main, homolog, … (default: the repo's base)
 --merge       merge instead of rebase (keeps history, no force-push needed)
 --dry-run     report what would happen and exit
+--fresh       bypass the fetch TTL cache — force a live fetch of the onto ref
 EOF
     exit 1
 }
@@ -30,6 +31,7 @@ while [[ $# -gt 0 ]]; do
         --onto=*)  ONTO="${1#*=}"; shift ;;
         --merge)   USE_MERGE=1; shift ;;
         --dry-run) DRY_RUN=1; shift ;;
+        --fresh)   WT_FORCE_FRESH=1; shift ;;
         -h|--help) usage ;;
         --*)       die "Unknown flag: $1" ;;
         *)
@@ -56,7 +58,7 @@ BRANCH=$(git -C "$WT_PATH" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
 
 # ─── Pre-flight ───────────────────────────────────────────────────────────────
 info "Fetching origin/${ONTO}…"
-git -C "$WT_PATH" fetch origin "$ONTO" --quiet || die "Could not fetch origin/$ONTO."
+safe_fetch "$WT_PATH" "$ONTO" || die "Could not fetch origin/$ONTO."
 git -C "$WT_PATH" rev-parse --verify --quiet "origin/$ONTO" >/dev/null \
     || die "origin/$ONTO does not exist."
 

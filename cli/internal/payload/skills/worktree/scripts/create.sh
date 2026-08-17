@@ -29,6 +29,7 @@ Usage: bash create.sh [<app>] [<id>] [--branch=<name>] [--clone-db] [--live-dump
                ignoring any local backup (use for the freshest state)
 --shared-db    explicit no-op — shared DB is already the default. Accepted so
                "create <name> --shared-db" reads the way operators say it.
+--fresh        bypass the fetch TTL cache — force a live fetch of base/branch refs
 EOF
     exit 1
 }
@@ -42,6 +43,7 @@ while [[ $# -gt 0 ]]; do
         --clone-db)  CLONE_DB=1; shift ;;
         --live-dump) LIVE_DUMP=1; shift ;;
         --shared-db) shift ;;   # explicit affirmation of the default
+        --fresh)     WT_FORCE_FRESH=1; shift ;;
         -h|--help)   usage ;;
         --*)         die "Unknown flag: $1" ;;
         *)           POSITIONALS+=("$1"); shift ;;
@@ -78,6 +80,10 @@ fi
 resolve_repo "$APP"
 find_worktree_config
 
+# One snapshot of `herd links` covers both generate_unused_n()'s retry loop
+# (up to 25 herd_link_exists() checks) and the preflight check below — a
+# create.sh run issues exactly ONE `herd links` invocation.
+cache_herd_links
 [[ -z "$N" ]] && N=$(generate_unused_n)
 N=$(normalize_id "$N")
 validate_n "$N"
@@ -149,7 +155,6 @@ ok "Pre-flight passed ($REPO_NAME, base=$BASE, laravel=$( ((LARAVEL)) && echo ye
 
 # ─── Resolve branch ───────────────────────────────────────────────────────────
 info "Resolving branch…"
-git -C "$TARGET_REPO" fetch origin --quiet || warn "git fetch failed (offline?) — continuing with local refs"
 
 BRANCH=""
 if [[ -n "$BRANCH_OVERRIDE" ]]; then
@@ -170,6 +175,27 @@ else
         BRANCH="$NAME"
         info "No plan branch found → new branch $BRANCH off origin/$BASE"
     fi
+fi
+
+# BASE is the ref that actually matters — the worktree is created from
+# origin/$BASE, so it is always fetched on its own. Never combined with
+# BRANCH: git fails an ENTIRE multi-ref fetch if any one refspec is
+# unresolvable, and the common case (no plan branch found) sets BRANCH="$NAME"
+# — a brand-new id-derived name that by definition does not exist on origin
+# yet. Combining them would fail BASE's refresh on every ordinary create.
+safe_fetch "$TARGET_REPO" "$BASE" || true
+
+# BRANCH gets its own single-ref fetch whenever it differs from BASE — NOT gated
+# on a local ref existing. A plan-derived or --branch= override branch is exactly
+# the case where the branch was pushed from another worktree/clone and has no
+# local ref here yet; skipping the fetch would leave refs/remotes/origin/$BRANCH
+# missing, so the `worktree add` below falls through to `-b "$BRANCH" ...
+# origin/$BASE` and silently creates a NEW diverged branch of the same name,
+# discarding the work already on origin. Being a single-ref call, it is immune to
+# the "one bad ref poisons the batch" failure: a branch that genuinely does not
+# exist on origin just warns and returns 1, and branching off BASE is correct then.
+if [[ "$BRANCH" != "$BASE" ]]; then
+    safe_fetch "$TARGET_REPO" "$BRANCH" || true
 fi
 
 # ─── Create worktree ──────────────────────────────────────────────────────────

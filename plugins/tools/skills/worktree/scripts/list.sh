@@ -12,7 +12,8 @@ FILTER=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --app=*)   FILTER="${1#*=}"; shift ;;
-        -h|--help) echo "Usage: bash list.sh [--app=<repo>]"; exit 0 ;;
+        --fresh)   WT_FORCE_FRESH=1; shift ;;
+        -h|--help) echo "Usage: bash list.sh [--app=<repo>] [--fresh]"; exit 0 ;;
         --*)       die "Unknown flag: $1" ;;
         *)         FILTER="$1"; shift ;;
     esac
@@ -24,6 +25,8 @@ if herd_available; then
     HERD_SECURED=$("$HERD" secured 2>/dev/null || true)
 fi
 
+SEEN_REPO_PATHS=()
+
 list_repo() {
     local app="$1" entries base main_ref
     resolve_repo "$app"
@@ -32,14 +35,18 @@ list_repo() {
 
     [[ -d "$TARGET_REPO/.git" || -f "$TARGET_REPO/.git" ]] || return 0
 
+    # A workspace root can be a git repo AND hold a child directory named the
+    # same as itself (e.g. a mirror repo named after the workspace) —
+    # resolve_repo() with that name then resolves right back onto the
+    # workspace root instead of the child, printing the same repo twice.
+    # Dedupe by resolved absolute path, not by name.
+    local seen
+    for seen in "${SEEN_REPO_PATHS[@]:-}"; do
+        [[ -n "$seen" && "$seen" == "$TARGET_REPO" ]] && return 0
+    done
+    SEEN_REPO_PATHS+=("$TARGET_REPO")
+
     echo "${BOLD}${REPO_NAME}${RESET}:"
-
-    main_ref="main"
-    git -C "$TARGET_REPO" show-ref --quiet "refs/remotes/origin/main" || main_ref="master"
-
-    # Refresh the base refs once so merged= and ahead/behind are accurate.
-    # Best-effort — stays usable offline, statuses just degrade to 'unknown'.
-    git -C "$TARGET_REPO" fetch origin "$main_ref" "$base" --quiet 2>/dev/null || true
 
     entries=$(git -C "$TARGET_REPO" worktree list --porcelain 2>/dev/null | awk -v parent="$(worktree_parent)" '
         /^worktree / { path = $2 }
@@ -69,6 +76,15 @@ list_repo() {
         echo
         return 0
     fi
+
+    main_ref="main"
+    git -C "$TARGET_REPO" show-ref --quiet "refs/remotes/origin/main" || main_ref="master"
+
+    # Refresh the base refs once so merged= and ahead/behind are accurate.
+    # Best-effort — stays usable offline, statuses just degrade to 'unknown'.
+    # Only reached when there's actually something to report — a repo with no
+    # worktrees returned above without paying any network I/O.
+    safe_fetch "$TARGET_REPO" "$main_ref" "$base" || true
 
     print_unmanaged() {
         [[ -z "$unmanaged" ]] && return 0

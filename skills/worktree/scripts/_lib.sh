@@ -200,14 +200,43 @@ generate_unused_n() {
     die "Could not find an unused random id after 25 tries. Pass one explicitly."
 }
 
+# Snapshot cache for herd_link_exists()/herd_secured_exists(). Both are called
+# repeatedly in a single run — up to 25x inside generate_unused_n()'s random-id
+# retry loop, plus once more in create.sh's preflight, or once each in
+# destroy.sh — and each uncached call pays a live `herd links`/`herd secured`
+# invocation (~0.64s). cache_herd_links()/cache_herd_secured() snapshot ONCE;
+# callers that never populate the cache keep working via the live fallback.
+HERD_LINKS_CACHE="" HERD_LINKS_CACHED=0
+HERD_SECURED_CACHE="" HERD_SECURED_CACHED=0
+
+cache_herd_links() {
+    herd_available || return 0
+    HERD_LINKS_CACHE=$("$HERD" links 2>/dev/null || true)
+    HERD_LINKS_CACHED=1
+}
+
+cache_herd_secured() {
+    herd_available || return 0
+    HERD_SECURED_CACHE=$("$HERD" secured 2>/dev/null || true)
+    HERD_SECURED_CACHED=1
+}
+
 herd_link_exists() {
     herd_available || return 1
-    "$HERD" links 2>/dev/null | grep -qE "^\| +$1 +\|"
+    if (( HERD_LINKS_CACHED )); then
+        echo "$HERD_LINKS_CACHE" | grep -qE "^\| +$1 +\|"
+    else
+        "$HERD" links 2>/dev/null | grep -qE "^\| +$1 +\|"
+    fi
 }
 
 herd_secured_exists() {
     herd_available || return 1
-    "$HERD" secured 2>/dev/null | grep -qE "^\| +$1 +\|"
+    if (( HERD_SECURED_CACHED )); then
+        echo "$HERD_SECURED_CACHE" | grep -qE "^\| +$1 +\|"
+    else
+        "$HERD" secured 2>/dev/null | grep -qE "^\| +$1 +\|"
+    fi
 }
 
 # ─── .worktree.yml config ─────────────────────────────────────────────────────
@@ -370,6 +399,212 @@ resolve_base_branch() {
     done
 
     git -C "$TARGET_REPO" rev-parse --abbrev-ref HEAD 2>/dev/null
+}
+
+# ─── Guarded fetch ────────────────────────────────────────────────────────────
+# Every /worktree verb used to run an unguarded `git fetch` over SSH. On a
+# machine where SSH_AUTH_SOCK points at the 1Password agent, an unapproved
+# signature request blocks the ssh process INDEFINITELY (measured: `list.sh`
+# at the workspace root killed after >180s; hours-old hung `ssh git@github.com`
+# processes confirmed it). safe_fetch() is the one fetch path every verb should
+# route through: TTL-cached, gh-backed HTTPS when available (never touches the
+# SSH agent), and watchdog-timeboxed so a hang degrades instead of stalling
+# the whole verb.
+
+# Portable mtime-in-epoch-seconds — macOS `stat` is BSD, not GNU.
+_wt_file_mtime() {
+    stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null
+}
+
+# Signal an entire process tree, deepest descendants first. `pkill -P "$pid"`
+# only reaches DIRECT children — a credential helper (`!gh auth git-credential`
+# forks via `sh -c`) or a `GIT_SSH_COMMAND` wrapper script both add a level,
+# so the real hang can sit two or more forks below the backgrounded git
+# process. Proven live: a wrapper `ssh` script's own `sleep` survived
+# `pkill -TERM/-KILL -P "$git_pid"` as an orphan every time — only killing
+# bottom-up (children found and signalled before their parent) closes it,
+# since signalling a parent first reparents its children before we can find
+# them by PPID.
+_wt_kill_tree() {
+    local sig="$1" pid="$2" kid
+    for kid in $(pgrep -P "$pid" 2>/dev/null); do
+        _wt_kill_tree "$sig" "$kid"
+    done
+    kill "-$sig" "$pid" 2>/dev/null || true
+}
+
+# Echo "owner/repo" when origin is a GitHub remote (SSH or HTTPS form); fail
+# otherwise. Only used to decide whether the gh-credential-helper fast path
+# applies — never gate on `gh auth status`'s reported protocol, which is
+# irrelevant to the credential-helper path.
+_wt_github_slug() {
+    local repo="$1" url
+    url=$(git -C "$repo" remote get-url origin 2>/dev/null) || return 1
+    case "$url" in
+        git@github.com:*|ssh://git@github.com/*)
+            url="${url#git@github.com:}"; url="${url#ssh://git@github.com/}"
+            url="${url%.git}"; echo "$url"; return 0 ;;
+        https://github.com/*)
+            url="${url#https://github.com/}"; url="${url%.git}"; echo "$url"; return 0 ;;
+    esac
+    return 1
+}
+
+# safe_fetch <repo_path> <ref>...
+# TTL-cached (WT_FETCH_TTL sec, default 300; WT_FORCE_FRESH=1 bypasses),
+# credential-safe (gh-backed HTTPS when origin is GitHub and `gh auth token`
+# works — otherwise plain `git fetch origin`), watchdog-boxed (WT_FETCH_TIMEOUT
+# sec, default 15). Fetches only the named refs, mapped onto their
+# refs/remotes/origin/* tracking refs — never a bare `git fetch origin`.
+# Returns nonzero (after a single warn, never a die) on timeout or failure —
+# callers should degrade, e.g. `safe_fetch "$repo" "$base" || true`.
+safe_fetch() {
+    local repo="$1"; shift
+    local -a refs=("$@")
+    [[ ${#refs[@]} -gt 0 ]] || { warn "safe_fetch: no refs given"; return 1; }
+
+    local ttl="${WT_FETCH_TTL:-300}" timeout="${WT_FETCH_TIMEOUT:-15}"
+
+    local gitdir
+    gitdir=$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
+        || gitdir=$(git -C "$repo" rev-parse --git-common-dir 2>/dev/null) \
+        || { warn "safe_fetch: '$repo' is not a git repo"; return 1; }
+    [[ "$gitdir" = /* ]] || gitdir="$repo/$gitdir"
+
+    # Dedup + sort once: the cache key AND the refspec list are built from the
+    # same canonical list, so `safe_fetch R main main` and `safe_fetch R main`
+    # share one stamp (destroy.sh calls with "$BASE" "$MAIN_REF", which are
+    # the same value whenever base is main).
+    local -a uniq_refs=()
+    local r
+    while IFS= read -r r; do
+        [[ -n "$r" ]] && uniq_refs+=("$r")
+    done < <(printf '%s\n' "${refs[@]}" | sort -u)
+
+    # command substitution strips paste's trailing newline BEFORE tr runs on
+    # it, so tr never gets a chance to mangle it into a trailing "_".
+    local joined stampkey stampfile
+    joined=$(printf '%s\n' "${uniq_refs[@]}" | paste -sd, -)
+    stampkey=$(printf '%s' "$joined" | tr -c 'A-Za-z0-9,_-' '_')
+    stampfile="$gitdir/wt-fetch-$stampkey"
+
+    if [[ "${WT_FORCE_FRESH:-0}" != "1" && -f "$stampfile" ]]; then
+        local mtime now
+        mtime=$(_wt_file_mtime "$stampfile") || mtime=0
+        now=$(date +%s)
+        if (( now - mtime < ttl )); then
+            return 0
+        fi
+    fi
+
+    # A literal `$r:refs/...` reads fine under bash (this file's only
+    # supported interpreter — every caller has a `bash` shebang) but is a
+    # zsh parameter-modifier trap if this file is ever sourced interactively
+    # under zsh (":r" strips a fake "extension", silently corrupting the
+    # refspec). Routing the suffix through a variable puts a "$" right after
+    # the colon, which zsh's modifier parser never mistakes for a modifier.
+    local -a refspecs=()
+    for r in "${uniq_refs[@]}"; do
+        local tracking_ref="refs/remotes/origin/$r"
+        refspecs+=("refs/heads/$r:$tracking_ref")
+    done
+
+    local slug="" use_https=0
+    if slug=$(_wt_github_slug "$repo") && gh auth token >/dev/null 2>&1; then
+        use_https=1
+    fi
+
+    # Capture stderr instead of discarding it — a bare exit code hides the
+    # real cause (e.g. "ssh: connect to host github.com port 22: Operation
+    # timed out") from the warn below. Cleaned up on every return path.
+    local errfile
+    errfile=$(mktemp 2>/dev/null) || errfile="/tmp/wt-fetch-err.$$"
+
+    local pid
+    if (( use_https )); then
+        # The identity insteadOf outranks (longest-prefix wins) any global
+        # `url.ssh://git@.insteadOf=https://` rewrite some machines carry —
+        # without it "https://" is silently rewritten back to ssh:// and this
+        # fast path lands right back on the SSH agent it exists to avoid.
+        # GIT_TERMINAL_PROMPT=0 on both paths: an interactive credential
+        # prompt would otherwise burn the full watchdog timeout for nothing.
+        GIT_TERMINAL_PROMPT=0 git -C "$repo" \
+            -c credential.helper= -c credential.helper='!gh auth git-credential' \
+            -c 'url.https://github.com/.insteadOf=https://github.com/' \
+            fetch --quiet "https://github.com/$slug.git" "${refspecs[@]}" 2>"$errfile" &
+    else
+        GIT_TERMINAL_PROMPT=0 git -C "$repo" fetch origin --quiet "${refspecs[@]}" 2>"$errfile" &
+    fi
+    pid=$!
+
+    # Poll rather than block — macOS ships no coreutils `timeout`. On expiry,
+    # kill the ENTIRE fetch process tree (see _wt_kill_tree) so nothing —
+    # ssh, a credential helper, a GIT_SSH_COMMAND wrapper — is left hung.
+    local waited=0
+    while kill -0 "$pid" 2>/dev/null; do
+        if (( waited >= timeout )); then
+            # `disown` BEFORE signalling: bash reports a signal-killed
+            # background job asynchronously to the script's own stderr
+            # ("line N: PID Terminated: 15  <cmd>") — that's the shell's own
+            # job-control bookkeeping, not `wait`'s output, so `wait
+            # ... 2>/dev/null` alone never catches it. Disowning drops it
+            # from the job table so nothing is reported. Only done on this
+            # (timeout) branch — the success path below still needs `wait`'s
+            # real exit status, which a disown would make unreliable.
+            disown "$pid" 2>/dev/null || true
+            _wt_kill_tree TERM "$pid"
+            sleep 1
+            _wt_kill_tree KILL "$pid"
+            wait "$pid" 2>/dev/null || true
+            warn "safe_fetch: timed out after ${timeout}s fetching ${refs[*]} in $(basename "$repo")"
+            rm -f "$errfile"
+            return 1
+        fi
+        sleep 1
+        waited=$((waited + 1))
+    done
+
+    local rc
+    if wait "$pid"; then
+        rc=0
+    else
+        rc=$?
+    fi
+    if (( rc != 0 )); then
+        local errline
+        errline=$(head -1 "$errfile" 2>/dev/null) || errline=""
+        rm -f "$errfile"
+
+        # One missing/unresolvable ref (e.g. a branch not yet pushed) fails
+        # the WHOLE combined fetch — the other, perfectly resolvable refs in
+        # the same call never get updated either. Worth retrying individually
+        # only when there was more than one ref to begin with; a single-ref
+        # call already degrades correctly via the `return 1` below. Each
+        # retry is itself a single-ref safe_fetch call, so it reuses the
+        # exact watchdog / credential-helper / TTL logic above unchanged —
+        # nothing here duplicates it, and it prints its own warn() per ref.
+        if (( ${#uniq_refs[@]} > 1 )); then
+            local any_ok=0 rr
+            for rr in "${uniq_refs[@]}"; do
+                safe_fetch "$repo" "$rr" && any_ok=1
+            done
+            if (( any_ok )); then
+                touch "$stampfile"
+                return 0
+            fi
+        fi
+
+        if [[ -n "$errline" ]]; then
+            warn "safe_fetch: fetch failed (exit $rc) for ${refs[*]} in $(basename "$repo"): $errline"
+        else
+            warn "safe_fetch: fetch failed (exit $rc) for ${refs[*]} in $(basename "$repo")"
+        fi
+        return 1
+    fi
+
+    rm -f "$errfile"
+    touch "$stampfile"
+    return 0
 }
 
 # ─── .env helpers ─────────────────────────────────────────────────────────────
