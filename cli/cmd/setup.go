@@ -1323,6 +1323,30 @@ func runSetup(cmd *cobra.Command, _ []string) error {
 		if wizErr != nil {
 			return wizErr
 		}
+		// Empty-selection guard: huh binds ctrl+a to "select none" when all
+		// items are checked — one keystroke away from what select-all means
+		// everywhere else. Enter on an emptied picker used to silently
+		// install nothing AND rewrite setup.json down to just the binary,
+		// which also wipes the preselect every future run opens with. An
+		// empty selection now needs explicit confirmation; declining cancels
+		// with state untouched.
+		if len(chosen) == 0 {
+			proceed := false
+			confirmErr := huh.NewConfirm().
+				Title("Nothing is selected — install only the bravros binary?").
+				Description("This also records \"no components\" in setup.json, so future runs open with nothing pre-checked.").
+				Affirmative("Binary only").
+				Negative("Cancel").
+				Value(&proceed).
+				Run()
+			if errors.Is(confirmErr, huh.ErrUserAborted) || (confirmErr == nil && !proceed) {
+				fmt.Fprintln(out, "Cancelled — nothing was written.")
+				return nil
+			}
+			if confirmErr != nil {
+				return confirmErr
+			}
+		}
 		ids, scope = chosen, chosenScope
 	case ids == nil && setupYes:
 		// `--yes` alone means "install the manifest defaults" — the contract

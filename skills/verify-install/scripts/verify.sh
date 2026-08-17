@@ -276,8 +276,11 @@ redeploy_skill() {
 if [ -z "$BRAVROS_BIN" ]; then
     warn "skills integrity" "skipped — no bravros binary" "fix the binary first, then re-run"
 elif [ ! -d "$PORTABLE_REPO/skills" ]; then
-    fail "source repo" "no skills/ at $PORTABLE_REPO" "git clone git@github.com:bravros/bravros.git $PORTABLE_REPO"
-    auto_line "SOURCE_REPO: missing at $PORTABLE_REPO"
+    # No source checkout is the NORMAL state under the embed model (P-0018):
+    # skills ship inside the binary and `bravros selfupdate` owns integrity via
+    # the SHA manifest. Repo-vs-deployed diffing is a dev-machine extra, so its
+    # absence is informational, never a failure.
+    pass "source repo" "none — embed model; integrity owned by bravros selfupdate (clone bravros/bravros only for dev diffing)"
 else
     # The manifest is what `bravros deploy` consults to skip unchanged skills.
     # Its absence forces a full redeploy — worth surfacing, not a blocker here.
