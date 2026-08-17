@@ -343,7 +343,7 @@ Options:
 - `--json`: machine-readable rows instead of table
 - `--depth N`: walk depth per root (default 3)
 - `--no-prompt`: skip auto-generating labelling prompts
-- `<root> ...`: scan specific roots instead of `~/Sites`
+- `<root> ...`: scan specific roots instead of the defaults (`~/Code`, plus `~/Sites` if present)
 
 ## Key Rules
 

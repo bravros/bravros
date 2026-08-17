@@ -1,3 +1,4 @@
+scripts/reconcile-global-claude.py
 skills/graphify-status/scripts/emit-relabel-prompt.py
 skills/graphify-status/scripts/graphify-status.py
 skills/graphify-status/scripts/merge-missing-labels.py

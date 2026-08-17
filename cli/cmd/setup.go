@@ -110,6 +110,13 @@ type setupState struct {
 	ClaudeRoot     string                `json:"claude_root"`
 	SkillsScope    payload.SkillScope    `json:"skills_scope,omitempty"`
 	Components     []setupStateComponent `json:"components"`
+
+	// AutoUpdate carries the operator's auto-update preference across
+	// setup.json read/write. There is no wizard UI for it yet (P-0018 Phase
+	// 7 only adds the field so the parallel selfupdate/auto-update lane has
+	// somewhere to persist the choice); setup itself only preserves whatever
+	// a previous run recorded — see setupWriteStateForRun.
+	AutoUpdate *bool `json:"auto_update,omitempty"`
 }
 
 // setupStatePath is where the state record lives: <config dir>/state/setup.json.
@@ -296,6 +303,30 @@ func setupDetectPluginManaged(root string) []string {
 	return found
 }
 
+// setupPluginMarketplaceName is bravros's own marketplace, declared in
+// .claude-plugin/marketplace.json ("name": "bravros-marketplace") and added
+// via `/plugin marketplace add bravros/bravros`. It is a fixed, published
+// name — not something recovered from the detected tree — so the printed
+// removal command is exact rather than guessed.
+const setupPluginMarketplaceName = "bravros-marketplace"
+
+// setupPluginMigrationMessage is the single source of truth for the D3
+// migration text: what was found, why it matters (D1 — the marketplace lane
+// is dropped, curl|sh is the only supported path), and the exact command to
+// leave it. Shared verbatim between the interactive migration gate
+// (setupPluginMigrationGate) and the non-interactive skip warning so the
+// wording — and therefore what an operator needs to act on — never drifts
+// between the two paths.
+func setupPluginMigrationMessage(dirs []string) string {
+	return fmt.Sprintf(
+		"a Claude Code marketplace install was found under %s — bravros no longer supports "+
+			"the marketplace lane, only `curl -fsSL https://install.bravros.dev | sh`. To migrate: "+
+			"inside Claude Code, run `/plugin marketplace remove %s`, then re-run `bravros setup`. "+
+			"Until then, claude-skills and claude-templates are skipped on every run. Set %s=1 to "+
+			"install anyway (this fights the marketplace for the same files).",
+		strings.Join(dirs, ", "), setupPluginMarketplaceName, setupAllowPluginManagedEnv)
+}
+
 // setupTreeMentionsBravros looks (max 3 levels deep — a marketplace checkout
 // nests owner/repo/plugin) for an entry whose name names bravros.
 func setupTreeMentionsBravros(dir string, depth int) bool {
@@ -412,9 +443,7 @@ func setupBuildPlan(root, staging string, sels []payload.Selection, prev *setupS
 
 		if len(plan.PluginManaged) > 0 && c.Kind == payload.KindEmbeddedTree && !allowPluginManaged {
 			plan.SkippedIDs = append(plan.SkippedIDs, c.ID)
-			plan.Warnings = append(plan.Warnings, fmt.Sprintf(
-				"%s: a plugin-managed Claude Code install was found (%s) — skipping to avoid a second writer. Set %s=1 to install anyway.",
-				c.ID, strings.Join(plan.PluginManaged, ", "), setupAllowPluginManagedEnv))
+			plan.Warnings = append(plan.Warnings, c.ID+": "+setupPluginMigrationMessage(plan.PluginManaged))
 			continue
 		}
 
@@ -755,7 +784,22 @@ func setupCopyFile(src, dst string) error {
 
 // setupWriteState records the install. Returns "written" or "unchanged" so a
 // re-run can report honestly — exit codes prove nothing here.
+//
+// This is a fixed-signature wrapper around setupWriteStateForRun with no
+// previous state carried forward, kept for cmd/selfupdate.go's call site
+// (out of this phase's Touches) — it never needs the AutoUpdate carry-over
+// since it only writes state.json on a first-run migration, before any
+// preference could exist.
 func setupWriteState(root string, plan *setupPlan, scope payload.SkillScope) (string, string, error) {
+	return setupWriteStateForRun(root, plan, scope, nil)
+}
+
+// setupWriteStateForRun is setupWriteState plus prev: when prev carries an
+// AutoUpdate preference (set by the auto-update lane elsewhere; setup itself
+// has no UI for it yet), it is preserved onto the freshly written state
+// rather than dropped — setup.json is rebuilt from scratch every run, so
+// anything not explicitly copied forward here is silently lost.
+func setupWriteStateForRun(root string, plan *setupPlan, scope payload.SkillScope, prev *setupState) (string, string, error) {
 	// EvalSymlinks before detection: Homebrew on Intel macOS installs the binary
 	// at /usr/local/bin/bravros as a SYMLINK into ../Cellar/. The raw path matches
 	// none of detectInstallMethod's brew patterns, so an unresolved path records a
@@ -774,6 +818,9 @@ func setupWriteState(root string, plan *setupPlan, scope payload.SkillScope) (st
 		InstallMethod:  detectInstallMethod(exe, root),
 		ClaudeRoot:     root,
 		SkillsScope:    scope,
+	}
+	if prev != nil {
+		st.AutoUpdate = prev.AutoUpdate
 	}
 	skipped := map[string]bool{}
 	for _, id := range plan.SkippedIDs {
@@ -893,10 +940,153 @@ func setupRenderPlan(w io.Writer, plan *setupPlan, scope payload.SkillScope) {
 			}
 		}
 	}
-	for _, warn := range plan.Warnings {
-		fmt.Fprintln(w, "  ⚠️  "+warn)
+	// Warnings (including the plugin-managed skip reasons) are printed ONCE,
+	// in the final summary after apply — not here. Rendering the plan is a
+	// mid-run preview; printing the same warning text at both points is
+	// exactly the "same two warnings repeatedly" bug this phase closes.
+	fmt.Fprintln(w)
+}
+
+// ─── result table ──────────────────────────────────────────────────────────
+
+// setupComponentStatus is a component's outcome in the final result table.
+// CHANGED vs ALREADY CORRECT is the literal legibility fix this phase makes:
+// before it, a no-op run was only provable by reading the aggregate headline
+// counts; now every row states its own idempotence in words.
+type setupComponentStatus string
+
+const (
+	setupStatusChanged setupComponentStatus = "CHANGED"
+	setupStatusCorrect setupComponentStatus = "ALREADY CORRECT"
+	setupStatusSkipped setupComponentStatus = "SKIPPED"
+)
+
+// setupResultRow is one line of the consolidated end-of-run table: component,
+// what happened, where it lives, and — for a skip — why.
+type setupResultRow struct {
+	Component   string
+	Status      setupComponentStatus
+	Destination string
+	Detail      string
+}
+
+// setupBuildResultRows turns the plan plus its apply result into one row per
+// selected component. It reads plan.Items' Action fields directly rather than
+// re-deriving them: setupApply executes exactly the planned action for every
+// item (never something else), so these rows can never drift from what
+// actually landed on disk. The one exception is KindMergedSettings, whose
+// real outcome (created/merged/unchanged) is only known post-apply and lives
+// in res.Settings.
+func setupBuildResultRows(plan *setupPlan, res *setupApplyResult) []setupResultRow {
+	skipped := map[string]bool{}
+	for _, id := range plan.SkippedIDs {
+		skipped[id] = true
+	}
+
+	byComponent := map[string][]setupPlanItem{}
+	for _, it := range plan.Items {
+		byComponent[it.Component] = append(byComponent[it.Component], it)
+	}
+
+	var rows []setupResultRow
+	for _, sel := range plan.Selections {
+		c, ok := payload.ComponentByID(sel.ID)
+		if !ok {
+			continue
+		}
+		dest := c.TargetPathUnder(plan.Root)
+
+		if skipped[sel.ID] {
+			// Deliberately terse: the full migration message already prints
+			// once, above, as a warning (see setupPluginMigrationMessage) —
+			// repeating it verbatim here would reintroduce the "same warning
+			// twice" bug this phase's Phase 7 predecessor closed.
+			rows = append(rows, setupResultRow{
+				Component: c.ID, Status: setupStatusSkipped, Destination: dest,
+				Detail: "plugin-managed install detected — see the warning above to migrate",
+			})
+			continue
+		}
+
+		items := byComponent[sel.ID]
+		switch c.Kind {
+		case payload.KindBinary:
+			rows = append(rows, setupResultRow{
+				Component: c.ID, Status: setupStatusCorrect, Destination: dest,
+				Detail: "not written by setup — placed by install.sh / install.ps1",
+			})
+
+		case payload.KindMergedSettings:
+			status := setupStatusCorrect
+			if res.Settings == "created" || res.Settings == "merged" {
+				status = setupStatusChanged
+			}
+			rows = append(rows, setupResultRow{
+				Component: c.ID, Status: status, Destination: dest,
+				Detail: "settings.json " + res.Settings,
+			})
+
+		case payload.KindEmbeddedTree:
+			created, unchanged, conflicts, pruned := 0, 0, 0, 0
+			for _, it := range items {
+				switch it.Action {
+				case setupActionCreate:
+					created++
+				case setupActionUnchanged:
+					unchanged++
+				case setupActionConflict:
+					conflicts++
+				case setupActionPrune:
+					pruned++
+				}
+			}
+			status := setupStatusCorrect
+			if created > 0 || conflicts > 0 || pruned > 0 {
+				status = setupStatusChanged
+			}
+			detail := fmt.Sprintf("%d written, %d already correct", created, unchanged)
+			if conflicts > 0 {
+				detail += fmt.Sprintf(", %d preserved as .new", conflicts)
+			}
+			if pruned > 0 {
+				detail += fmt.Sprintf(", %d pruned", pruned)
+			}
+			rows = append(rows, setupResultRow{
+				Component: c.ID, Status: status, Destination: dest, Detail: detail,
+			})
+		}
+	}
+	return rows
+}
+
+// setupRenderResultTable prints the ONE consolidated result table for the
+// run: component | status | destination | detail (or the skip reason). It is
+// the single place an operator reads "did anything actually happen" per
+// component — an all-skipped run renders every row SKIPPED, so it can never
+// be mistaken for a quiet success even at a glance.
+func setupRenderResultTable(w io.Writer, rows []setupResultRow) {
+	if len(rows) == 0 {
+		return
 	}
 	fmt.Fprintln(w)
+	fmt.Fprintln(w, setupTitleStyle.Render("Result"))
+
+	compW, statusW := len("component"), 0
+	for _, r := range rows {
+		if len(r.Component) > compW {
+			compW = len(r.Component)
+		}
+		if len(string(r.Status)) > statusW {
+			statusW = len(string(r.Status))
+		}
+	}
+	for _, r := range rows {
+		line := fmt.Sprintf("  %-*s  %-*s  %s", compW, r.Component, statusW, string(r.Status), r.Destination)
+		if r.Detail != "" {
+			line += "  — " + r.Detail
+		}
+		fmt.Fprintln(w, line)
+	}
 }
 
 // ─── interactive wizard ────────────────────────────────────────────────────
@@ -914,6 +1104,35 @@ func setupIsInteractive() bool {
 		return false
 	}
 	return fo.Mode()&os.ModeCharDevice != 0
+}
+
+// setupComponentPickerLabel renders one MultiSelect option's text: the
+// component name and destination path together, so the picker itself — not
+// only the post-run summary — answers "where does this go". "~/.claude" is a
+// display convenience only; the real target is always payload.ClaudeRoot()
+// (config.ConfigDir() in production), which honors BRAVROS_CONFIG_DIR.
+func setupComponentPickerLabel(c payload.Component) string {
+	return fmt.Sprintf("%s — %s  →  ~/.claude/%s", c.Label, c.Description, c.TargetRel())
+}
+
+// setupWizardWillInstallLine is the dynamic description shown UNDER the
+// component picker. It re-renders on every toggle (huh.DescriptionFunc is
+// bound to &chosen), so the pre-selected state is unmistakable BEFORE enter
+// is pressed: the operator reads exactly what enter will do, not just which
+// boxes happen to carry a checkmark.
+func setupWizardWillInstallLine(chosen []string) string {
+	if len(chosen) == 0 {
+		return "Space toggles, enter confirms. Nothing is checked — enter installs ONLY the required bravros binary."
+	}
+	labels := make([]string, 0, len(chosen))
+	for _, id := range chosen {
+		if c, ok := payload.ComponentByID(id); ok {
+			labels = append(labels, c.Label)
+		} else {
+			labels = append(labels, id)
+		}
+	}
+	return "Space toggles, enter confirms. Enter now installs: " + strings.Join(labels, ", ") + "."
 }
 
 // setupRunWizard asks which components to install and at which skills scope,
@@ -935,7 +1154,7 @@ func setupRunWizard(preselect []string, scope payload.SkillScope) ([]string, pay
 		if len(preselect) == 0 {
 			selected = c.Default
 		}
-		opts = append(opts, huh.NewOption(c.Label+" — "+c.Description, c.ID).Selected(selected))
+		opts = append(opts, huh.NewOption(setupComponentPickerLabel(c), c.ID).Selected(selected))
 	}
 
 	// The MultiSelect's Value must start out holding exactly the pre-checked
@@ -959,7 +1178,7 @@ func setupRunWizard(preselect []string, scope payload.SkillScope) ([]string, pay
 		huh.NewGroup(
 			huh.NewMultiSelect[string]().
 				Title("Which components should bravros install?").
-				Description("Space toggles, enter confirms. The bravros binary itself is always installed.").
+				DescriptionFunc(func() string { return setupWizardWillInstallLine(chosen) }, &chosen).
 				Options(opts...).
 				Value(&chosen),
 		),
@@ -998,6 +1217,31 @@ func setupConfirm() (bool, error) {
 		Title("Write these files?").
 		Description("Existing files that differ are never overwritten — they are preserved and the new content lands as <name>.new.").
 		Affirmative("Install").
+		Negative("Cancel").
+		Value(&ok).
+		Run()
+	return ok, err
+}
+
+// setupPluginMigrationGate is D3's interactive response: report the detected
+// marketplace tree and the exact removal command, then require explicit
+// confirmation before continuing. Detection and the never-write/never-prune
+// stance underneath are unchanged (setupBuildPlan still skips every
+// KindEmbeddedTree component while a plugin-managed tree is present) — this
+// only makes the skip loud instead of silent, which is what froze the
+// operator's own machine on stale skills (D1). Declining or aborting cancels
+// the whole run, mirroring setupConfirm.
+func setupPluginMigrationGate(w io.Writer, dirs []string) (bool, error) {
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, setupTitleStyle.Render("Claude Code marketplace detected")+"  ("+strings.Join(dirs, ", ")+")")
+	fmt.Fprintln(w, setupDimStyle.Render("  "+setupPluginMigrationMessage(dirs)))
+	fmt.Fprintln(w)
+
+	ok := false
+	err := huh.NewConfirm().
+		Title("Continue this run, skipping claude-skills / claude-templates?").
+		Description("bravros never writes into a plugin-managed tree. Run the command above to migrate off the marketplace, then re-run `bravros setup` for a full install.").
+		Affirmative("Continue anyway").
 		Negative("Cancel").
 		Value(&ok).
 		Run()
@@ -1093,6 +1337,25 @@ func runSetup(cmd *cobra.Command, _ []string) error {
 			setupComponentsEnv, strings.Join(setupComponentIDs(), ", "))
 	}
 
+	// D3 migration gate: an interactive run with a detected marketplace tree
+	// gets the loud path — what was found and the exact command to leave it
+	// — instead of the old silent skip. Detection and the never-write stance
+	// (setupBuildPlan, below) are unchanged either way; only this response
+	// is new. The escape hatch bypasses the gate too: an operator who has
+	// already opted into double delivery doesn't need to be asked again.
+	if interactive && os.Getenv(setupAllowPluginManagedEnv) != "1" {
+		if dirs := setupDetectPluginManaged(root); len(dirs) > 0 {
+			proceed, gateErr := setupPluginMigrationGate(out, dirs)
+			if errors.Is(gateErr, huh.ErrUserAborted) || (gateErr == nil && !proceed) {
+				fmt.Fprintln(out, "Cancelled — nothing was written.")
+				return nil
+			}
+			if gateErr != nil {
+				return gateErr
+			}
+		}
+	}
+
 	sels, err := setupSelections(ids, scope)
 	if err != nil {
 		return err
@@ -1127,18 +1390,29 @@ func runSetup(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	statePath, stateStatus, err := setupWriteState(root, plan, scope)
+	statePath, stateStatus, err := setupWriteStateForRun(root, plan, scope, prev)
 	if err != nil {
 		return err
 	}
 	res.State = stateStatus
 
 	changed := res.Created + len(res.Conflicts) + len(res.Pruned)
-	if changed == 0 && stateStatus == "unchanged" {
+	switch {
+	case len(plan.SkippedIDs) > 0:
+		// A run that skipped a component never gets to read as plain
+		// success (D3/D1) — name what was skipped right in the headline
+		// line, not only as a warning further down.
+		fmt.Fprintf(out, "⚠ setup finished with skips — %d written, %d unchanged, %d preserved as .new, %d pruned, %d component(s) skipped\n",
+			res.Created, res.Unchanged, len(res.Conflicts), len(res.Pruned), len(plan.SkippedIDs))
+	case changed == 0 && stateStatus == "unchanged":
 		fmt.Fprintf(out, "✓ already up to date — no changes (%d file(s) verified)\n", res.Unchanged)
-	} else {
+	default:
 		fmt.Fprintf(out, "✓ setup complete — %d written, %d unchanged, %d preserved as .new, %d pruned\n",
 			res.Created, res.Unchanged, len(res.Conflicts), len(res.Pruned))
+	}
+	if len(plan.SkippedIDs) > 0 {
+		fmt.Fprintf(out, "  skipped: %s — plugin-managed install detected; see the warning below to migrate\n",
+			strings.Join(plan.SkippedIDs, ", "))
 	}
 	fmt.Fprintf(out, "  state: %s (%s)\n", statePath, stateStatus)
 	if res.Settings != "" {
@@ -1147,9 +1421,18 @@ func runSetup(cmd *cobra.Command, _ []string) error {
 	for _, c := range res.Conflicts {
 		fmt.Fprintf(out, "  kept your %s — new version at %s.new\n", c, c)
 	}
+	// Warnings print exactly once, here — never also at render time (see
+	// setupRenderPlan) — so a plugin-managed skip reads as one warning, not
+	// two.
 	for _, w := range plan.Warnings {
 		fmt.Fprintln(out, "  ⚠️  "+w)
 	}
+
+	// The consolidated result table is the single per-component source of
+	// truth: status (CHANGED / ALREADY CORRECT / SKIPPED), destination, and
+	// detail, all in one place instead of scattered across the headline and
+	// the warnings above.
+	setupRenderResultTable(out, setupBuildResultRows(plan, res))
 	return nil
 }
 

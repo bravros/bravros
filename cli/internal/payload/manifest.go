@@ -183,6 +183,24 @@ var components = []Component{
 		Default:     true,
 		targetRel:   []string{"settings.json"},
 	},
+	{
+		ID:           "claude-home",
+		Label:        "Managed CLAUDE.md source (internal)",
+		Description:  "Repo-root home/CLAUDE.md — the managed-global block source deploy.reconcileGlobalClaudeMd falls back to when no source checkout is present. Not part of the setup wizard's default picks.",
+		Kind:         KindEmbeddedTree,
+		Default:      false,
+		embedSubtree: "home",
+		targetRel:    []string{"home"},
+	},
+	{
+		ID:           "claude-reconcile-script",
+		Label:        "CLAUDE.md reconcile script (internal)",
+		Description:  "scripts/reconcile-global-claude.py — the deterministic marker-block reconciler deploy.reconcileGlobalClaudeMd falls back to when no source checkout is present. Not part of the setup wizard's default picks.",
+		Kind:         KindEmbeddedTree,
+		Default:      false,
+		embedSubtree: "scripts",
+		targetRel:    []string{"scripts"},
+	},
 }
 
 // Components returns the manifest in wizard order. The slice is a copy: the

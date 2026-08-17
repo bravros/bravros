@@ -55,9 +55,16 @@ Other groups have no deep-dive yet; use `bravros <verb> --help`, which is genera
 
 ## Notes that bite
 
-- **`update` is not an alias for `selfupdate`.** As of P-0015 they are two verbs with opposite
-  risk profiles: `selfupdate` is a local, network-free refresh run by the SessionStart hook;
-  `update` is the explicit, network-fetching, binary-replacing one. The old alias was removed.
+- **`update` is not an alias for `selfupdate`.** They are two verbs (the old alias was removed
+  in P-0015), but as of P-0018 the risk split is conditional, not absolute: `selfupdate` refreshes
+  components from this binary's embedded payload AND, on a binary that `install.sh` owns
+  (`install_method: "installer"` in setup.json), its 24h SessionStart check now downloads,
+  verifies and **replaces the binary itself** — keeping the outgoing one as `bravros.prev` and
+  printing one `🔄 bravros vX → vY (auto)` line. brew/scoop/source installs are never swapped
+  (notify-only). `update` remains the explicit, on-demand binary replace. Opt out of the auto
+  lane with `BRAVROS_NO_UPDATE_CHECK=1` or `"auto_update": false` in setup.json; releases
+  younger than the `BRAVROS_MIN_RELEASE_AGE` canary window (default `6h`) are deferred. See
+  [install-update](cli/install-update.md).
 - **Exit code proves nothing for `selfupdate`** — it returns `nil` on nearly every path including
   "did nothing". Verify by observing the filesystem.
 - **`bravros setup` ≠ `bravros worktree setup`.** Different commands; the top-level verb does not

@@ -12,7 +12,7 @@ community id and decay silently as clustering renumbers on rebuild, so coverage 
 without anything failing — this is the check that surfaces it.
 
 Discovery: walks each root for `.graphify` or `graphify-out/graph.json` (default root
-~/Sites, depth 3). Projects with the marker but no graph are reported as "not built".
+~/Code, plus ~/Sites if present; depth 4). Projects with the marker but no graph are reported as "not built".
 
 On detecting degraded coverage it also writes a paste-ready labelling prompt per project
 (see emit-relabel-prompt.py) — detection without a next step is how a graph stays degraded
@@ -30,8 +30,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-DEFAULT_ROOTS = [Path.home() / "Sites"]
-DEFAULT_DEPTH = 3
+DEFAULT_ROOTS = [p for p in (Path.home() / "Code", Path.home() / "Sites") if p.is_dir()]
+DEFAULT_DEPTH = 4  # 4 reaches monorepo children (~/Code/monorepos/<workspace>/<child>)
 
 
 def discover(roots: list[Path], depth: int) -> list[Path]:

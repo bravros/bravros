@@ -17,7 +17,7 @@ Options:
 | `--json` | machine-readable rows instead of the table |
 | `--depth N` | walk depth per root (default 3) |
 | `--no-prompt` | skip auto-generating labelling prompts for degraded projects |
-| `<root> ...` | scan specific roots instead of `~/Sites` |
+| `<root> ...` | scan specific roots instead of the defaults (`~/Code`, plus `~/Sites` if present) |
 
 ## Reading the output
 

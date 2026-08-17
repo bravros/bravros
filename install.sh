@@ -49,6 +49,18 @@ BASE_URL="https://github.com/${GITHUB_REPO}/releases/latest/download"
 BIN_DIR="$HOME/.claude/bin"
 UNINSTALLER="${BIN_DIR}/bravros-uninstall"
 
+# ── Argument parsing ─────────────────────────────────────────────────────────
+# --force skips the installed-version check below and always reinstalls.
+# Works with both invocation idioms: `bash -c "$(curl -fsSL …)" -- --force`
+# and `curl -fsSL … | sh -s -- --force` — the `--` placeholder absorbs $0 so
+# "$@" here is just the flags.
+FORCE=false
+for arg in "$@"; do
+  case "$arg" in
+    --force) FORCE=true ;;
+  esac
+done
+
 # ── TTY gate ─────────────────────────────────────────────────────────────────
 # First statement of substance, per D9. Everything decorative — colour, the
 # spinner, the badges — is gated on this. A log file or a CI transcript gets
@@ -251,6 +263,36 @@ UNINSTALL_EOF
   chmod +x "$UNINSTALLER"
 }
 
+# resolve_latest_tag — same technique as cli/internal/fetch.ResolveLatestTag:
+# follow the redirect from .../releases/latest and read the tag out of the
+# resolved URL, instead of calling api.github.com (keeps this script off the
+# unauthenticated 60/hr API rate limit). Prints the tag (e.g. "v3.51.0") on
+# success; prints nothing and returns non-zero on any failure — callers must
+# treat that as "skip the check, fall back to always-download".
+resolve_latest_tag() {
+  resolved_url="$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
+    "https://github.com/${GITHUB_REPO}/releases/latest" 2>/dev/null)" || return 1
+  resolved_tag="${resolved_url##*/}"
+  [ -n "$resolved_tag" ] && [ "$resolved_tag" != "latest" ] || return 1
+  printf '%s\n' "$resolved_tag"
+}
+
+# detect_installed_version — checks PATH first, then the install destination.
+# `bravros version` prints "bravros vX.Y.Z"; this prints just "vX.Y.Z" on
+# success. Prints nothing and returns non-zero when no usable binary exists.
+detect_installed_version() {
+  candidate=""
+  if command -v bravros >/dev/null 2>&1; then
+    candidate="$(command -v bravros)"
+  elif [ -x "${BIN_DIR}/bravros" ]; then
+    candidate="${BIN_DIR}/bravros"
+  fi
+  [ -n "$candidate" ] || return 1
+  installed_version="$("$candidate" version 2>/dev/null | awk '{print $2}')"
+  [ -n "$installed_version" ] || return 1
+  printf '%s\n' "$installed_version"
+}
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 main() {
   # Platform detection
@@ -280,6 +322,37 @@ main() {
 
   require curl
   require tar
+
+  # Version check (skipped entirely by --force). Any failure to resolve the
+  # latest tag or the locally installed version falls through to the
+  # always-download behavior below — an installer must never brick on this.
+  if [ "$FORCE" != true ]; then
+    LATEST_TAG="$(resolve_latest_tag)" || LATEST_TAG=""
+    if [ -n "$LATEST_TAG" ]; then
+      CURRENT_VERSION="$(detect_installed_version)" || CURRENT_VERSION=""
+      if [ -n "$CURRENT_VERSION" ]; then
+        if [ "$CURRENT_VERSION" = "$LATEST_TAG" ]; then
+          # No download — but re-running the one-liner stays the repair path:
+          # still hand off to `bravros setup`, which is idempotent and reports
+          # ALREADY CORRECT / CHANGED / SKIPPED per component, so a broken
+          # settings.json or component selection gets fixed instead of a
+          # silent no-op.
+          ok "already current (${CURRENT_VERSION}) — no download needed"
+          # The current binary may live at BIN_DIR (installer-owned) or only on
+          # PATH (e.g. brew); hand off to whichever actually exists.
+          SETUP_BIN="${BIN_DIR}/bravros"
+          [ -x "$SETUP_BIN" ] || SETUP_BIN="$(command -v bravros || true)"
+          if [ -n "$SETUP_BIN" ] && [ -t 0 ] && [ "$NO_TTY" = false ]; then
+            exec "$SETUP_BIN" setup
+          fi
+          [ -n "$SETUP_BIN" ] && printf '  Binary already current; run %s setup to verify or repair components.\n' "$SETUP_BIN"
+          exit 0
+        fi
+        info "updating ${CURRENT_VERSION} → ${LATEST_TAG}"
+      fi
+    fi
+  fi
+
   detect_brew_managed
   ensure_minisign
 

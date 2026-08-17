@@ -268,6 +268,36 @@ func TestPrintDeploySummary_DryRunAndPruned(t *testing.T) {
 	}
 }
 
+// TestPrintDeploySummary_ClaudeMdReconcileSkipped asserts a skipped
+// managed-global CLAUDE.md reconcile is rendered in the default human summary,
+// not just carried silently in the DeployResult / --json output.
+func TestPrintDeploySummary_ClaudeMdReconcileSkipped(t *testing.T) {
+	var buf bytes.Buffer
+	printDeploySummary(&deploy.DeployResult{
+		FilesDeployed:            10,
+		ClaudeMdReconcileSkipped: []string{"source-claude-md-missing"},
+	}, &buf)
+	out := buf.String()
+
+	if !strings.Contains(out, "CLAUDE.md reconcile skipped: source-claude-md-missing") {
+		t.Errorf("expected summary to report the CLAUDE.md reconcile skip, got: %q", out)
+	}
+}
+
+// TestPrintDeploySummary_NoClaudeMdSkipLineWhenReconciled asserts a normal
+// deploy (reconcile ran, nothing skipped) prints no skip line at all.
+func TestPrintDeploySummary_NoClaudeMdSkipLineWhenReconciled(t *testing.T) {
+	var buf bytes.Buffer
+	printDeploySummary(&deploy.DeployResult{
+		FilesDeployed: 10,
+	}, &buf)
+	out := buf.String()
+
+	if strings.Contains(out, "CLAUDE.md reconcile skipped") {
+		t.Errorf("summary should not mention a CLAUDE.md reconcile skip when none occurred, got: %q", out)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Test: deploy skill-sha — single source of truth for skill SHA
 // ---------------------------------------------------------------------------

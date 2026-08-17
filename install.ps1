@@ -32,6 +32,15 @@
   ships 5.1 in the box and that is the floor we target.
 #>
 
+# mirror of: `--force` argument parsing in install.sh. A `param()` block must
+# be the script's first statement, so it lives here even though it is read
+# further down. `-Force` works for direct execution (`.\install.ps1 -Force`);
+# under `irm … | iex` there is no argv to bind, so $env:BRAVROS_FORCE is the
+# escape hatch — same convention as $env:BRAVROS_ALLOW_BREW_SHADOW below.
+param(
+  [switch]$Force
+)
+
 # `$ErrorActionPreference = 'Stop'` is the mirror of `set -e`. There is no clean
 # mirror of `set -u` that is safe under `iex` (Set-StrictMode leaks into the
 # caller's session), so every variable below is explicitly initialised instead.
@@ -52,6 +61,11 @@ $GithubRepo = 'bravros/bravros'
 $BaseUrl    = "https://github.com/$GithubRepo/releases/latest/download"
 $BinDir     = Join-Path $env:USERPROFILE '.claude\bin'
 $Uninstaller = Join-Path $BinDir 'bravros-uninstall.ps1'
+
+# mirror of: FORCE parsing in install.sh
+$script:ForceInstall = $false
+if ($Force) { $script:ForceInstall = $true }
+if ($env:BRAVROS_FORCE) { $script:ForceInstall = $true }
 
 # Pinned minisign bootstrap — see Ensure-Minisign for the decision and its cost.
 $MinisignVersion = '0.12'
@@ -308,6 +322,50 @@ Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $BinDir 'bravros-uni
   Set-Content -Path $Uninstaller -Value $body -Encoding UTF8
 }
 
+# mirror of: resolve_latest_tag()
+# Same technique as install.sh: follow the redirect from .../releases/latest
+# and read the tag off the final resolved URL, instead of calling
+# api.github.com (keeps this script off the unauthenticated 60/hr API rate
+# limit). Returns the tag string (e.g. "v3.51.0") or $null on any failure —
+# callers must treat that as "skip the check, fall back to always-download".
+function Resolve-LatestTag {
+  try {
+    $resp = Invoke-WebRequest -Uri "https://github.com/$GithubRepo/releases/latest" -Method Head -UseBasicParsing -ErrorAction Stop
+    $finalUri = $resp.BaseResponse.ResponseUri.AbsoluteUri
+    if (-not $finalUri) { return $null }
+    $tag = $finalUri.TrimEnd('/').Split('/')[-1]
+    if (-not $tag -or $tag -eq 'latest') { return $null }
+    return $tag
+  } catch {
+    return $null
+  }
+}
+
+# mirror of: detect_installed_version()
+# Checks PATH first, then the install destination. `bravros version` prints
+# "bravros vX.Y.Z"; this returns just "vX.Y.Z", or $null when no usable
+# binary is found.
+function Get-InstalledVersion {
+  $candidate = $null
+  $onPath = Get-Command bravros -ErrorAction SilentlyContinue
+  if ($onPath) {
+    $candidate = $onPath.Source
+  } elseif (Test-Path (Join-Path $BinDir 'bravros.exe')) {
+    $candidate = Join-Path $BinDir 'bravros.exe'
+  }
+  if (-not $candidate) { return $null }
+  try {
+    $output = & $candidate version 2>$null
+    if (-not $output) { return $null }
+    $first = ($output | Select-Object -First 1).ToString()
+    $parts = $first.Split(' ')
+    if ($parts.Count -lt 2) { return $null }
+    return $parts[1]
+  } catch {
+    return $null
+  }
+}
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 # mirror of: main()
 function Invoke-Main {
@@ -326,6 +384,40 @@ function Invoke-Main {
   # GoReleaser emits zip for windows and tar.gz elsewhere; PowerShell 5.1 has no
   # native tar.gz reader, which is exactly why the format_overrides block exists.
   $archive = "bravros-windows-$($script:Arch).zip"
+
+  # Version check (skipped entirely by -Force / $env:BRAVROS_FORCE). Any
+  # failure to resolve the latest tag or detect a local version falls through
+  # to the always-download behavior below — an installer must never brick on
+  # this.
+  if (-not $script:ForceInstall) {
+    $latestTag = Resolve-LatestTag
+    if ($latestTag) {
+      $currentVersion = Get-InstalledVersion
+      if ($currentVersion) {
+        if ($currentVersion -eq $latestTag) {
+          # mirror of: install.sh already-current handoff. No download — but
+          # re-running the installer stays the repair path: still hand off to
+          # `bravros setup` (idempotent, reports ALREADY CORRECT / CHANGED /
+          # SKIPPED per component) instead of silently no-oping.
+          Write-OkBadge "already current ($currentVersion) - no download needed"
+          $setupBin = Join-Path $BinDir 'bravros.exe'
+          if (-not (Test-Path $setupBin)) {
+            $onPath = Get-Command bravros -ErrorAction SilentlyContinue
+            if ($onPath) { $setupBin = $onPath.Source } else { $setupBin = $null }
+          }
+          if ($setupBin -and -not $NoTty) {
+            & $setupBin setup
+            return
+          }
+          if ($setupBin) {
+            Write-Host "  Binary already current; run '$setupBin setup' to verify or repair components."
+          }
+          return
+        }
+        Write-InfoBadge "updating $currentVersion -> $latestTag"
+      }
+    }
+  }
 
   Test-PackageManaged
 

@@ -308,7 +308,12 @@ func updateRefreshComponents(exePath string) error {
 		return updateRefreshHook(exePath)
 	}
 	cmd := exec.Command(exePath, "selfupdate", "--force")
-	cmd.Env = os.Environ()
+	// The child must not run the version lane. It has nothing to add — the tag
+	// was resolved seconds ago by the parent — and on the SessionStart auto path
+	// (cmd/selfupdate.go selfupdateAutoUpdate) a child that checked again would
+	// be a swap invoking a swap. The 24h notice state already suppresses that;
+	// this makes it structural instead of incidental.
+	cmd.Env = append(os.Environ(), selfupdate.NoUpdateCheckEnv+"=1")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		trimmed := strings.TrimSpace(string(out))
 		if trimmed != "" {

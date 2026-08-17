@@ -119,6 +119,17 @@ func TestDeployNeverWritesPluginManagedDirs(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestDeployPreservesUserOwnedFiles(t *testing.T) {
+	// This test's CLAUDE.md fixture carries no managed markers at all, and the
+	// reconcile script's documented "dest without markers" behavior is to
+	// MIGRATE it (append the managed block below the existing content) — not
+	// to leave it untouched. That's orthogonal to what this test actually
+	// checks (user-owned files survive a deploy byte-for-byte); disable the
+	// embedded CLAUDE.md fallback so reconcileGlobalClaudeMd no-ops here too,
+	// same as it always has for this fixture. The migrate-on-reconcile
+	// behavior itself is covered by
+	// TestDeploy_ReconcilesFromEmbeddedPayloadWhenSourceLacksHome.
+	disableClaudeMdEmbeddedFallback(t)
+
 	src := filepath.Join(t.TempDir(), "claude")
 	writeRepoMarkers(t, src)
 	must := func(err error) {

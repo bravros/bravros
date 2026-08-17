@@ -143,8 +143,13 @@ whatever `BRAVROS_INSTALL_METHOD` declared. There is no timestamp field, deliber
 ## `selfupdate` ✅
 
 Refresh installed components from **this binary's** embedded payload. The automatic half of the
-split update model — this is what the SessionStart hook runs. No network (bar one passive version
-check), never replaces a binary.
+split update model — this is what the SessionStart hook runs. Its only network traffic is the
+rate-limited passive version check — which, on a binary `install.sh` owns
+(`install_method: "installer"` in setup.json), is also a trigger: a newer release past the ~6h
+canary window is downloaded, minisign-verified and swapped in automatically, keeping the old
+executable as `bravros.prev` and printing one `🔄 bravros vX → vY (auto)` line. brew/scoop/source
+installs are never swapped (notify-only). Opt out with `BRAVROS_NO_UPDATE_CHECK=1` or
+`"auto_update": false` in setup.json.
 
 ```
 bravros selfupdate [flags]
@@ -161,8 +166,9 @@ bravros selfupdate [flags]
 | `--deep` | bool | `false` | Deprecated no-op — the clone-based drift detectors are gone. |
 
 Environment: `BRAVROS_SELFUPDATE_TTL` (default `6h`, `0` disables the whole-run cache) ·
-`BRAVROS_NO_UPDATE_CHECK=1` (disables the passive notice) · `BRAVROS_UPDATE_NOTICE_TTL` (default
-`24h`) · `BRAVROS_REMOTE_CHECK_TTL`.
+`BRAVROS_NO_UPDATE_CHECK=1` (disables the passive notice and the auto-update lane) ·
+`BRAVROS_UPDATE_NOTICE_TTL` (default `24h`) · `BRAVROS_REMOTE_CHECK_TTL` ·
+`BRAVROS_MIN_RELEASE_AGE` (default `6h`, the auto-update canary window; `0` disables).
 
 **Trap for skill authors: exit code proves nothing here.** `selfupdate` returns `nil` on nearly
 every path, including "did nothing at all" (a TTL cache hit). If a skill needs to know whether

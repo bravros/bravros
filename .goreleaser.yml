@@ -2,18 +2,22 @@ version: 2
 
 project_name: bravros
 
-# Builds the signed payload asset (skills/ + templates/) that `bravros selfupdate`
-# fetches at runtime — see cli/internal/fetch. Runs from the repo root (this file's
-# directory), so the paths inside the tarball are `skills/...` and `templates/...`.
+# Builds the signed payload asset (skills/ + templates/ + home/ +
+# scripts/reconcile-global-claude.py) that `bravros selfupdate` fetches at
+# runtime — see cli/internal/fetch. Runs from the repo root (this file's
+# directory), so the paths inside the tarball are `skills/...`, `templates/...`,
+# `home/...` and `scripts/reconcile-global-claude.py` — the same relative
+# layout deploy.reconcileGlobalClaudeMd expects under a source/payload dir
+# (P-0018 Phase 3).
 #
 # The generate hook runs FIRST so the binary's compiled-in cli/internal/payload
 # mirror (see cli/internal/payload/embed.go) can never go stale at release time,
 # even if CI's drift check somehow didn't catch it — go:embed reads whatever is
-# on disk in cli/internal/payload/{skills,templates} at build time.
+# on disk in cli/internal/payload/{skills,templates,home,scripts} at build time.
 before:
   hooks:
     - sh -c "cd cli && go generate ./internal/payload/..."
-    - sh -c "tar -czf bravros-payload.tar.gz skills templates"
+    - sh -c "tar -czf bravros-payload.tar.gz skills templates home scripts/reconcile-global-claude.py"
 
 builds:
   - id: bravros

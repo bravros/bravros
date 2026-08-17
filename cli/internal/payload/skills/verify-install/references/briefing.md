@@ -8,7 +8,7 @@ bash $S            # report          bash $S --auto   # SessionStart: silent whe
 bash $S --fix      # report + repair bash $S --json   # machine-readable
 ```
 
-Source repo resolves `$PORTABLE_REPO` → `~/Sites/bravros` → `~/bravros`. Check list, `--auto` line shapes, and what this deliberately does NOT check: [`references/checks.md`](references/checks.md).
+Source repo resolves `$PORTABLE_REPO` → `~/Code/monorepos/bravros/bravros` → `~/bravros`. Check list, `--auto` line shapes, and what this deliberately does NOT check: [`references/checks.md`](references/checks.md).
 
 ## Hard constraints
 
@@ -23,7 +23,7 @@ Source repo resolves `$PORTABLE_REPO` → `~/Sites/bravros` → `~/bravros`. Che
 1. Run the script, show the categorized output.
 2. Failures → ask before repairing (`ask_question`: run `--fix` / show manual steps / skip). Explain manually when auto-fix can't help.
 3. `⚠️ ORPHANED` is a warning, not a failure — but always offer `--fix`: a retired skill left on disk still fires its triggers.
-4. Source repo missing → `git clone git@github.com:bravros/bravros.git ~/Sites/bravros` (`~/bravros` on Linux), then `bash install.sh`.
+4. Source repo missing → `git clone git@github.com:bravros/bravros.git ~/Code/monorepos/bravros/bravros` (`~/bravros` on Linux), then `bash install.sh`.
 5. After a fix, re-run to confirm green.
 
 <!-- announce-template: "Falhas de instalação encontradas, aguardando decisão sobre correção automática. Projeto {PROJECT}." -->

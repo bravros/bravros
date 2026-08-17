@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -48,8 +49,17 @@ Nothing is ever overwritten: a file that exists and differs is left alone and th
 payload's version is written beside it as <name>.new. Skills the user added by
 hand are never touched, and pruning stays scoped to skills/ + templates/.
 
-At most once every 24h it also checks whether a newer bravros was published and
-prints a single line saying so. BRAVROS_NO_UPDATE_CHECK=1 turns that off; the
+At most once every 24h it also checks whether a newer bravros was published.
+On a binary install.sh owns (install_method "installer" in setup.json) that check
+also INSTALLS it: the previous executable is kept beside the new one as
+bravros.prev, and the swap announces itself with one line. Everywhere else —
+brew, scoop, a locally built binary — the check only prints the notice and never
+replaces anything.
+
+Releases younger than 6h are deferred to the next check, so a release yanked in
+its first hours never reaches the fleet (BRAVROS_MIN_RELEASE_AGE overrides the
+window; "0" disables it). BRAVROS_NO_UPDATE_CHECK=1 turns the whole lane off, as
+does "auto_update": false in setup.json, which leaves the notice in place. The
 check never blocks and never fails the run.
 
 The whole run is cached: after each completed run the marker
@@ -199,13 +209,33 @@ func selfupdateReportRefresh(o embedRefreshOutcome) {
 // the entire network budget of this lane.
 const selfupdateNoticeTimeout = 3 * time.Second
 
-// selfupdateNoticeResolverOverride replaces the real tag resolver in tests, so
-// the request count is observable against an httptest server.
-var selfupdateNoticeResolverOverride selfupdate.TagResolver
+// selfupdateAutoTimeout bounds the auto-update swap: the canary HEAD plus the
+// download, verify and replace. It is deliberately far larger than
+// selfupdateNoticeTimeout — by the time it applies, the 24h check has already
+// concluded that this machine is behind and owns its own binary, so the work is
+// worth waiting for. It is still bounded, because a hung download must not hold
+// a session start open indefinitely.
+const selfupdateAutoTimeout = 120 * time.Second
 
-// selfupdatePassiveNotice prints "a newer bravros exists" at most once per
-// notice interval (24h default), never blocks beyond selfupdateNoticeTimeout,
-// and never turns a network failure into a command failure.
+// Test seams for the version lane. Production leaves both nil.
+var (
+	// selfupdateNoticeResolverOverride replaces the real tag resolver in tests,
+	// so the request count is observable against an httptest server.
+	selfupdateNoticeResolverOverride selfupdate.TagResolver
+	// selfupdateAgerOverride replaces the release-age probe, so the canary can
+	// be driven to both verdicts without publishing a release.
+	selfupdateAgerOverride selfupdate.ReleaseAger
+)
+
+// selfupdatePassiveNotice runs the version lane at the end of a SessionStart
+// refresh: at most one remote check per notice interval (24h default), then
+// either the one-line notice this lane has always printed, or — on a binary
+// install.sh owns — the auto-update swap D2 turned that check into.
+//
+// EVERY FAILURE IS NON-FATAL AND SILENT. This function returns nothing and
+// cannot fail a run: the SessionStart hook's contract is that a session starts
+// even when GitHub is down, the release is broken, or the binary is not
+// replaceable.
 func selfupdatePassiveNotice() {
 	if selfupdateDryRun || selfupdate.NoticeDisabled() {
 		return
@@ -217,10 +247,150 @@ func selfupdatePassiveNotice() {
 	ctx, cancel := context.WithTimeout(context.Background(), selfupdateNoticeTimeout)
 	defer cancel()
 
-	line := selfupdate.PassiveCheck(ctx, resolver, selfupdate.NoticeStatePath(), selfupdate.NoticeInterval(), Version)
+	res := selfupdate.PassiveCheckDetail(ctx, resolver, selfupdate.NoticeStatePath(), selfupdate.NoticeInterval(), Version)
+	cancel() // the notice's 3s budget covers the check only, not the swap
+
+	// A cache hit prints the cached notice and does nothing else. Gating the
+	// swap on Checked is what keeps the cadence at 24h: a release deferred by
+	// the canary is retried at the next real check, not on every session.
+	if !res.Checked || res.LatestTag == "" {
+		selfupdatePrintNotice(res.Line)
+		return
+	}
+	if selfupdateAutoUpdate(res.LatestTag) {
+		return // the swap printed its own single line
+	}
+	selfupdatePrintNotice(res.Line)
+}
+
+func selfupdatePrintNotice(line string) {
 	if line != "" {
 		fmt.Fprintln(os.Stderr, line)
 	}
+}
+
+// selfupdateAutoUpdate is the trigger half of D2: given the tag the 24h check
+// just resolved, decide whether this machine may replace its own binary, and do
+// it. Reports whether a swap happened — false means the caller prints the plain
+// notice instead, which is the pre-D2 behavior every non-installer machine
+// keeps.
+//
+// The download/verify/replace machinery is `bravros update`'s, reused verbatim
+// (updateUpdater, updateDropCheckMarker, updateRefreshComponents): the trust
+// chain — minisign-signed checksums.txt, sha256 of the archive, extract, atomic
+// rename — has exactly one implementation, and an automatic swap is the last
+// place to grow a second one.
+func selfupdateAutoUpdate(tag string) bool {
+	exePath, err := updateExecutablePath()
+	if err != nil {
+		return false
+	}
+	root := config.ConfigDir()
+
+	decision := selfupdate.DecideAuto(selfupdate.AutoInput{
+		CurrentVersion: Version,
+		LatestTag:      tag,
+		ObservedMethod: detectInstallMethod(exePath, root),
+		RecordedMethod: selfupdateRecordedInstallMethod(root),
+		AutoUpdate:     selfupdateAutoUpdatePreference(root),
+	})
+	if decision.Action != selfupdate.AutoSwap {
+		selfupdateTraceAuto(decision)
+		return false
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), selfupdateAutoTimeout)
+	defer cancel()
+
+	// The canary comes after the ownership gates and before the download, so a
+	// machine that may not swap never pays for the probe.
+	age, ageErr := selfupdateReleaseAger().ReleaseAge(ctx, tag)
+	if decision = selfupdate.CanaryVerdict(age, ageErr, selfupdate.ReleaseAgeFloor()); decision.Action != selfupdate.AutoSwap {
+		selfupdateTraceAuto(decision)
+		return false
+	}
+
+	// One generation of rollback, in place before anything is replaced.
+	if _, err := selfupdate.PreservePrevious(exePath); err != nil {
+		selfupdateTraceAuto(selfupdate.AutoDecision{Action: selfupdate.AutoNotify, Reason: err.Error()})
+		return false
+	}
+
+	res, err := updateUpdater().Install(ctx, tag, exePath)
+	if err != nil {
+		// A failed download leaves the binary untouched (binary.go rolls back);
+		// fall back to the notice so the operator can retry by hand.
+		selfupdateTraceAuto(selfupdate.AutoDecision{Action: selfupdate.AutoNotify, Reason: err.Error()})
+		return false
+	}
+
+	fmt.Fprintln(os.Stderr, selfupdate.SwapLine(Version, tag))
+
+	// The new binary carries a new embedded payload, and the TTL marker would
+	// otherwise suppress the refresh for up to 6h. Drop it, then refresh from
+	// the NEW binary's embed — this process still holds the old one.
+	updateDropCheckMarker()
+	if err := updateRefreshComponents(res.ExePath); err != nil && selfupdateVerbose {
+		fmt.Fprintf(os.Stderr, "  ⚠️  component refresh failed: %v — run `bravros selfupdate --force`\n", err)
+	}
+	return true
+}
+
+// selfupdateTraceAuto explains a non-swap under --verbose and stays silent
+// otherwise. The reason is never printed by default: on every brew, scoop and
+// source machine this lane declines on every single check, and a hook that
+// narrates its own inaction is noise.
+func selfupdateTraceAuto(d selfupdate.AutoDecision) {
+	if selfupdateVerbose {
+		fmt.Fprintf(os.Stderr, "ℹ️  bravros auto-update: %s (%s)\n", d.Action, d.Reason)
+	}
+}
+
+func selfupdateReleaseAger() selfupdate.ReleaseAger {
+	if selfupdateAgerOverride != nil {
+		return selfupdateAgerOverride
+	}
+	return &selfupdate.AssetAger{}
+}
+
+// selfupdateAutoState is a deliberately minimal, forward-compatible view of
+// setup.json. It decodes ONLY the two fields the auto lane reads; every other
+// key — including any this file has never heard of — is ignored by
+// encoding/json, so it cannot break when the canonical record grows.
+//
+// It exists instead of readSetupState because `auto_update` is not a field of
+// setupState (cmd/setup.go, owned elsewhere): an opt-out an operator wrote must
+// be honoured whether or not the struct has caught up. Decoding two named keys
+// is cheaper than coupling this lane to that struct's schedule.
+type selfupdateAutoState struct {
+	InstallMethod string `json:"install_method"`
+	AutoUpdate    *bool  `json:"auto_update"`
+}
+
+func selfupdateReadAutoState(root string) selfupdateAutoState {
+	var st selfupdateAutoState
+	data, err := os.ReadFile(setupStatePath(root))
+	if err != nil {
+		return st
+	}
+	// Unparsable state is treated as absent: the ownership gates below then
+	// decide on the observed path alone, and a corrupt file can never read as
+	// "auto_update: true".
+	_ = json.Unmarshal(data, &st)
+	return st
+}
+
+// selfupdateRecordedInstallMethod is setup.json's install_method ("" when the
+// file is missing, unreadable or predates the field).
+func selfupdateRecordedInstallMethod(root string) string {
+	return selfupdateReadAutoState(root).InstallMethod
+}
+
+// selfupdateAutoUpdatePreference is setup.json's auto_update field: nil when
+// absent (default ON for installer-owned binaries, per D2), false to switch the
+// whole auto lane back to notify-only.
+func selfupdateAutoUpdatePreference(root string) *bool {
+	return selfupdateReadAutoState(root).AutoUpdate
 }
 
 // ─── embedded-payload refresh (D2's local half) ─────────────────────────────

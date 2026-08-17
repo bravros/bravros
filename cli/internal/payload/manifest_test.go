@@ -3,14 +3,11 @@ package payload
 import (
 	"io/fs"
 	"os"
-	"path"
 	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
 	"testing"
-
-	"github.com/bravros/bravros/cli/internal/deploy"
 )
 
 // embeddedTopLevelDirs returns the directories directly under the embedded FS
@@ -84,7 +81,7 @@ func TestComponents_EmbeddedSubtreeBijection(t *testing.T) {
 }
 
 func TestComponents_IDsAndShape(t *testing.T) {
-	want := []string{"cli", "claude-skills", "claude-templates", "claude-settings"}
+	want := []string{"cli", "claude-skills", "claude-templates", "claude-settings", "claude-home", "claude-reconcile-script"}
 	var got []string
 	seen := map[string]bool{}
 	for _, c := range Components() {
@@ -157,10 +154,12 @@ func TestTargetPaths_ResolveUnderUserHomeDir(t *testing.T) {
 	}
 
 	wantRel := map[string]string{
-		"cli":              "bin",
-		"claude-skills":    "skills",
-		"claude-templates": "templates",
-		"claude-settings":  "settings.json",
+		"cli":                     "bin",
+		"claude-skills":           "skills",
+		"claude-templates":        "templates",
+		"claude-settings":         "settings.json",
+		"claude-home":             "home",
+		"claude-reconcile-script": "scripts",
 	}
 
 	fakeRoot := filepath.Join(t.TempDir(), ".claude")
@@ -194,72 +193,11 @@ func TestTargetPaths_ResolveUnderUserHomeDir(t *testing.T) {
 	}
 }
 
-// TestNoComponentTargetsPluginManaged is the manifest-side half of the D7
-// guard: setup DETECTS a plugin-managed Claude Code install and warns, and
-// never writes into a host's plugin tree. TargetRel is exactly the shape
-// deploy.IsPluginManaged consumes, so Phase 3 can run this check verbatim;
-// here we assert no component target is plugin-managed to begin with.
-func TestNoComponentTargetsPluginManaged(t *testing.T) {
-	for _, c := range Components() {
-		if deploy.IsPluginManaged(c.TargetRel()) {
-			t.Errorf("component %q targets %q, which deploy.IsPluginManaged reports as plugin-managed — bravros must never write there", c.ID, c.TargetRel())
-		}
-	}
-	// Sanity: the check is live, not vacuously false for every input.
-	if !deploy.IsPluginManaged("plugins") {
-		t.Fatalf("deploy.IsPluginManaged(%q) = false — the guard this test relies on is not working", "plugins")
-	}
-}
-
-// TestResolveSkills_ScopesDerivedFromTree derives BOTH expected sets from the
-// live tree at test time. No hardcoded counts: the dossier said 34, the tree
-// has 35, and a magic number rots.
-func TestResolveSkills_ScopesDerivedFromTree(t *testing.T) {
-	srcDir := repoRootSkillsDir(t)
-	entries, err := os.ReadDir(srcDir)
-	if err != nil {
-		t.Fatalf("read repo-root skills dir: %v", err)
-	}
-
-	var wantAll, wantCore []string
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		wantAll = append(wantAll, e.Name())
-		if deploy.IsSkillCore(filepath.Join(srcDir, e.Name(), "SKILL.md")) {
-			wantCore = append(wantCore, e.Name())
-		}
-	}
-	sort.Strings(wantAll)
-	sort.Strings(wantCore)
-
-	if len(wantAll) == 0 || len(wantCore) == 0 {
-		t.Fatalf("derived %d skills and %d core skills from %q — refusing a vacuous test", len(wantAll), len(wantCore), srcDir)
-	}
-	// The whole point of scope=core as the DEFAULT is that it is a strict
-	// subset: P-0004's carried-forward requirement is that the picker must
-	// not preselect everything.
-	if len(wantCore) >= len(wantAll) {
-		t.Fatalf("core skills (%d) is not a strict subset of all skills (%d) — scope=core would preselect everything", len(wantCore), len(wantAll))
-	}
-
-	gotAll, err := ResolveSkills(ScopeAll)
-	if err != nil {
-		t.Fatalf("ResolveSkills(all): %v", err)
-	}
-	if !reflect.DeepEqual(gotAll, wantAll) {
-		t.Errorf("ResolveSkills(all) = %v (%d), want %v (%d)", gotAll, len(gotAll), wantAll, len(wantAll))
-	}
-
-	gotCore, err := ResolveSkills(ScopeCore)
-	if err != nil {
-		t.Fatalf("ResolveSkills(core): %v", err)
-	}
-	if !reflect.DeepEqual(gotCore, wantCore) {
-		t.Errorf("ResolveSkills(core) = %v (%d), want %v (%d)", gotCore, len(gotCore), wantCore, len(wantCore))
-	}
-}
+// TestNoComponentTargetsPluginManaged and TestResolveSkills_ScopesDerivedFromTree
+// moved to manifest_deploy_test.go (package payload_test) — both exercise
+// deploy.IsPluginManaged / deploy.IsSkillCore, and cli/internal/deploy now
+// imports cli/internal/payload (P-0018 Phase 3), so an internal test file
+// (package payload) importing "deploy" would be an import cycle.
 
 func TestResolveSkills_UnknownScopeIsAnError(t *testing.T) {
 	if _, err := ResolveSkills(SkillScope("everything")); err == nil {
@@ -270,41 +208,8 @@ func TestResolveSkills_UnknownScopeIsAnError(t *testing.T) {
 	}
 }
 
-// TestSkillIsCore_AgreesWithDeployIsSkillCore proves the embedded-FS-native
-// frontmatter parse in SkillIsCore is the same predicate deploy.IsSkillCore
-// applies to an on-disk path, for EVERY embedded skill. deploy.IsSkillCore
-// cannot read an embed.FS (it takes a filesystem path), so the logic is
-// duplicated — this test is what keeps the duplicate from drifting.
-func TestSkillIsCore_AgreesWithDeployIsSkillCore(t *testing.T) {
-	srcDir := repoRootSkillsDir(t)
-
-	names, err := SkillNames()
-	if err != nil {
-		t.Fatalf("SkillNames: %v", err)
-	}
-	if len(names) == 0 {
-		t.Fatalf("SkillNames returned nothing — refusing a vacuous test")
-	}
-
-	agreedCore := 0
-	for _, name := range names {
-		got, err := SkillIsCore(name)
-		if err != nil {
-			t.Fatalf("SkillIsCore(%q): %v", name, err)
-		}
-		want := deploy.IsSkillCore(filepath.Join(srcDir, name, "SKILL.md"))
-		if got != want {
-			t.Errorf("SkillIsCore(%q) = %v, deploy.IsSkillCore = %v", name, got, want)
-		}
-		if got {
-			agreedCore++
-		}
-	}
-	if agreedCore == 0 {
-		t.Fatalf("no embedded skill was detected as core — the parser is not doing anything")
-	}
-	t.Logf("agreement over %d embedded skills (%d core)", len(names), agreedCore)
-}
+// TestSkillIsCore_AgreesWithDeployIsSkillCore moved to manifest_deploy_test.go
+// (package payload_test) — see the note above TestResolveSkills_UnknownScopeIsAnError.
 
 // pluginCoreSkillsDir returns repo-root plugins/core/skills — the marketplace
 // core plugin's skill set, generated by skillgen.
@@ -396,55 +301,27 @@ func TestCoreSet_MatchesMarketplaceCorePlugin(t *testing.T) {
 	t.Logf("CLI core set and plugins/core/skills agree on %d skills", len(cliCore))
 }
 
-func TestSelection_EnabledSkillsFeedsDeployOpts(t *testing.T) {
-	c, ok := ComponentByID("claude-skills")
-	if !ok {
-		t.Fatalf("ComponentByID(claude-skills) not found")
-	}
-	sel, err := c.Select(ScopeCore)
-	if err != nil {
-		t.Fatalf("Select(core): %v", err)
-	}
-
-	// The list must be usable verbatim as DeployOpts.EnabledSkills: plain
-	// skill directory names that exist in the embedded payload.
-	enabled := sel.EnabledSkills()
-	if len(enabled) == 0 {
-		t.Fatalf("EnabledSkills() is empty — an empty allowlist means 'deploy everything', the opposite of scope=core")
-	}
-	if !reflect.DeepEqual(enabled, sel.Skills) {
-		t.Errorf("EnabledSkills() = %v, want the resolved list %v", enabled, sel.Skills)
-	}
-	for _, name := range enabled {
-		if strings.ContainsAny(name, `/\`) {
-			t.Errorf("EnabledSkills() entry %q is a path — DeployOpts.EnabledSkills takes bare skill directory names", name)
-		}
-		if _, err := fs.Stat(FS, path.Join("skills", name)); err != nil {
-			t.Errorf("EnabledSkills() entry %q is not an embedded skill: %v", name, err)
-		}
-	}
-
-	// It is a copy: mutating it must not corrupt the selection a caller is
-	// about to persist to state.json.
-	enabled[0] = "mutated"
-	if sel.Skills[0] == "mutated" {
-		t.Errorf("EnabledSkills() aliases Selection.Skills")
-	}
-
-	// _ = deploy.DeployOpts consumption shape.
-	opts := deploy.DeployOpts{EnabledSkills: sel.EnabledSkills(), FilterMode: false}
-	if len(opts.EnabledSkills) != len(sel.Skills) {
-		t.Errorf("DeployOpts.EnabledSkills = %d entries, want %d", len(opts.EnabledSkills), len(sel.Skills))
-	}
-}
+// TestSelection_EnabledSkillsFeedsDeployOpts moved to manifest_deploy_test.go
+// (package payload_test) — see the note above TestResolveSkills_UnknownScopeIsAnError.
 
 func TestDefaultSelections(t *testing.T) {
 	sels, err := DefaultSelections()
 	if err != nil {
 		t.Fatalf("DefaultSelections: %v", err)
 	}
-	if len(sels) != len(Components()) {
-		t.Fatalf("DefaultSelections returned %d selections, want all %d components on by default", len(sels), len(Components()))
+	// Derived from live component definitions, not a hardcoded count: not
+	// every component is Default||Required (claude-home and
+	// claude-reconcile-script exist only to satisfy the embedded-subtree
+	// bijection and deploy.reconcileGlobalClaudeMd's fallback — they are
+	// deliberately opt-in, never installed by a plain `bravros setup`).
+	wantDefault := 0
+	for _, c := range Components() {
+		if c.Default || c.Required {
+			wantDefault++
+		}
+	}
+	if len(sels) != wantDefault {
+		t.Fatalf("DefaultSelections returned %d selections, want %d (components with Default||Required)", len(sels), wantDefault)
 	}
 
 	byID := map[string]Selection{}

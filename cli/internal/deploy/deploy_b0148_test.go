@@ -1,11 +1,29 @@
 package deploy
 
 import (
+	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
+
+// disableClaudeMdEmbeddedFallback overrides the package-level
+// claudeMdEmbeddedFallback var for the duration of the calling test, so
+// reconcileGlobalClaudeMd behaves as if the embedded payload ALSO lacks
+// home/CLAUDE.md and scripts/reconcile-global-claude.py — simulating "both
+// tiers absent" without needing a build of this binary whose embedded
+// payload actually omits those files (the real payload.FS always carries
+// them, kept in sync by gen.go). t.Cleanup restores the real
+// payload.Extract-based implementation.
+func disableClaudeMdEmbeddedFallback(t *testing.T) {
+	t.Helper()
+	prev := claudeMdEmbeddedFallback
+	claudeMdEmbeddedFallback = func(string) (bool, error) { return false, nil }
+	t.Cleanup(func() { claudeMdEmbeddedFallback = prev })
+}
 
 // TestDeploy_ForceOverwritesUnchangedFile asserts that a destination file
 // whose mtime+size matches the source is normally skipped, but is
@@ -91,11 +109,18 @@ func TestDeploy_ForceOverwritesUnchangedFile(t *testing.T) {
 
 // TestDeploy_DoesNotClobberPersonalCLAUDEmd is the regression test for the
 // managed-global clobber: Deploy must NEVER whole-file copy the repo's root
-// CLAUDE.md over ~/.claude/CLAUDE.md. With no home/CLAUDE.md in the source
-// (reconcile no-ops), an existing personal CLAUDE.md at the target must survive
-// a deploy untouched — previously the {"CLAUDE.md","CLAUDE.md"} fileMapping
-// overwrote it with the repo's project doc.
+// CLAUDE.md over ~/.claude/CLAUDE.md. With NEITHER tier able to supply a
+// managed source (no home/CLAUDE.md in the source tree, and the embedded
+// payload fallback disabled for this test — see
+// disableClaudeMdEmbeddedFallback), reconcile no-ops and an existing personal
+// CLAUDE.md at the target must survive a deploy untouched — previously the
+// {"CLAUDE.md","CLAUDE.md"} fileMapping overwrote it with the repo's project
+// doc. (P-0018 Phase 3: with the embedded fallback left ENABLED, the source
+// lacking home/CLAUDE.md no longer means "nothing to reconcile" — see
+// TestDeploy_ReconcilesFromEmbeddedPayloadWhenSourceLacksHome.)
 func TestDeploy_DoesNotClobberPersonalCLAUDEmd(t *testing.T) {
+	disableClaudeMdEmbeddedFallback(t)
+
 	src := setupTestRepo(t) // has root CLAUDE.md "# Claude" but NO home/CLAUDE.md
 	target := filepath.Join(t.TempDir(), ".claude")
 	if err := os.MkdirAll(target, 0o755); err != nil {
@@ -118,6 +143,77 @@ func TestDeploy_DoesNotClobberPersonalCLAUDEmd(t *testing.T) {
 	}
 	if string(got) != personal {
 		t.Fatalf("deploy clobbered personal CLAUDE.md\nwant: %q\ngot:  %q", personal, string(got))
+	}
+}
+
+// TestDeploy_ReportsSkippedClaudeMdReconcile is the regression test for the
+// silent no-op: with NEITHER tier able to supply a managed source (no
+// home/CLAUDE.md in the source tree, embedded fallback disabled for this
+// test — see disableClaudeMdEmbeddedFallback), the reconcile used to bail out
+// via a bare `return nil` that never reached the caller — visible only as an
+// absence, never as a reported outcome. Deploy must now count and name the
+// skip in DeployResult.ClaudeMdReconcileSkipped instead of swallowing it.
+func TestDeploy_ReportsSkippedClaudeMdReconcile(t *testing.T) {
+	disableClaudeMdEmbeddedFallback(t)
+
+	src := setupTestRepo(t) // has no home/CLAUDE.md
+	target := filepath.Join(t.TempDir(), ".claude")
+
+	res, err := Deploy(DeployOpts{SourceDir: src, TargetDir: target})
+	if err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+
+	if len(res.ClaudeMdReconcileSkipped) != 1 {
+		t.Fatalf("expected exactly one reported CLAUDE.md reconcile skip, got %v", res.ClaudeMdReconcileSkipped)
+	}
+	if res.ClaudeMdReconcileSkipped[0] != claudeMdSkipNoSource {
+		t.Errorf("expected skip reason %q, got %q", claudeMdSkipNoSource, res.ClaudeMdReconcileSkipped[0])
+	}
+
+	// The JSON shape must carry the same visibility --json consumers rely on.
+	data, err := json.Marshal(res)
+	if err != nil {
+		t.Fatalf("marshal result: %v", err)
+	}
+	if !strings.Contains(string(data), `"claude_md_reconcile_skipped":["source-claude-md-missing"]`) {
+		t.Errorf("expected claude_md_reconcile_skipped in JSON output, got: %s", data)
+	}
+}
+
+// TestDeploy_ReconcilesFromEmbeddedPayloadWhenSourceLacksHome is the P-0018
+// Phase 3 regression test for the OTHER half of the fallback: with the
+// embedded payload's claudeMdEmbeddedFallback left ENABLED (the production
+// default — not overridden here, unlike the two tests above), a source tree
+// with no home/CLAUDE.md or scripts/reconcile-global-claude.py (the same
+// shape setupTestRepo has always produced) must still reconcile — using the
+// compiled-in payload copy — instead of reporting a skip. This is the whole
+// point of embedding home/ and scripts/reconcile-global-claude.py
+// (gen.go/embed.go): a missing source checkout no longer means "nothing to
+// reconcile", it means "read it from the binary instead".
+func TestDeploy_ReconcilesFromEmbeddedPayloadWhenSourceLacksHome(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available on this machine — reconcileGlobalClaudeMd needs it regardless of which tier supplies the source")
+	}
+
+	src := setupTestRepo(t) // has no home/CLAUDE.md, no scripts/ dir
+	target := filepath.Join(t.TempDir(), ".claude")
+
+	res, err := Deploy(DeployOpts{SourceDir: src, TargetDir: target})
+	if err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+	if len(res.ClaudeMdReconcileSkipped) != 0 {
+		t.Fatalf("expected no reconcile skip — the embedded fallback should have supplied the managed source, got %v", res.ClaudeMdReconcileSkipped)
+	}
+
+	dest := filepath.Join(target, "CLAUDE.md")
+	got, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatalf("read reconciled CLAUDE.md: %v", err)
+	}
+	if !strings.Contains(string(got), "# >>> bravros-managed-global >>>") || !strings.Contains(string(got), "# <<< bravros-managed-global <<<") {
+		t.Fatalf("reconciled CLAUDE.md is missing the managed-global markers — the embedded fallback did not actually reconcile:\n%s", got)
 	}
 }
 

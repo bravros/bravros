@@ -141,6 +141,9 @@ func printDeploySummary(r *deploy.DeployResult, w io.Writer) {
 	if len(r.Pruned) > 0 {
 		fmt.Fprintf(w, "%s %d orphan(s): %s\n", pruneVerb, len(r.Pruned), strings.Join(r.Pruned, ", "))
 	}
+	if len(r.ClaudeMdReconcileSkipped) > 0 {
+		fmt.Fprintf(w, "CLAUDE.md reconcile skipped: %s\n", strings.Join(r.ClaudeMdReconcileSkipped, ", "))
+	}
 }
 
 var deployCmd = &cobra.Command{

@@ -1,14 +1,22 @@
-// Package payload embeds the repo-root skills/ and templates/ trees into the
-// bravros binary via go:embed.
+// Package payload embeds the repo-root skills/, templates/ and home/ trees,
+// plus scripts/reconcile-global-claude.py, into the bravros binary via
+// go:embed.
 //
 // go:embed can only reference paths inside its own package directory — it
-// cannot cross the module boundary with "..". skills/ and templates/ live at
-// the repo root, one level above the cli/ Go module, so they cannot be
-// embedded directly. Instead, cli/internal/payload/skills and
-// cli/internal/payload/templates are a generated MIRROR of the repo-root
-// trees, kept in sync by `go generate` (see gen.go) and enforced in CI by
-// .github/workflows/verify-manifest.yml (`git diff --exit-code` after
+// cannot cross the module boundary with "..". skills/, templates/, home/ and
+// scripts/ live at the repo root, one level above the cli/ Go module, so they
+// cannot be embedded directly. Instead, cli/internal/payload/{skills,
+// templates,home,scripts} are a generated MIRROR of the corresponding
+// repo-root paths, kept in sync by `go generate` (see gen.go) and enforced in
+// CI by .github/workflows/verify-manifest.yml (`git diff --exit-code` after
 // re-running the generator).
+//
+// home/ and scripts/reconcile-global-claude.py exist in the mirror so
+// deploy.reconcileGlobalClaudeMd (cli/internal/deploy/deploy.go) can fall
+// back to the compiled-in copy when the deploy SourceDir has no repo
+// checkout to read them from (P-0018 Phase 3) — see manifest.go's
+// "claude-home" / "claude-reconcile-script" components for the bijection
+// this requires against the embedded FS's top-level directories.
 //
 // LOCKED DECISION: the synced mirror is COMMITTED, not gitignored. go:embed
 // is a compile-time error against a missing or empty directory, so a
@@ -33,11 +41,12 @@ import (
 
 //go:generate go run gen.go
 
-// FS is the embedded mirror of the repo-root skills/ and templates/ trees.
-// Regenerate it with `cd cli && go generate ./internal/payload/...` whenever
-// the repo-root trees change.
+// FS is the embedded mirror of the repo-root skills/, templates/ and home/
+// trees, plus scripts/reconcile-global-claude.py. Regenerate it with
+// `cd cli && go generate ./internal/payload/...` whenever the repo-root
+// sources change.
 //
-//go:embed all:skills all:templates
+//go:embed all:skills all:templates all:home scripts/reconcile-global-claude.py
 var FS embed.FS
 
 // executableManifest is written by gen.go alongside the synced mirror: one

@@ -13,8 +13,8 @@ export PATH="$DEPLOYED_DIR/bin:$HOME/.local/bin:$PATH"
 # Source repo: $PORTABLE_REPO wins, then the two canonical checkout locations.
 if [ -n "${PORTABLE_REPO:-}" ]; then
     :
-elif [ -d "$HOME/Sites/bravros" ]; then
-    PORTABLE_REPO="$HOME/Sites/bravros"
+elif [ -d "$HOME/Code/monorepos/bravros/bravros" ]; then
+    PORTABLE_REPO="$HOME/Code/monorepos/bravros/bravros"
 else
     PORTABLE_REPO="$HOME/bravros"
 fi

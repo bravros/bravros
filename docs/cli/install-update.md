@@ -99,8 +99,38 @@ bravros selfupdate [flags]
 ```
 
 Refresh `~/.claude` from the payload embedded in **this** binary. This is the automatic half of
-the split update model (P-0015 D2) and the command the SessionStart hook runs. It never touches
-the network except for one passive version check, and it never replaces a binary.
+the split update model (P-0015 D2, revised by P-0018 D2) and the command the SessionStart hook
+runs. Its only network traffic is the rate-limited passive version check — but on a binary that
+`install.sh` owns, that check is now a **trigger, not just a printer**: see the auto-update lane
+below. On every other install (brew, scoop, source, unknown) it never replaces a binary and only
+prints the familiar one-line notice.
+
+### The SessionStart auto-update lane (P-0018 D2)
+
+When the 24h check resolves a newer tag AND `setup.json` records `install_method: "installer"`
+(the binary lives under `<claude root>/bin`, placed there by `install.sh`/`install.ps1`),
+`selfupdate` downloads the release, verifies it against the minisign-signed `checksums.txt`
+(the same trust chain as `bravros update` — one implementation, reused), atomically swaps the
+executable, and re-runs `selfupdate --force` from the **new** binary so components refresh from
+its embedded payload. The swap prints exactly one line: `🔄 bravros vX → vY (auto)`.
+
+Guards, all shipping together (none optional):
+
+- **Ownership refusal comes first.** A brew/scoop binary — by observed path *or* by
+  setup.json's record — is refused before anything is downloaded. The automatic lane never
+  lets observed reality overrule a stale brew record (unlike explicit `bravros update`).
+- **Rollback:** the outgoing executable is kept beside the new one as `bravros.prev`
+  (one generation; each swap overwrites it). Rollback is a `mv`, not a reinstall.
+- **Young-release canary:** releases younger than ~6h are deferred to the next check, so a
+  yanked release never reaches most of the fleet. `BRAVROS_MIN_RELEASE_AGE` overrides the
+  window (Go duration; `0` disables). Age is derived from a release asset's `Last-Modified`
+  header — no api.github.com budget spent. Unknown age → notify-only, never swap.
+- **Opt-outs:** `BRAVROS_NO_UPDATE_CHECK=1` disables the whole lane;
+  `"auto_update": false` in setup.json switches it back to notify-only (absent = on for
+  installer-owned binaries).
+- **Every unknown fails open to notify** — unreadable setup.json, unresolvable install
+  method, undeterminable release age. Network failure stays silent and non-fatal, and the
+  24h cadence is unchanged.
 
 What it refreshes is whatever `state.json` records. An install predating that file (no
 `setup.json`, but a populated `~/.claude/skills`) is refreshed at scope **`all`** — defaulting to
@@ -123,8 +153,9 @@ What it refreshes is whatever `state.json` records. An install predating that fi
 | Variable | Default | Effect |
 |---|---|---|
 | `BRAVROS_SELFUPDATE_TTL` | `6h` | Whole-run cache. A run inside the TTL returns immediately having done nothing. `0` disables. Marker: `~/.claude/state/.bravros-last-check`. |
-| `BRAVROS_NO_UPDATE_CHECK` | unset | `1`/`true`/`yes` disables the passive "newer version available" check entirely. |
+| `BRAVROS_NO_UPDATE_CHECK` | unset | `1`/`true`/`yes` disables the passive check AND the auto-update lane entirely. |
 | `BRAVROS_UPDATE_NOTICE_TTL` | `24h` | Minimum spacing between passive checks. `0` removes the rate limit. |
+| `BRAVROS_MIN_RELEASE_AGE` | `6h` | Young-release canary window for the auto-update lane. `0` disables the canary; a garbage value falls back to the default. |
 | `BRAVROS_REMOTE_CHECK_TTL` | — | Minimum spacing between remote release-tag lookups (`internal/selfupdate/remote.go`). |
 
 Exit code proves nothing here: `selfupdate` returns `nil` on nearly every path, including "did
@@ -216,3 +247,10 @@ Host-oriented entry point that delegates to `install.sh`. Since the multi-harnes
 (Codex/OpenCode/Pi) and the per-host skills compiler were retired in P-0187, Claude Code is the
 only supported platform: global install is `bash install.sh`, project-scoped setup is
 `bravros init`.
+
+As of P-0018, `install.sh` and `install.ps1` are version-aware: they resolve the latest tag via
+the no-API redirect on `/releases/latest` and compare it against any installed binary. Same
+version → `already current (vX.Y.Z)` and no download; older → `updating vX.Y.Z → vA.B.C` before
+downloading; `--force` (PowerShell: `-Force`, or `BRAVROS_FORCE=1` under `irm | iex`) reinstalls
+regardless. Any failure in the version check falls back to the always-download behavior — the
+installer never bricks on it.

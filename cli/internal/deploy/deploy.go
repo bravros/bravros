@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/bravros/bravros/cli/internal/payload"
 )
 
 // DeployOpts configures the deploy operation.
@@ -48,6 +50,13 @@ type DeployResult struct {
 	SkillsDeployed []string `json:"skills_deployed,omitempty"` // skill names deployed via SHA manifest
 	SkillsSkipped  []string `json:"skills_skipped,omitempty"`  // skill names skipped (SHA unchanged)
 	LockedSkipped  []string `json:"locked_skipped,omitempty"`  // destinations the operator froze (uchg / chattr +i / read-only)
+	// ClaudeMdReconcileSkipped names why the managed-global CLAUDE.md block
+	// reconcile did not run this deploy (see the claudeMdSkip* reasons next to
+	// reconcileGlobalClaudeMd). Non-fatal — the deploy still succeeds — but this
+	// must stay a counted, visible outcome: a bare skip that never reaches
+	// DeployResult made the reconcile a silent no-op for every pre-split
+	// checkout (PR #42).
+	ClaudeMdReconcileSkipped []string `json:"claude_md_reconcile_skipped,omitempty"`
 }
 
 // pruneSubtrees lists the subdirectories under TargetDir that are eligible
@@ -632,9 +641,18 @@ func Deploy(opts DeployOpts) (*DeployResult, error) {
 	// Reconcile the managed-global CLAUDE.md block (home/CLAUDE.md → <target>/CLAUDE.md).
 	// This replaces the old whole-file copy that clobbered the user's personal content.
 	// Non-fatal: a reconcile failure must never abort a deploy. Skipped in dry-run.
+	// Every skip path (including a bare no-op) still has to reach the operator —
+	// see DeployResult.ClaudeMdReconcileSkipped.
 	if !opts.DryRun {
-		if err := reconcileGlobalClaudeMd(opts.SourceDir, opts.TargetDir); err != nil {
-			fmt.Fprintf(os.Stderr, "⚠️  managed CLAUDE.md reconcile skipped: %v\n", err)
+		if reason, rcErr := reconcileGlobalClaudeMd(opts.SourceDir, opts.TargetDir); rcErr != nil || reason != "" {
+			if reason != "" {
+				result.ClaudeMdReconcileSkipped = append(result.ClaudeMdReconcileSkipped, reason)
+			}
+			if rcErr != nil {
+				fmt.Fprintf(os.Stderr, "⚠️  managed CLAUDE.md reconcile skipped: %v\n", rcErr)
+			} else {
+				fmt.Fprintf(os.Stderr, "⚠️  managed CLAUDE.md reconcile skipped: %s\n", reason)
+			}
 		}
 	}
 
@@ -830,30 +848,100 @@ func mapSourceToDest(rel string) string {
 	return rel
 }
 
-// reconcileGlobalClaudeMd reconciles the managed-global CLAUDE.md block into
-// <targetDir>/CLAUDE.md from <sourceDir>/home/CLAUDE.md, preserving the user's
-// personal content outside the # >>> bravros-managed-global >>> markers. It shells
-// out to the deterministic reconcile script (scripts/reconcile-global-claude.py) —
-// the same one install.sh and verify-install use — so the marker/migration logic
-// lives in exactly one place and can never diverge across deploy paths.
+// claudeMdSkip* are the named, stable reasons a managed-global CLAUDE.md
+// reconcile can be skipped without failing the deploy. They flow into
+// DeployResult.ClaudeMdReconcileSkipped so a skip is a counted, greppable
+// outcome instead of an ad-hoc error string that only ever reached stderr.
+const (
+	claudeMdSkipNoSource = "source-claude-md-missing" // pre-split checkout — home/CLAUDE.md absent
+	claudeMdSkipNoScript = "reconcile-script-missing"
+	claudeMdSkipNoPython = "python3-unavailable"
+)
+
+// claudeMdEmbeddedFallback materializes the compiled-in payload copy of
+// home/CLAUDE.md and scripts/reconcile-global-claude.py into destDir (as
+// destDir/home/CLAUDE.md and destDir/scripts/reconcile-global-claude.py) for
+// reconcileGlobalClaudeMd to use when sourceDir has no repo checkout to read
+// them from — a `bravros selfupdate`-only install, a fetched-payload deploy
+// predating this fallback, or a pre-split checkout. ok is false when the
+// fallback has nothing to offer (payload.Extract errors on a missing
+// subtree); reconcileGlobalClaudeMd treats that exactly like the primary
+// path being absent, never as a hard failure.
 //
-// Never falls back to a whole-file copy: if home/CLAUDE.md is absent (pre-split
-// checkout) or python3 is unavailable, it leaves the destination untouched rather
-// than risk clobbering personal content. Also stashes the managed source at
-// <targetDir>/templates/global-CLAUDE.md so verify-install can reconcile without
-// the repo checkout. Callers treat the returned error as non-fatal.
-func reconcileGlobalClaudeMd(sourceDir, targetDir string) error {
+// A package var, not a direct call, so tests can simulate "the embedded
+// payload also lacks these files" without needing a build of this binary
+// whose embedded payload actually omits them — the real payload.FS (see
+// cli/internal/payload/embed.go) always carries both, kept in sync by
+// `go generate ./internal/payload/...` (gen.go).
+var claudeMdEmbeddedFallback = func(destDir string) (ok bool, err error) {
+	if extractErr := payload.Extract("home", filepath.Join(destDir, "home")); extractErr != nil {
+		return false, nil
+	}
+	if extractErr := payload.Extract("scripts", filepath.Join(destDir, "scripts")); extractErr != nil {
+		return false, nil
+	}
+	return true, nil
+}
+
+// reconcileGlobalClaudeMd reconciles the managed-global CLAUDE.md block into
+// <targetDir>/CLAUDE.md, preserving the user's personal content outside the
+// # >>> bravros-managed-global >>> markers. It shells out to the deterministic
+// reconcile script (scripts/reconcile-global-claude.py) — the same one
+// install.sh and verify-install use — so the marker/migration logic lives in
+// exactly one place and can never diverge across deploy paths.
+//
+// The managed source and the script are resolved in two tiers:
+//
+//  1. Primary/override, for developer machines with a full source checkout:
+//     <sourceDir>/home/CLAUDE.md and <sourceDir>/scripts/reconcile-global-claude.py.
+//  2. Fallback, when sourceDir lacks either file: the embedded payload copy
+//     (claudeMdEmbeddedFallback), materialized to a temp dir and run from
+//     there. This is the whole point of embedding home/ and scripts/
+//     reconcile-global-claude.py (P-0018 Phase 3) — a missing source
+//     home/CLAUDE.md no longer means "nothing to reconcile", it means "read
+//     it from the binary instead".
+//
+// Never falls back to a whole-file copy: if BOTH tiers lack the files, or
+// python3 is unavailable, it leaves the destination untouched rather than
+// risk clobbering personal content. Also stashes the managed source at
+// <targetDir>/templates/global-CLAUDE.md so verify-install can reconcile
+// without the repo checkout. Callers treat the returned error as non-fatal,
+// but every skip path — including the ones that return a nil error —
+// returns a non-empty skipReason so the caller can still surface it instead
+// of swallowing it.
+func reconcileGlobalClaudeMd(sourceDir, targetDir string) (skipReason string, err error) {
 	src := filepath.Join(sourceDir, "home", "CLAUDE.md")
-	if _, err := os.Stat(src); err != nil {
-		return nil // pre-split checkout — nothing to reconcile, and NOT a fallback-copy case
-	}
 	script := filepath.Join(sourceDir, "scripts", "reconcile-global-claude.py")
-	if _, err := os.Stat(script); err != nil {
-		return fmt.Errorf("reconcile script missing at %s", script)
+	_, srcErr := os.Stat(src)
+	_, scriptErr := os.Stat(script)
+	srcOK := srcErr == nil
+	scriptOK := scriptErr == nil
+
+	if !srcOK || !scriptOK {
+		fallbackDir, mkErr := os.MkdirTemp("", "bravros-claudemd-fallback-*")
+		if mkErr != nil {
+			return "", fmt.Errorf("create embedded CLAUDE.md fallback temp dir: %w", mkErr)
+		}
+		defer os.RemoveAll(fallbackDir)
+
+		ok, fbErr := claudeMdEmbeddedFallback(fallbackDir)
+		if fbErr != nil {
+			return "", fmt.Errorf("materialize embedded CLAUDE.md fallback: %w", fbErr)
+		}
+		if !ok {
+			if srcOK && !scriptOK {
+				return claudeMdSkipNoScript, fmt.Errorf("reconcile script missing at %s (embedded fallback also unavailable)", script)
+			}
+			return claudeMdSkipNoSource, nil // no source checkout AND no embedded fallback — nothing to reconcile, and NOT a fallback-copy case
+		}
+
+		src = filepath.Join(fallbackDir, "home", "CLAUDE.md")
+		script = filepath.Join(fallbackDir, "scripts", "reconcile-global-claude.py")
 	}
-	py, err := exec.LookPath("python3")
-	if err != nil {
-		return fmt.Errorf("python3 not found — dest left untouched (no fallback copy)")
+
+	py, lookErr := exec.LookPath("python3")
+	if lookErr != nil {
+		return claudeMdSkipNoPython, fmt.Errorf("python3 not found — dest left untouched (no fallback copy)")
 	}
 
 	// Stash the managed source for verify-install / auto-verify-install (non-fatal).
@@ -867,9 +955,9 @@ func reconcileGlobalClaudeMd(sourceDir, targetDir string) error {
 	dest := filepath.Join(targetDir, "CLAUDE.md")
 	out, runErr := exec.Command(py, script, "--src", src, "--dest", dest).CombinedOutput()
 	if runErr != nil {
-		return fmt.Errorf("reconcile script failed: %v (%s)", runErr, strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("reconcile script failed: %v (%s)", runErr, strings.TrimSpace(string(out)))
 	}
-	return nil
+	return "", nil
 }
 
 // copyFile copies src to dst, creating parent directories as needed.

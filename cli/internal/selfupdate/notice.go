@@ -102,8 +102,33 @@ func SaveNoticeState(path string, s NoticeState) error {
 	return os.WriteFile(path, append(data, '\n'), 0o644)
 }
 
+// NoticeResult is what a passive check concluded. The auto-update lane
+// (autoupdate.go) needs the TAG and whether this call actually went to the
+// network, not just the rendered line — but the cadence, the state file and the
+// offline-is-silent contract must stay identical for both consumers, so there
+// is exactly one implementation and PassiveCheck is a projection of it.
+type NoticeResult struct {
+	// Line is the notice to print, "" when there is nothing to say.
+	Line string
+	// LatestTag is the newest tag known — freshly resolved, or the one the
+	// last check recorded. "" when no check has ever succeeded.
+	LatestTag string
+	// Checked is true only when THIS call contacted the remote. The auto lane
+	// gates the swap on it, which is what keeps the 24h cadence honest: a
+	// cache-hit session prints the cached notice and does nothing else, so a
+	// deferred release is retried on the next real check, not on every session.
+	Checked bool
+	// Disabled is true when BRAVROS_NO_UPDATE_CHECK opted the machine out.
+	Disabled bool
+}
+
 // PassiveCheck returns the one-line notice to print, or "" when there is
-// nothing to say.
+// nothing to say. See PassiveCheckDetail — this is its Line.
+func PassiveCheck(ctx context.Context, r TagResolver, statePath string, interval time.Duration, currentVersion string) string {
+	return PassiveCheckDetail(ctx, r, statePath, interval, currentVersion).Line
+}
+
+// PassiveCheckDetail runs the passive check and reports everything it learned.
 //
 // It NEVER returns an error and never blocks longer than ctx allows: a session
 // start must not be held up, or fail, because GitHub was unreachable. The
@@ -112,14 +137,17 @@ func SaveNoticeState(path string, s NoticeState) error {
 //
 // Cache-hit path (the common one): zero network, one file read — the notice is
 // re-derived from the tag recorded by the last check.
-func PassiveCheck(ctx context.Context, r TagResolver, statePath string, interval time.Duration, currentVersion string) string {
+func PassiveCheckDetail(ctx context.Context, r TagResolver, statePath string, interval time.Duration, currentVersion string) NoticeResult {
 	if NoticeDisabled() {
-		return ""
+		return NoticeResult{Disabled: true}
 	}
 	state := LoadNoticeState(statePath)
 
 	if interval > 0 && !state.LastCheck.IsZero() && time.Since(state.LastCheck) < interval {
-		return NoticeLine(currentVersion, state.LatestTag)
+		return NoticeResult{
+			Line:      NoticeLine(currentVersion, state.LatestTag),
+			LatestTag: state.LatestTag,
+		}
 	}
 
 	tag, err := r.ResolveLatestTag(ctx)
@@ -130,9 +158,13 @@ func PassiveCheck(ctx context.Context, r TagResolver, statePath string, interval
 	_ = SaveNoticeState(statePath, state)
 	if err != nil {
 		// Offline is normal and silent.
-		return ""
+		return NoticeResult{Checked: true, LatestTag: state.LatestTag}
 	}
-	return NoticeLine(currentVersion, tag)
+	return NoticeResult{
+		Line:      NoticeLine(currentVersion, tag),
+		LatestTag: tag,
+		Checked:   true,
+	}
 }
 
 // NoticeLine renders the notice, or "" when latest is not newer than current.
