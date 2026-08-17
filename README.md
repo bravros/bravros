@@ -25,9 +25,8 @@ lifecycle, and a small **Go kernel** for the handful of operations a prompt must
 to improvise — atomic locks, human-presence gates, and preserve-before-delete.
 
 Skills are authored in this public repository and ship **embedded in the binary**, so installing
-is one signed download and refreshing them needs no network at all. Plugin hosts that prefer to
-own the skill tree themselves still can. There is no dashboard, no licence check, and nothing to
-log into.
+is one signed download and refreshing them needs no network at all. There is no dashboard, no
+licence check, and nothing to log into.
 
 ---
 
@@ -151,7 +150,11 @@ components you want:
 
 There is one selection axis — components — and no plugin-category picker. `core` is the default
 skill scope on purpose: an always-on skill list has a context budget, and blowing it silently
-hides your least-used skills. `--skills=all` opts into the long tail.
+hides your least-used skills. `--skills=all` opts into the long tail. The picker previews each
+choice live (an "enter now installs:" line shows exactly what and where), and the run ends with
+a result table — component, `CHANGED` / `ALREADY CORRECT` / `SKIPPED`, destination, reason — so a
+run that skipped everything can never read as success; emptying the selection needs an explicit
+confirmation.
 
 Non-interactive forms, for CI and for dotfile scripts:
 
@@ -169,6 +172,11 @@ choice is recorded in `~/.claude/state/setup.json`, which is what the SessionSta
 later. A plugin-managed Claude Code install is **detected and warned about** — bravros never
 writes into a directory a plugin host owns.
 
+Setup also reconciles the `# >>> bravros-managed-global >>>` block in your global `CLAUDE.md`
+against the toolkit's own copy — no clone needed, since both the source block and the merge
+script ship embedded in the binary — updating the managed section while leaving everything you
+wrote outside it untouched.
+
 Then, once per repository:
 
 ```bash
@@ -181,31 +189,37 @@ the repo.
 
 ### Keeping it current
 
-Two verbs, deliberately split — full detail in [**Skill Delivery**](docs/skill-delivery.md):
+Bravros updates itself:
 
 | | What it does | Network? |
 |---|---|---|
-| `bravros selfupdate` | Runs from the SessionStart hook. Refreshes your components from the payload **embedded in the binary you already have**, and at most once a day prints a one-line "a newer version exists" notice. | No (except that notice) |
-| `bravros update` | You run it. Resolves the newest release, downloads it, verifies the minisign signature, replaces the running binary, then refreshes components from the new embedded payload. | Yes |
+| `bravros selfupdate` | Runs from the SessionStart hook, at most once every 24h. If a newer release exists and has cleared a ~6h canary window, it downloads it, verifies the minisign signature, atomically swaps the binary — keeping the outgoing one as `bravros.prev` for one-generation rollback — and re-runs itself from the new binary to refresh components. Prints exactly one line: `🔄 bravros vX → vY (auto)`. | Yes, only when a swap happens |
+| `bravros update` | You run it by hand: same download-verify-swap, on demand. `--force` reinstalls even when already current. | Yes |
+
+The installer scripts are version-aware the same way: `bash -c "$(curl …)"` resolves the latest
+tag and prints `already current (vX.Y.Z) — no download needed` or `updating vX.Y.Z → vA.B.C`,
+then still hands off to the idempotent `bravros setup` as the repair path.
 
 `bravros update` refuses when a package manager owns the binary and names the right command
-instead (`brew upgrade bravros`). `BRAVROS_NO_UPDATE_CHECK=1` turns off the passive notice.
+instead (`brew upgrade bravros`); brew/scoop installs are likewise never auto-swapped by
+`selfupdate`, only notified. Turn either off with `BRAVROS_NO_UPDATE_CHECK=1`, or set
+`"auto_update": false` in `setup.json` to keep `selfupdate` notify-only. Skills ship inside the
+binary, so they can never drift from the CLI — a skill fix merged upstream reaches every machine
+within a day, zero-touch.
 
 ### Other hosts
-
-Claude Code's plugin marketplace remains supported, and is the right choice if you would rather
-Claude Code own the skill tree:
-
-```
-/plugin marketplace add bravros/bravros
-/plugin install bravros
-```
 
 Gemini CLI has its own extension system:
 
 ```bash
 gemini extensions install https://github.com/bravros/bravros --auto-update
 ```
+
+The Claude Code plugin marketplace lane is retired — `curl | sh` (or Homebrew) is the only
+supported install path for Claude Code now. If you installed via `/plugin install bravros`
+before, `bravros setup` detects it, prints the exact removal command
+(`/plugin marketplace remove bravros-marketplace`), and migrates the machine to the installer
+model.
 
 Never run both for the same skills — the CLI detects a plugin-managed install and refuses to
 write there, but pointing two updaters at one tree is a conflict, not redundancy.

@@ -9,10 +9,15 @@ those, `bravros <verb> --help` is authoritative (it is generated from `cli/cmd/*
 drift). Expand a section here when you touch its verb.
 
 **Maintenance rule** (`cli/CLAUDE.md` § Docs-sync requirement): a new verb, a renamed flag, or a
-changed output shape must land in this file, in [`docs/CLI.md`](docs/CLI.md), and in the right
-[`docs/cli/<group>.md`](docs/cli/) deep-dive **in the same PR**. `bravros audit-docs`, the CI
+changed output shape must land in this file, in `docs/CLI.md`, and in the right
+`docs/cli/<group>.md` deep-dive **in the same PR**. `bravros audit-docs`, the CI
 drift-linter for these tables, was retired with the audit engine in P-0187 — verify by hand
 against `cli/cmd/*.go` `Use:` and flag definitions.
+
+> The `docs/` tree lives in the private development repo and is deliberately not published, so
+> the `docs/…` paths named here are unlinked — they are directions for contributors working in
+> that repo, not pages you can open from the public mirror. This file and `bravros <verb> --help`
+> are the authoritative CLI surface for everyone else.
 
 ---
 
@@ -25,14 +30,14 @@ against `cli/cmd/*.go` `Use:` and flag definitions.
 | `clean-untracked` | Preserve into `.trash/` then remove untracked files (no token) | — |
 | `commit` | Commit plan + code changes | — |
 | `config` | Read project configuration values from `.bravros/config.json` | — |
-| `deploy` | Deploy the toolkit runtime into the host config dir | [deep-dive](docs/cli/install-update.md) |
+| `deploy` | Deploy the toolkit runtime into the host config dir | `docs/cli/install-update.md` |
 | `destructive` | Gate permanently destructive commands with a human-presence token | — |
 | `discard` | Preserve into `.trash/` then discard uncommitted changes (no token) | — |
 | `ha` | Home Assistant CLI | — |
 | `hook` | Claude Code hook subcommands | — |
 | `hooks` | Manage bravros-managed git hooks | — |
 | `init` | Initialize the current repository with the SDLC structure | — |
-| `install` | Install the toolkit runtime (delegates to `install.sh`) | [deep-dive](docs/cli/install-update.md) |
+| `install` | Install the toolkit runtime (delegates to `install.sh`) | `docs/cli/install-update.md` |
 | `merge-lock` | Atomic merge-lock primitive (acquire / release / status) | — |
 | `nextid` | Atomically reserve next plan, backlog, report and user-report IDs (JSON) | — |
 | `pr-review` | Write the PR review stamp from the latest bot verdict (`--write-stamp`) | — |
@@ -79,7 +84,7 @@ deep-merged).
 ### Environment
 
 `BRAVROS_COMPONENTS` · `BRAVROS_INSTALL_METHOD` · `BRAVROS_ALLOW_PLUGIN_MANAGED` ·
-`BRAVROS_CONFIG_DIR`. See the [deep-dive](docs/cli/install-update.md) for what each does.
+`BRAVROS_CONFIG_DIR`. See `docs/cli/install-update.md` for what each does.
 
 ### Sample output
 
