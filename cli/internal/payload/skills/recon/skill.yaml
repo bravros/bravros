@@ -1,0 +1,91 @@
+category: sdlc
+icon: radar
+metadata:
+  en:
+    name: recon
+    description: Turn a bug report or a feature request into ONE reviewed .planning dossier folder ready for /orchestrate. Use on `/recon <problem or feature>`, `/recon --worktree`, or `/recon B-NNNN` to promote a backlog item.
+  br:
+    name: recon
+    description: Transformar um relato de defeito ou pedido de funcionalidade em UMA pasta de dossiê revisada em .planning, pronta para /orchestrate. Use em `/recon <problema ou funcionalidade>`, `/recon --worktree` ou `/recon B-NNNN` para promover um item do backlog.
+  es:
+    name: recon
+    description: Convertir un reporte de error o una solicitud de funcionalidad en UNA carpeta de expediente revisada en .planning, lista para /orchestrate. Use en `/recon <problema o funcionalidad>`, `/recon --worktree` o `/recon B-NNNN` para promover un elemento del backlog.
+body: |
+  INTENT: take whatever the operator has — a symptom, a screenshot, a stack trace, or a feature
+  idea — and produce ONE folder `.planning/P-NNNN-<slug>/` that `/orchestrate` executes with zero
+  translation, reviewed in the same run. No second skill, no second session. Folder shape:
+  [`references/dossier-template.md`](references/dossier-template.md) — read it before writing.
+
+  ## 1 — Classify, then reserve identity
+
+  Decide **defect** (something behaves wrong) or **change** (something new). State which and why in
+  one line; ask only when genuinely unclear. The classification picks the evidence path in step 2 —
+  it does not change the output, which is always one dossier folder.
+
+  Reserve the identity before writing anything:
+  `PLAN_ID=$(bravros nextid reserve plan --slug "$SLUG")` (atomic across worktrees; abort before the
+  folder exists → `bravros nextid release $PLAN_ID`).
+
+  **Attachments are evidence, not decoration.** Screenshots, logs, exports, HAR files: record each
+  path in the dossier and describe what it shows. Never assume the content of something you could
+  not open — say plainly that it was unreadable and what you would need instead.
+
+  ## 2 — Gather ground truth before writing a line
+
+  - **graphify first when the project has it** (`.graphify` or `graphify-out/graph.json`):
+    `graphify query "<question>"`, then open the file it names. The graph is a map, not the
+    territory — the code wins, and a stale community label reads exactly like a fresh one.
+  - **Defect** → hand the hunt to `/scout`. It certifies a root cause with runtime proof and never
+    edits code. Fold its `diagnosis.md` into this dossier as `01-diagnosis.md`, and carry the
+    certified cause into **Traps** and **Closed decisions** so `/orchestrate` never re-derives it.
+    `UNCERTIFIED` is a valid outcome — the dossier then plans the next investigation, not a fix.
+  - **Change** → ask only where readings genuinely diverge; a deep multi-round fork goes to
+    `/interview-me`. Search `.planning/` for prior art first and surface a near-duplicate before
+    writing one.
+  - `/recon B-NNNN` (or a bare number) → read `.planning/backlog/B-NNNN-*.md` as context and link it
+    in the brief.
+
+  ## 3 — Write the dossier, then review it inline
+
+  `README.md` = identity frontmatter + brief + what is canonical and NOT changing + closed decisions
+  + traps + phases + `## Acceptance`; every phase gets a `Touches:` line of real paths, checkbox
+  tasks, and a `Verify:` command. Then review your own output before calling it ready — graphify
+  first, grep second:
+
+  - Every path named exists. No phase depends on a later phase's output. Two phases touching one
+    file are ordered, not parallel. A "verify + fix" phase splits into verify-only then fix.
+  - A wrong load-bearing premise → **STOP** and tell the operator. Never paper over it.
+  - One tier marker per phase heading — `### Phase N: Name [S]`. **Marker IS the model** (`[H]`
+    mechanical, `[S]` reasoning, `[O]` architecture).
+  - A `cli/` path in any `Touches:` → `## Acceptance` must demand a freshly built scratch binary
+    running the affected verb with output pasted.
+  - Phase 0 = re-verify (read-only) whenever the plan rests on counts, line numbers, or
+    "X is missing" claims that could go stale between writing and execution.
+
+  ## 4 — Record, commit, hand off
+
+  Two appends (born + reviewed) — the events ARE the state change — then one commit:
+
+  ```bash
+  E() { echo '{"ts":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","id":"e_'"$(date +%s)_$RANDOM"'","kind":"'"$1"'","subject":"'"$2"'"'"$3"',"by":"agent:recon"}' >> .planning/events.jsonl; }
+  E created  "$PLAN_ID" ""
+  E reviewed "$PLAN_ID" ',"verdict":"approved"'
+  E promoted "B-NNNN"   ""        # only for /recon B-NNNN — the B- file stays put
+  bravros commit "📋 plan: add P-NNNN <slug>" .planning/
+  ```
+
+  Autonomous lock (`.planning/.auto-*-lock`) or `--auto`: print
+  `STATUS: plan-ready. NEXT: orchestrate` and return — no prompts. Otherwise announce, then give
+  the operator exactly one next step: `/orchestrate .planning/P-NNNN-<slug>/`.
+
+  <!-- announce-template: "Dossiê {NUM} criado e revisado, pronto para orquestração." -->
+  ```bash
+  bravros ha say --force "Dossiê <NUM> criado e revisado, pronto para orquestração. Ramo <fragmento>, projeto <repo>." studio >/dev/null 2>&1 || true
+  ```
+
+  ## Flags
+
+  - `--auto`: skip all prompts (used by `/auto-pr`).
+  - `--worktree`: work inside an isolated git worktree — follow
+    [`references/worktree-extension.md`](references/worktree-extension.md) (also
+    `BRAVROS_WORKTREE=true`). `/worktree destroy` tears down; `/finish` never removes a worktree.

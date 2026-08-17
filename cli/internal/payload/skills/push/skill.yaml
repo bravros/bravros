@@ -1,0 +1,19 @@
+category: sdlc
+icon: upload
+metadata:
+  en:
+    name: push
+    description: Push current branch to remote with branch safety checks.
+  br:
+    name: push
+    description: Envia a branch atual para o repositório remoto com verificações de segurança de branch.
+  es:
+    name: push
+    description: Envía la rama actual al repositorio remoto con verificaciones de seguridad de rama.
+body: |
+  INTENT: push the current branch to origin. Push only — no committing, no PR creation.
+
+  HARD CONSTRAINTS:
+  - Never push `main`/`master` directly — refuse and point to a PR from homolog. `homolog` itself IS directly pushable (plan commits, hotfixes).
+  - No force push unless the operator explicitly asked for one.
+  - Dirty working tree → stop and point to `/ship` or `/commit` first — committing is their job, not this skill's.

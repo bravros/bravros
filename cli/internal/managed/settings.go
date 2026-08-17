@@ -41,21 +41,11 @@ const (
 	sentinelKey       = "_bravros_managed_keys"
 	versionKey        = "_bravros_version"
 	settingsVersion   = "v3"
-
-	// bravrosBin is intentionally an unexpanded $HOME reference: the hook is
-	// executed by a shell, and a literal path would break for any other user.
-	bravrosBin = "$HOME/.claude/bin/bravros"
-
-	// desktopGuard makes the hook a no-op inside the Claude desktop app, whose
-	// SessionStart fires with __CFBundleIdentifier set to com.anthropic.*.
-	// Load-bearing: without it the selfupdate hook runs inside the app.
-	desktopGuard = `case "$__CFBundleIdentifier" in com.anthropic.*) exit 0;; esac; `
 )
 
-// guardedCommand wraps a bravros sub-command in the desktop-app guard.
-func guardedCommand(argv string) string {
-	return "sh -c '" + desktopGuard + "exec " + bravrosBin + " " + argv + "'"
-}
+// bravrosBin and guardedCommand are platform-specific — see settings_unix.go
+// (the byte-identical-to-before `sh -c` form) and settings_windows.go (a
+// `cmd.exe`-runnable form using %USERPROFILE%).
 
 // managedEntry is one command entry inside a hook group. Field order is the
 // emitted key order, which keeps the output byte-stable across runs.

@@ -1,0 +1,70 @@
+category: sdlc
+icon: list-checks
+metadata:
+  en:
+    name: triage-sweep
+    description: Read-only drain of a stale issue + backlog queue — dedup, classify each item vs LIVE code (already-done / partial / superseded / no-longer-needed / open / human-only), adversarially verify every close, then apply closes/cancels serially. Use on /triage-sweep.
+  br:
+    name: triage-sweep
+    description: Varredura de triagem somente leitura de fila de issues e backlog pendentes — remove duplicatas, classifica cada item contra o código LIVE, verifica adversarialmente cada fechamento e aplica cancelamentos/fechamentos serialmente.
+  es:
+    name: triage-sweep
+    description: Barrido de triaje en modo solo lectura de cola de issues y backlog pendientes — elimina duplicados, clasifica cada elemento frente al código LIVE, verifica de forma adversarial cada cierre y aplica cierres/cancelaciones de forma serial.
+body: |
+  # Triage Sweep — dedup → classify-vs-code → adversarial-verify → serial apply
+
+  INTENT: drain a stale open-issue + pending-backlog queue by establishing, for **each** item, the CURRENT truth against the live codebase — closing what is already implemented or no longer needed, labeling the rest — **without ever auto-closing on one agent's say-so.** Read-only front half of a queue drain; pair with `batch-merge-prs` for the fix→merge tail. Run from the repo root. (Grooming a backlog *before* planning — no auto-close, operator interview first — is a different job; do that inline, not with this skill.)
+
+  ## NON-NEGOTIABLE GUARDS
+
+  1. **Read-only fan-out, serial apply.** The workflow mutates NOTHING; every `gh` close and every ledger event is applied **serially** by this skill afterward — parallel writers on the shared ledger/index corrupt it.
+  2. **Evidence-gated close.** An item auto-closes ONLY when classified `already-done`/`solved-differently` **with a concrete `artifact_ref`** (commit SHA / merged PR# / plan id / `file:line`) **AND** an independent adversarial verifier confirms it. No ref, or unconfirmed → labeled and **left open** for a human. The verifier is what makes auto-close safe — it routinely refutes "looks done" closes that aren't.
+  3. **Project guard seam.** Pass project rules via `args.guards` (free-text, injected verbatim into every classifier) — e.g. a wire-contract rule forcing `verdict=human-only-integration`. Keeps this shared skill free of project specifics.
+  4. **Never close in-flight or defective-ledger items.** An open PR or worktree branch actively building the item → `in-flight` (label, leave open). A `ledger_defect` — duplicate-id twin files or a frontmatter/filename desync — blocks auto-close outright: with two files sharing an id, any close targets the wrong one half the time. Humans resolve ledger defects.
+
+  ## Step 0 — Preflight + materialize
+
+  ```bash
+  STAGING=$(grep -E '^staging_branch:' .bravros.yml 2>/dev/null | awk '{print $2}'); STAGING=${STAGING:-homolog}
+  git rev-parse --abbrev-ref HEAD        # expect "$STAGING"; tree clean
+  git fetch origin --quiet
+  mkdir -p .claude/workflows && cp -f ~/.bravros/skills/triage-sweep/scripts/triage-sweep.js .claude/workflows/triage-sweep.js
+  LABELS=(done dropped dup skip deferred fix-ready)          # keep the ARRAY form — bare-string iteration breaks in zsh
+  for l in "${LABELS[@]}"; do gh label create "sweep:$l" 2>/dev/null || true; done
+  ```
+
+  ## Step 1 — Triage (parallel, read-only)
+
+  ```
+  Workflow({ name: 'triage-sweep', args: { staging_branch: STAGING, guards: [ /* free-text project rules */ ] } })
+  ```
+
+  Returns `{ dedup:{clusters,kept,collapsed}, results:[{source,kind,verdict,artifact_ref,touches_contract,confidence,ledger_defect,in_flight_ref,summary,detail,verification}] }`. `verdict` ∈ `already-done | already-done-partial | solved-differently | no-longer-needed | genuinely-open | in-flight | human-only-integration | too-big`.
+
+  Each classifier checks **four dimensions**, not just code: code on staging HEAD, active worktrees, open PRs, and `.planning/` plan folders. The last is the most easily missed — plans never contain backlog ids, so it matches by feature/behavior, and a completed plan is a valid `artifact_ref`; but a completed plan that explicitly *defers* scope to a backlog item **validates keeping that item open**.
+
+  ## Step 2 — Apply (SERIAL — one mutation at a time)
+
+  Backlog state changes are **event appends** to `.planning/events.jsonl` per `.planning/CONVENTIONS.md` — never a rename, never a frontmatter edit: `echo '{"ts":"<UTC>","id":"e_<uniq>","kind":"completed|cancelled","subject":"B-NNNN","reason":"<ref or why>","by":"agent:triage-sweep"}' >> .planning/events.jsonl`
+
+  | verdict (+ gate) | issue | backlog |
+  |---|---|---|
+  | dedup **dup** | `gh issue close <dup> --comment "Duplicate of #<canon>"` + label `sweep:dup` | `cancelled` event, reason `dup of <canon>` |
+  | **already-done / solved-differently** *+ `artifact_ref` + `verification.confirmed` + not `touches_contract` + no `ledger_defect`* | `gh issue close <n> --comment "<ref+evidence>"` + label `sweep:done` | `completed` event, reason `<ref>` |
+  | verifier **refuted** (`confirmed=false`) | label `sweep:fix-ready`, leave open | leave as-is |
+  | **in-flight** | label `sweep:deferred` + comment `in_flight_ref`, leave open | leave as-is |
+  | any `ledger_defect` | — | **never auto-close** — report the twin / desync for a human |
+  | **no-longer-needed** | label `sweep:dropped` + comment, **leave open** (human bulk-close) | `cancelled` event, reason `<why>` (events are append-only — reversible by a later event) |
+  | **already-done-partial** / **human-only-integration** / **too-big** | label `sweep:deferred`/`sweep:skip` + comment what's missing, leave open | leave as-is |
+  | **genuinely-open** | label `sweep:fix-ready`, leave open | leave as-is |
+
+  After all appends: `bravros commit "🧹 chore: triage sweep ledger events" .planning/events.jsonl` then `git push origin "$STAGING"`. **If a suite is live on the tree**, defer the push (and any pull) until it finishes.
+
+  ## Step 3 — Ledger + close out
+
+  Write `.planning/sweep-ledger.md` — one line per item: `<id> | <verdict> | <action> | <evidence>` — and report counts. Survivors are filterable: `gh issue list --label sweep:fix-ready` (real open work) · `sweep:skip` (human-only) · `sweep:deferred` (partial / plan-scope). Hand the `fix-ready` set to a fix loop, then `batch-merge-prs`.
+
+  <!-- announce-template: "<resumo em português, ~20 palavras>" -->
+  ```bash
+  bravros ha say --force "<resumo em português, ~20 palavras>" studio >/dev/null 2>&1 || true
+  ```

@@ -1,0 +1,50 @@
+category: tools
+icon: git-fork
+metadata:
+  en:
+    name: worktree
+    description: Create, destroy, list or sync git worktrees for any project — Herd link+TLS, .env isolation, optional DB clone. Use on `/worktree`.
+  br:
+    name: worktree
+    description: Criar, destruir, listar ou sincronizar git worktrees para qualquer projeto — link Herd+TLS, isolamento de .env, clone de banco de dados opcional. Use em `/worktree`.
+  es:
+    name: worktree
+    description: Crear, destruir, listar o sincronizar git worktrees para cualquier proyecto — enlace Herd+TLS, aislamiento de .env, clon de base de datos opcional. Uso en `/worktree`.
+body: |
+  # /worktree — parallel-worktree manager
+
+  Parallel checkouts without colliding `.test` domains, Redis keys, sessions or queue jobs.
+  Laravel repos additionally get a Herd URL, isolated `.env`, and optionally a cloned DB.
+  **Scripts do the real work** — dispatch the right one from the repo/workspace root, relay output.
+
+  ```
+  /worktree create [<app>] [<id>] [--branch=<name>] [--clone-db] [--live-dump] [--shared-db]
+  /worktree destroy <name> [--dry-run] [--force] [--yes] [--merged-into=<ref>]
+  /worktree list [--app=<repo>]
+  /worktree sync <name> [--onto=<ref>] [--merge] [--dry-run]
+  ```
+
+  ## Operator conventions (standing decisions — don't re-ask)
+
+  - **Derive the id yourself**: condense the operator's feature description to a ≤12-char slug, create without a confirmation round-trip, and report name, URL and **path** (operators want the path to `cd` into). Ids accept `P-0109`/`P-109`/`0109`/`109` (→ `109`).
+  - **Shared parent DB is the default — never ask which DB mode.** `--clone-db` only when the operator explicitly asks for migration/seeder isolation or the work runs migrations; `--shared-db` is an accepted explicit no-op. Relay the "never run `migrate` here" warning from the create summary.
+  - **The parent checkout is never switched.** `create` branches from `origin/<base>`; a parent on another branch is fine — never tell the operator to `git checkout homolog` first, they may be mid-feature. The parent only supplies runtime-dir clones (`vendor`, `node_modules`, …); manifest drift vs `origin/<base>` skips the clone and asks for a manual install instead.
+
+  ## Commands
+
+  - **create** — `bash <skill>/scripts/create.sh [<app>] [<id>] [flags]`, stream stdout. On failure the script does NOT roll back — relay the error block and its resume hints.
+  - **destroy** — dry-run first (`--dry-run`, shows teardown scope + merge status vs origin/main AND base); confirm via ask_question unless the operator already authorized; then `--yes`. Pass `--merged-into=main` whenever teardown is conditioned on production ("destroy if it shipped"). **Relay refusals verbatim — never reflexively `--force`**: `plan-only` (code merged, planning delta dangling → land it from the parent, re-run) · `unmerged` (real code — offer a PR first) · `unknown` (offline — ask).
+  - **list** — `list.sh [--app=<repo>]`, forward the table, no confirmation. `unmanaged` section = worktrees this skill didn't create (Claude Code's `EnterWorktree` → `.claude/worktrees/`); remove those with `bravros worktree cleanup <path> --force` — worktree teardown is owned by that verb, never raw `git worktree remove`.
+  - **sync** — `sync.sh <name> [--onto=<ref>]`. Rebases (`--merge` to avoid rewriting history), refuses on a dirty tree, **never pushes** — prints the force-push command for the operator.
+
+  ## Naming
+
+  | Aspect | Value |
+  |---|---|
+  | Worktree dir | `<repo>-worktrees/<repo><id>/` (sibling of the repo) |
+  | URL (Laravel + Herd) | `https://<repo><id>.test` |
+  | Branch | plan frontmatter if `.planning/P-0<NNN>-*` exists, else `<repo><id>` off `origin/<base>` |
+  | Base | `.worktree.yml:base` → `.bravros.yml:staging_branch` → homolog → main |
+  | `REDIS_PREFIX` / clone DB | `<repo><id>_` / `<repo>_wt<id>` |
+
+  Per-project overrides (`.worktree.yml`) + behavior notes: `references/config.md`.

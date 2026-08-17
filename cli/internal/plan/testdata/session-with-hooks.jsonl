@@ -3,4 +3,4 @@
 {"type":"user","message":{"content":[{"type":"tool_result","content":"✋🏽Stop: Deleting a lock is blocked."}]}}
 {"type":"user","message":{"content":[{"type":"tool_result","is_error":true,"content":"Error: command not found"}]}}
 {"type":"assistant","message":{"content":[{"type":"tool_use","name":"Skill","input":{"skill":"plan-review"}}]}}
-{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"kaisser meta --field branch"}}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"bravros meta --field branch"}}]}}

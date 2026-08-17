@@ -134,6 +134,59 @@ func TestConfigGet_SkillsPreserve_Empty(t *testing.T) {
 	}
 }
 
+// TestConfigGet_StagingBranch_FromLegacyYAML verifies that `config get staging_branch`
+// prints the configured branch (legacy .bravros.yml is still honoured by the loader).
+func TestConfigGet_StagingBranch_FromLegacyYAML(t *testing.T) {
+	dir := t.TempDir()
+	chdirTo(t, dir)
+	configFixture(t, "staging_branch: staging\n")
+
+	out := captureStdout(t, func() {
+		configGetCmd.RunE(configGetCmd, []string{"staging_branch"}) //nolint:errcheck
+	})
+
+	if out != "staging\n" {
+		t.Fatalf("expected \"staging\\n\", got %q", out)
+	}
+}
+
+// TestConfigGet_StagingBranch_DefaultsToHomolog verifies the "homolog" default
+// when the project has no config file at all.
+func TestConfigGet_StagingBranch_DefaultsToHomolog(t *testing.T) {
+	dir := t.TempDir()
+	chdirTo(t, dir)
+	// no config file written
+
+	out := captureStdout(t, func() {
+		configGetCmd.RunE(configGetCmd, []string{"staging_branch"}) //nolint:errcheck
+	})
+
+	if out != "homolog\n" {
+		t.Fatalf("expected \"homolog\\n\", got %q", out)
+	}
+}
+
+// TestConfigGet_StagingBranch_FromJSONConfig verifies the new .bravros/config.json
+// path wins and its value is printed verbatim.
+func TestConfigGet_StagingBranch_FromJSONConfig(t *testing.T) {
+	dir := t.TempDir()
+	chdirTo(t, dir)
+	if err := os.MkdirAll(".bravros", 0o755); err != nil {
+		t.Fatalf("mkdir .bravros: %v", err)
+	}
+	if err := os.WriteFile(".bravros/config.json", []byte(`{"staging_branch": "develop"}`), 0o644); err != nil {
+		t.Fatalf("write config.json: %v", err)
+	}
+
+	out := captureStdout(t, func() {
+		configGetCmd.RunE(configGetCmd, []string{"staging_branch"}) //nolint:errcheck
+	})
+
+	if out != "develop\n" {
+		t.Fatalf("expected \"develop\\n\", got %q", out)
+	}
+}
+
 // TestConfigGet_UnknownKey verifies that an unknown key returns an error.
 func TestConfigGet_UnknownKey(t *testing.T) {
 	dir := t.TempDir()

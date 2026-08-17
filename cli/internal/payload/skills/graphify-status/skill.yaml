@@ -1,0 +1,40 @@
+category: tools
+icon: network
+metadata:
+  en:
+    name: graphify-status
+    description: Report knowledge-graph label coverage across every graphify-enabled project on this machine — communities, labels, and how many nodes still render as "Community NN". Use on `/graphify-status`, or when asked which graphs are stale, unlabelled, or degraded.
+  br:
+    name: graphify-status
+    description: Relatório de cobertura de rótulos do grafo de conhecimento em todos os projetos com graphify nesta máquina — comunidades, rótulos e quantos nós ainda aparecem como "Community NN". Use em `/graphify-status` ou quando perguntado sobre grafos desatualizados, sem rótulo ou degradados.
+  es:
+    name: graphify-status
+    description: Reporte de cobertura de etiquetas del grafo de conocimiento en todos los proyectos con graphify en esta máquina — comunidades, etiquetas y cuántos nodos aún se muestran como "Community NN". Use en `/graphify-status` o cuando se pregunte qué grafos están desactualizados, sin etiquetar o degradados.
+body: |
+  # /graphify-status
+
+  > Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
+
+  One table, every graphify project on the machine, answering a single question: **does `graphify query` return real names, or is it still handing back `Community 417`?**
+
+  ## Quick Start
+
+  Run the scanner:
+
+  ```bash
+  uv run ~/.bravros/skills/graphify-status/scripts/graphify-status.py
+  ```
+
+  Print the table verbatim. Do not re-measure by hand or re-format it — the script is the source of truth.
+
+  Options:
+  - `--json`: machine-readable rows instead of table
+  - `--depth N`: walk depth per root (default 3)
+  - `--no-prompt`: skip auto-generating labelling prompts
+  - `<root> ...`: scan specific roots instead of `~/Sites`
+
+  ## Key Rules
+
+  - **Degraded graphs**: If a run reports degraded coverage, follow the prompt verdict in `/tmp/graphify-label/<project>-relabel-prompt-N.md`.
+  - **Merge results**: Merge completed label JSONs using `merge-missing-labels.py` (additive, never overwrites without `--force`).
+  - **Never use `collate-labels.py`** for partial relabels.

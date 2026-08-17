@@ -1,0 +1,42 @@
+category: sdlc
+icon: list-todo
+metadata:
+  en:
+    name: backlog
+    description: Capture, list, and promote pre-planning ideas. Use `/backlog` to add, view, promote, complete, or drop ideas before planning.
+  br:
+    name: backlog
+    description: Capturar, listar e promover ideias pré-planejamento. Use `/backlog` para adicionar, visualizar, promover, concluir ou descartar ideias antes do planejamento.
+  es:
+    name: backlog
+    description: Capturar, listar y promover ideas de pre-planificación. Use `/backlog` para agregar, ver, promover, completar o descartar ideas antes de la planificación.
+body: |
+  ---
+  name: backlog
+  core: true
+  description: Capture, list, and promote pre-planning ideas. Use `/backlog` to add, view, promote, complete, or drop ideas before planning.
+  ---
+
+  # backlog
+
+  INTENT: a parking lot for ideas — lightweight to capture, structured enough to evaluate
+  later. The backlog never implements; promotion hands off to `/recon`.
+
+  > [!IMPORTANT]
+  > Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
+
+  ## Quick Reference
+
+  - Item file: `.planning/backlog/B-NNNN-<slug>.md`
+  - ID reservation: `BID=$(bravros nextid reserve backlog)`
+  - Events fold: `python3 scripts/planning-events/fold.py`
+  - Write safety: Always execute write operations (`add`, `promote`, `done`, `drop`) from `$BACKLOG_ROOT` on the primary branch, commit, and push.
+
+  ## Key Commands
+
+  - `/backlog` - List items
+  - `/backlog <number>` - View item
+  - `/backlog add <text>` - Capture new idea
+  - `/backlog promote <number|N-M>` - Hand off to `/recon`
+  - `/backlog done|drop <number>` - Close item
+  - `/backlog pending group [auto]` - Cluster active items

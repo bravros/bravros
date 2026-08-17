@@ -168,10 +168,13 @@ Supported keys:
   skills.preserve   Print space-separated list of preserved skill directory names.
                     Returns an empty string (exit 0) when the key is unset.
                     Used by install.sh --legacy to populate the bash preserve list.
+  staging_branch    Print the project staging/integration branch. Falls back to
+                    "homolog" when unset or when no project config exists.
 
 Examples:
   bravros config get skills.preserve       # prints e.g. "graphify"
-  read -ra list <<< "$(bravros config get skills.preserve)"`,
+  read -ra list <<< "$(bravros config get skills.preserve)"
+  STAGING=$(bravros config get staging_branch)   # prints e.g. "homolog"`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		key := args[0]
@@ -190,8 +193,19 @@ Examples:
 			}
 			// Empty list → silent exit 0 (no output) — bash reads an empty string.
 			return nil
+		case "staging_branch":
+			// LoadBravrosConfig defaults StagingBranch to "homolog" for a missing
+			// config, an unset key, and an empty string alike — so the printed
+			// value is always a usable branch name.
+			cfg, _ := config.LoadBravrosConfig()
+			branch := cfg.StagingBranch
+			if branch == "" {
+				branch = "homolog"
+			}
+			fmt.Println(branch)
+			return nil
 		default:
-			return fmt.Errorf("unknown config key %q; supported keys: skills.preserve", key)
+			return fmt.Errorf("unknown config key %q; supported keys: skills.preserve, staging_branch", key)
 		}
 	},
 }

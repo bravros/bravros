@@ -1,0 +1,49 @@
+category: tools
+icon: shield-check
+metadata:
+  en:
+    name: verify-install
+    description: Health-check the Bravros SDLC install — skill drift, config, hooks, toolchain — and optionally repair it. Use on /verify-install, or --auto from a SessionStart hook.
+  br:
+    name: verify-install
+    description: Verifica a integridade da instalação do SDLC do Bravros — desvio de skills, configurações, hooks e ferramentas — e opcionalmente realiza reparos. Use com /verify-install ou --auto a partir de um hook SessionStart.
+  es:
+    name: verify-install
+    description: Verifica el estado de la instalación de Bravros SDLC — desviación de skills, configuración, hooks y herramientas — y opcionalmente la repara. Use con /verify-install o --auto desde un hook SessionStart.
+body: |
+  # verify-install
+
+  INTENT: prove the deployed runtime (`~/.bravros`) still matches the source repo, and repair it on request. One script owns every check.
+
+  ```bash
+  S=~/.bravros/skills/verify-install/scripts/verify.sh
+  bash $S            # report          bash $S --auto   # SessionStart: silent when healthy
+  bash $S --fix      # report + repair bash $S --json   # machine-readable
+  ```
+
+  Source repo resolves `$PORTABLE_REPO` → `~/Sites/bravros` → `~/bravros`. Check list, `--auto` line shapes, and what this deliberately does NOT check: [`references/checks.md`](references/checks.md).
+
+  ## Hard constraints
+
+  - **`ℹ️ INTENTIONAL` is not a failure.** It comes from `~/.bravros/.verify-ignore`, which lists checks the operator diverges from on purpose (this machine runs with the hooks stripped out of `settings.json`). Ignored checks never count as failures and `--fix` skips them. Never "repair" one; never suggest deleting the file without asking.
+  - **A locked `settings.json` is healthy, not drift.** `chmod 400` or macOS `chflags uchg` is a deliberate operator lock; `bravros deploy` honours it and so must every fix. `--fix` never writes a locked path.
+  - **`~/.bravros/CLAUDE.md` is reconciled on its managed block only** (`# >>> bravros-managed-global >>> … <<<`). Personal content outside the markers is never compared and never touched — a whole-file `cp -f` destroys it. Cleaning that region up is a judgment call: [`references/managed-global-cleanup.md`](references/managed-global-cleanup.md).
+  - **The skill digest has exactly one implementation:** `bravros deploy skill-sha <dir>` (Go, `deploy.ComputeSkillSHA`). Never re-derive it in bash or python — bash strings are NUL-terminated, so the `relpath\0sha\n` record format is unbuildable in shell and every reimplementation silently diverges.
+  - `skills/shared/` is repo-only source material. Finding it *deployed* is an install-hygiene failure, not an orphan.
+
+  ## Running it
+
+  1. Run the script, show the categorized output.
+  2. Failures → ask before repairing (`ask_question`: run `--fix` / show manual steps / skip). Explain manually when auto-fix can't help.
+  3. `⚠️ ORPHANED` is a warning, not a failure — but always offer `--fix`: a retired skill left on disk still fires its triggers.
+  4. Source repo missing → `git clone git@github.com:bravros/bravros.git ~/Sites/bravros` (`~/bravros` on Linux), then `bash install.sh`.
+  5. After a fix, re-run to confirm green.
+
+  <!-- announce-template: "Falhas de instalação encontradas, aguardando decisão sobre correção automática. Projeto {PROJECT}." -->
+  ```bash
+  bash ~/.bravros/scripts/announce.sh "Falhas de instalação encontradas, aguardando decisão sobre correção automática. Projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio >/dev/null 2>&1 || true
+  ```
+
+  ## `--auto` (SessionStart)
+
+  Secret-free and side-effect free: no 1Password, no installs, no prompts. Silent on a healthy run; otherwise one `KEY: value` line per finding plus a `SUMMARY:` line. Parse them, report, offer `--fix` — never install a missing dependency without asking. Wired via `bravros hook verify-install-check`, which fires only when a pending-verify marker exists.

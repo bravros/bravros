@@ -1,0 +1,32 @@
+# bravros-canonical-commit-types v1
+#
+# Format: type|emoji|description
+# One entry per line. Comments and blank lines are ignored.
+#
+# This is the single source of truth for all commit types accepted by the
+# bravros toolchain. Consumers:
+#   - templates/.githooks/commit-msg  (validation)
+#   - .github/workflows/auto-release.yml (release-trigger prefix filter)
+#   - skills/commit/SKILL.md (documentation table)
+
+feat|✨|New features
+fix|🐛|Bug fixes
+docs|📚|Documentation
+style|💄|Formatting
+refactor|♻️|Restructuring
+perf|⚡|Performance
+test|🧪|Testing
+build|🔧|Build changes
+chore|🧹|Maintenance
+plan|📋|Planning updates
+security|🔒|Security fixes
+migration|🗃️|Database migrations
+deps|📦|Dependency updates
+deploy|🚀|Deployment/CI changes
+ci|🤖|CI configuration
+remove|🔥|Removing code/features
+hotfix|🩹|Urgent fixes
+merge|🔀|Branch merges
+debug|🔍|Debug investigation findings
+revert|🔙|Reverting previous commits
+i18n|🌐|Translations / localization

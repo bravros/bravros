@@ -1,12 +1,19 @@
 package git
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"syscall"
 	"time"
 )
+
+// errWouldBlock is the platform-neutral sentinel tryLock returns when the
+// lock is already held by another process. Each platform's tryLock
+// implementation (mergelock_unix.go / mergelock_windows.go) maps its native
+// "would block" condition (EWOULDBLOCK on unix, ERROR_LOCK_VIOLATION on
+// Windows) onto this same error so the retry loop below is written once.
+var errWouldBlock = errors.New("merge lock: would block")
 
 // MergeLock provides per-repo exclusive locking for merge-pr operations.
 // It uses syscall.Flock (POSIX advisory lock) which is safe on Linux and macOS.
@@ -71,19 +78,20 @@ func AcquireMergeLock(timeout time.Duration) (*MergeLock, error) {
 
 	deadline := time.Now().Add(timeout)
 	for {
-		// LOCK_EX | LOCK_NB — non-blocking exclusive lock attempt
-		flockErr := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
-		if flockErr == nil {
+		// Non-blocking exclusive lock attempt (syscall.Flock on unix,
+		// LockFileEx on Windows — see mergelock_unix.go / mergelock_windows.go).
+		lockErr := tryLock(f)
+		if lockErr == nil {
 			// Lock acquired — write metadata and return
 			_ = f.Truncate(0)
 			_, _ = fmt.Fprintf(f, "pid=%d\ntime=%s\n", os.Getpid(), time.Now().UTC().Format(time.RFC3339))
 			return &MergeLock{file: f, path: path}, nil
 		}
 
-		// EWOULDBLOCK means another process holds the lock — keep retrying
-		if flockErr != syscall.EWOULDBLOCK {
+		// errWouldBlock means another process holds the lock — keep retrying
+		if !errors.Is(lockErr, errWouldBlock) {
 			f.Close()
-			return nil, fmt.Errorf("merge lock: flock error: %w", flockErr)
+			return nil, fmt.Errorf("merge lock: flock error: %w", lockErr)
 		}
 
 		if time.Now().After(deadline) {
@@ -101,7 +109,7 @@ func (l *MergeLock) Release() {
 	if l == nil || l.file == nil {
 		return
 	}
-	_ = syscall.Flock(int(l.file.Fd()), syscall.LOCK_UN)
+	unlock(l.file)
 	_ = l.file.Close()
 	l.file = nil
 }

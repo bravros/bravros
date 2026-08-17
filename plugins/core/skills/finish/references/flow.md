@@ -78,8 +78,17 @@ PLAN_ID=$(grep -h '"kind":"pr_opened"' .planning/events*.jsonl 2>/dev/null \
   | grep -E "\"pr\": ?\"?#?${PR_NUMBER}\"?[,}]" | tail -1 \
   | grep -oE '"subject":"[^"]+"' | cut -d'"' -f4)
 if [ -z "$PLAN_ID" ]; then
-  LEGACY=$(grep -lE "^pr: *#?${PR_NUMBER}\$" .planning/P-*.md .planning/P-*/PLAN.md 2>/dev/null | head -1)
+  LEGACY=$(grep -lE "^pr: *#?${PR_NUMBER}\$" .planning/P-*.md .planning/P-*/PLAN.md .planning/P-*/README.md 2>/dev/null | head -1)
   [ -n "$LEGACY" ] && PLAN_ID=$(echo "$LEGACY" | grep -oE 'P-[0-9]+' | head -1)
+fi
+if [ -z "$PLAN_ID" ]; then
+  # Folder-plans may carry README.md instead of PLAN.md, and /pr does not always
+  # emit a pr_opened event. Last resort: the PR title/body, which /pr writes from
+  # the dossier — FIRST P-NNNN mention wins, so a body that also references other
+  # plans must lead with its own. Echo what was resolved so a wrong pick is visible.
+  PLAN_ID=$(gh pr view "$PR_NUMBER" --json title,body -q '.title + " " + .body' \
+    | grep -oE 'P-[0-9]{4}' | head -1)
+  [ -n "$PLAN_ID" ] && echo "plan resolved from PR text: $PLAN_ID"
 fi
 ```
 
@@ -91,7 +100,7 @@ identity, events are state; `.planning/CONVENTIONS.md`):
 TS=$(date -u +%FT%TZ)
 echo "{\"ts\":\"$TS\",\"id\":\"e_$(date -u +%s)$RANDOM\",\"kind\":\"completed\",\"subject\":\"$PLAN_ID\",\"pr\":$PR_NUMBER,\"by\":\"agent:finish\"}" >> .planning/events.jsonl
 # Close the plan's backlog items too (legacy `backlog:` frontmatter list).
-PLAN_FILE=$(ls .planning/${PLAN_ID}-*.md .planning/${PLAN_ID}-*/PLAN.md 2>/dev/null | head -1)
+PLAN_FILE=$(ls .planning/${PLAN_ID}-*.md .planning/${PLAN_ID}-*/PLAN.md .planning/${PLAN_ID}-*/README.md 2>/dev/null | head -1)
 BACKLOG_IDS=($(awk '/^backlog:/{flag=1;next} /^[a-z_]+:/{flag=0} flag' "$PLAN_FILE" 2>/dev/null | grep -oE 'B-[0-9]+' | sort -u))
 for bid in "${BACKLOG_IDS[@]}"; do
   echo "{\"ts\":\"$TS\",\"id\":\"e_$(date -u +%s)$RANDOM\",\"kind\":\"completed\",\"subject\":\"$bid\",\"by\":\"agent:finish\"}" >> .planning/events.jsonl
@@ -238,12 +247,23 @@ then `rm -f "$BLOBS"`.
 
 ## Step 5: Sync local
 
+A linked worktree is pinned to its feature branch — the operator runs several in parallel,
+and a `git checkout <base>` here silently moves the worktree off the branch every other
+step assumed. **Never switch branches inside a linked worktree**; detect it first:
+
 ```bash
+IN_LINKED_WORKTREE=0
+[ "$(git rev-parse --git-dir)" != "$(git rev-parse --git-common-dir)" ] && IN_LINKED_WORKTREE=1
+
 if [ -n "$BASE_HELD_AT" ]; then
   git fetch origin "$BASE_BRANCH"
   git -C "$BASE_HELD_AT" pull --ff-only origin "$BASE_BRANCH" \
     || echo "⚠️  could not fast-forward $BASE_BRANCH in $BASE_HELD_AT — sync it manually"
   echo "ℹ️  kept local $FEATURE_BRANCH — held by this worktree; /worktree destroy when done"
+elif [ "$IN_LINKED_WORKTREE" = "1" ]; then
+  git fetch origin "$BASE_BRANCH"
+  echo "ℹ️  linked worktree: staying on $FEATURE_BRANCH — $BASE_BRANCH is updated on origin only"
+  echo "ℹ️  sync a primary checkout when convenient; /worktree destroy this one when done"
 else
   git checkout "$BASE_BRANCH" && git fetch origin "$BASE_BRANCH" && git reset --hard "origin/$BASE_BRANCH"
   git branch -d "$FEATURE_BRANCH" 2>/dev/null \
@@ -313,10 +333,12 @@ bravros merge-lock acquire --timeout 60s --ttl 10m --meta reason=finish-main --m
 gh pr merge "$MAIN_PR" --"$STRATEGY" || { bravros merge-lock release; exit 1; }   # never --delete-branch: homolog is permanent
 bravros merge-lock release
 
-# Keep homolog from drifting behind main for the next cycle.
-git checkout homolog && git fetch origin
-git merge --ff-only origin/main || git merge --no-ff -m "🔀 merge: sync homolog from main (post-finish)" origin/main
-git push origin homolog
+# Keep homolog from drifting behind main for the next cycle. Server-side
+# fast-forward — no checkout, so it is safe from any worktree (the old
+# `git checkout homolog` form silently moved a linked worktree off its branch):
+git fetch origin main homolog -q
+git push origin origin/main:homolog \
+  || echo "⚠️  homolog diverged from main — from a checkout that holds homolog: merge origin/main, then push"
 ```
 
 **Hard conflicts** — do not fight them in place: close the PR, branch

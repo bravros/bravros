@@ -12,6 +12,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,6 +23,8 @@ import (
 	"github.com/bravros/bravros/cli/internal/config"
 	"github.com/bravros/bravros/cli/internal/fetch"
 	"github.com/bravros/bravros/cli/internal/hooks"
+	"github.com/bravros/bravros/cli/internal/payload"
+	"github.com/bravros/bravros/cli/internal/selfupdate"
 )
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -59,9 +63,11 @@ func resetSelfupdateFlags(t *testing.T) {
 	origDry := selfupdateDryRun
 	origDeep := selfupdateDeep
 	origForce := selfupdateForce
+	origFetchPayload := selfupdateFetchPayload
 	origFetchClient := selfupdateFetchClientOverride
 	origFetchPayloadDir := selfupdateFetchPayloadDirOverride
 	origFetchTargetDir := selfupdateFetchTargetDirOverride
+	origNoticeResolver := selfupdateNoticeResolverOverride
 	origCodexHome, hadCodexHome := os.LookupEnv("BRAVROS_CODEX_HOME")
 	origOpenCodeHome, hadOpenCodeHome := os.LookupEnv("BRAVROS_OPENCODE_HOME")
 	origPiHome, hadPiHome := os.LookupEnv("BRAVROS_PI_HOME")
@@ -72,13 +78,20 @@ func resetSelfupdateFlags(t *testing.T) {
 	selfupdateDryRun = false
 	selfupdateDeep = false
 	selfupdateForce = false
+	selfupdateFetchPayload = false
 	selfupdateFetchClientOverride = nil
 	selfupdateFetchPayloadDirOverride = ""
 	selfupdateFetchTargetDirOverride = ""
+	selfupdateNoticeResolverOverride = nil
 	// Disable the check-TTL cache (B-0345) so tests exercise the real check path
 	// and never read/write the developer's real ~/.claude/state marker. Cache
 	// tests opt back in with t.Setenv + a HOME override.
 	t.Setenv("BRAVROS_SELFUPDATE_TTL", "0")
+	// P-0015 Phase 6: the SessionStart lane ends with a passive "newer version
+	// available" check, and that is the ONE thing in it that can reach the
+	// network. Off by default for every test; the tests that measure it opt
+	// back in (see TestSelfupdate_PassiveNotice_OneRequestPer24h).
+	t.Setenv("BRAVROS_NO_UPDATE_CHECK", "1")
 	if err := os.Setenv("BRAVROS_CODEX_HOME", filepath.Join(t.TempDir(), "missing-codex")); err != nil {
 		t.Fatalf("set BRAVROS_CODEX_HOME: %v", err)
 	}
@@ -96,9 +109,11 @@ func resetSelfupdateFlags(t *testing.T) {
 		selfupdateDryRun = origDry
 		selfupdateDeep = origDeep
 		selfupdateForce = origForce
+		selfupdateFetchPayload = origFetchPayload
 		selfupdateFetchClientOverride = origFetchClient
 		selfupdateFetchPayloadDirOverride = origFetchPayloadDir
 		selfupdateFetchTargetDirOverride = origFetchTargetDir
+		selfupdateNoticeResolverOverride = origNoticeResolver
 		if hadCodexHome {
 			_ = os.Setenv("BRAVROS_CODEX_HOME", origCodexHome)
 		} else {
@@ -220,22 +235,26 @@ func TestWriteSelfupdateMarkers_WritesSharedAndLegacyVerifyMarkers(t *testing.T)
 	}
 }
 
-// TestSelfupdateAlias_UpdateInvokesSelfupdate verifies that `bravros update` is
-// registered as an alias for `bravros selfupdate` via the Cobra command definition.
-func TestSelfupdateAlias_UpdateInvokesSelfupdate(t *testing.T) {
-	// Verify the alias is registered on the command.
-	found := false
+// TestUpdateIsItsOwnVerb_NotASelfupdateAlias is the MIGRATED form of the old
+// TestSelfupdateAlias_UpdateInvokesSelfupdate, which asserted that `bravros
+// update` was an alias resolving to `selfupdate`.
+//
+// P-0015 D2 gave `update` an independent meaning, so the old assertion is now
+// the wrong contract — but the two behaviors the alias actually provided both
+// survive and are pinned here instead:
+//
+//  1. `bravros update` still resolves to a real command (now its own).
+//  2. The alias's ONLY extra behavior was bypassing the TTL cache
+//     (`cmd.CalledAs() == "update"`). That is now --force on selfupdate, and
+//     `update` needs no cache bypass at all: running it IS the check. The
+//     bypass itself stays covered by TestSelfupdate_CheckCache_ForceBypasses.
+func TestUpdateIsItsOwnVerb_NotASelfupdateAlias(t *testing.T) {
 	for _, alias := range selfupdateCmd.Aliases {
 		if alias == "update" {
-			found = true
-			break
+			t.Errorf("selfupdate must no longer alias 'update' (P-0015 D2); aliases: %v", selfupdateCmd.Aliases)
 		}
 	}
-	if !found {
-		t.Errorf("selfupdateCmd.Aliases does not contain 'update'; got: %v", selfupdateCmd.Aliases)
-	}
 
-	// Verify the root command resolves "update" to selfupdate.
 	cmd, _, err := rootCmd.Find([]string{"update"})
 	if err != nil {
 		t.Fatalf("rootCmd.Find('update') error: %v", err)
@@ -243,8 +262,20 @@ func TestSelfupdateAlias_UpdateInvokesSelfupdate(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("rootCmd.Find('update') returned nil command")
 	}
-	if cmd.Use != "selfupdate" {
-		t.Errorf("expected Use='selfupdate', got %q", cmd.Use)
+	if cmd.Use != "update" {
+		t.Errorf("expected `bravros update` to resolve to the update command, got Use=%q", cmd.Use)
+	}
+	if cmd == selfupdateCmd {
+		t.Error("`bravros update` still resolves to the selfupdate command")
+	}
+
+	// And selfupdate is still reachable under its own name.
+	su, _, err := rootCmd.Find([]string{"selfupdate"})
+	if err != nil {
+		t.Fatalf("rootCmd.Find('selfupdate') error: %v", err)
+	}
+	if su != selfupdateCmd {
+		t.Errorf("expected `bravros selfupdate` to resolve to selfupdateCmd, got %q", su.Use)
 	}
 }
 
@@ -861,9 +892,17 @@ func writeFakePayloadTree(t *testing.T, destDir string) {
 // setupFetchPathTest wires resetSelfupdateFlags, an isolated BRAVROS_CONFIG_DIR
 // (so selfupdate.RemoteStatePath() never touches the developer's real
 // ~/.claude/state), and a fresh payload dir. Returns (home, payloadDir).
+//
+// P-0015 Phase 6 (D2) moved the SessionStart hook off the network: RunE now
+// refreshes from the EMBEDDED payload, and the published-payload fetch lane
+// these tests cover became opt-in behind --fetch-payload. The lane's behavior
+// is unchanged, so the tests are unchanged too — they just have to select it,
+// which is what the flag below does. Tests that call selfupdateViaFetch
+// directly never needed the flag and still do not.
 func setupFetchPathTest(t *testing.T) (home, payloadDir string) {
 	t.Helper()
 	resetSelfupdateFlags(t)
+	selfupdateFetchPayload = true
 	t.Setenv("BRAVROS_CONFIG_DIR", t.TempDir())
 	home = t.TempDir()
 	payloadDir = t.TempDir()
@@ -1232,5 +1271,432 @@ func TestSelfupdateFetchPathTakenEvenWhenCloneExists(t *testing.T) {
 
 	if fake.resolveCalls != 1 {
 		t.Errorf("fetch path must be taken even when a clone exists at %s; ResolveLatestTag called %d time(s), want 1", clone, fake.resolveCalls)
+	}
+}
+
+// ── D2 SessionStart lane: refresh from the EMBEDDED payload ──────────────────
+//
+// Every assertion below reads the filesystem or counts HTTP requests. This
+// command returns nil on nearly every path, "did nothing" included, so an exit
+// code is not evidence of anything.
+
+// setupRefreshLaneTest isolates HOME and the config dir and leaves the command
+// on its new default lane (embedded refresh, no network). Returns (home, root).
+func setupRefreshLaneTest(t *testing.T) (home, root string) {
+	t.Helper()
+	resetSelfupdateFlags(t)
+	home = t.TempDir()
+	root = filepath.Join(home, ".claude")
+	t.Setenv("HOME", home)
+	t.Setenv("BRAVROS_CONFIG_DIR", root)
+	t.Setenv(setupComponentsEnv, "")
+	t.Setenv(setupAllowPluginManagedEnv, "")
+	t.Setenv(setupInstallMethodEnv, "")
+	return home, root
+}
+
+func seedSkill(t *testing.T, root, name, body string) {
+	t.Helper()
+	dir := filepath.Join(root, "skills", name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", dir, err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), 0o644); err != nil {
+		t.Fatalf("write %s/SKILL.md: %v", dir, err)
+	}
+}
+
+func installedSkillNames(t *testing.T, root string) map[string]bool {
+	t.Helper()
+	out := map[string]bool{}
+	entries, err := os.ReadDir(filepath.Join(root, "skills"))
+	if err != nil {
+		return out
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			out[e.Name()] = true
+		}
+	}
+	return out
+}
+
+// TestSelfupdate_RefreshMigratesPreV2InstallAtScopeAll is the D11 migration
+// contract, and the one place in this phase where getting the default wrong
+// destroys user data: a pre-v2 machine has NO setup.json but does have skills.
+// Defaulting such an install to scope `core` would silently delete every
+// non-core skill it already had. It must resolve to `all`.
+func TestSelfupdate_RefreshMigratesPreV2InstallAtScopeAll(t *testing.T) {
+	_, root := setupRefreshLaneTest(t)
+
+	// A pre-v2 install: skills/ exists (deployed by the old payload lane) and
+	// carries a skill the operator wrote themselves.
+	seedSkill(t, root, "my-own-skill", "---\nname: my-own-skill\n---\nmine\n")
+
+	if _, err := runSelfupdate(t); err != nil {
+		t.Fatalf("refresh must not error: %v", err)
+	}
+
+	embedded, err := payload.SkillNames()
+	if err != nil {
+		t.Fatalf("payload.SkillNames: %v", err)
+	}
+	installed := installedSkillNames(t, root)
+	for _, name := range embedded {
+		if !installed[name] {
+			t.Errorf("migration must install every embedded skill; %q is missing", name)
+		}
+	}
+	if !installed["my-own-skill"] {
+		t.Error("a user-added skill must survive the migration refresh")
+	}
+
+	st := readState(t, root)
+	if st.SkillsScope != payload.ScopeAll {
+		t.Errorf("migration must record scope %q, got %q", payload.ScopeAll, st.SkillsScope)
+	}
+}
+
+// TestSelfupdate_RefreshSkipsWhenNothingIsInstalled — a machine that never ran
+// `bravros setup` gets nothing installed behind its back by a hook.
+func TestSelfupdate_RefreshSkipsWhenNothingIsInstalled(t *testing.T) {
+	_, root := setupRefreshLaneTest(t)
+
+	if _, err := runSelfupdate(t); err != nil {
+		t.Fatalf("refresh on an empty root must not error: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "skills")); err == nil {
+		t.Error("an empty ~/.claude must stay empty — `bravros setup` owns first install")
+	}
+	if _, err := os.Stat(setupStatePath(root)); err == nil {
+		t.Error("no state.json may be written when nothing was installed")
+	}
+}
+
+// TestSelfupdate_RefreshReplaysRecordedScopeAndPreservesUserSkills pins the
+// FilterMode-shaped guarantee: the recorded selection is an ADDITIVE allowlist,
+// never a prune instruction.
+func TestSelfupdate_RefreshReplaysRecordedScopeAndPreservesUserSkills(t *testing.T) {
+	_, root := setupRefreshLaneTest(t)
+
+	if _, err := runSetupForTest(t, setupFlags{components: "claude-skills", skills: "core", yes: true}); err != nil {
+		t.Fatalf("seed setup run: %v", err)
+	}
+	core := installedSkillNames(t, root)
+	if len(core) == 0 {
+		t.Fatal("seed setup installed no skills")
+	}
+
+	// Something the operator added by hand, plus a core skill removed to prove
+	// the refresh restores what it owns.
+	seedSkill(t, root, "my-own-skill", "---\nname: my-own-skill\n---\nmine\n")
+	var removed string
+	for name := range core {
+		removed = name
+		break
+	}
+	if err := os.RemoveAll(filepath.Join(root, "skills", removed)); err != nil {
+		t.Fatalf("remove %s: %v", removed, err)
+	}
+
+	if _, err := runSelfupdate(t); err != nil {
+		t.Fatalf("refresh must not error: %v", err)
+	}
+
+	after := installedSkillNames(t, root)
+	if !after[removed] {
+		t.Errorf("refresh must restore the recorded skill %q", removed)
+	}
+	if !after["my-own-skill"] {
+		t.Error("a hand-added skill must never be pruned by a refresh")
+	}
+	all, err := payload.SkillNames()
+	if err != nil {
+		t.Fatalf("payload.SkillNames: %v", err)
+	}
+	for _, name := range all {
+		isCore, err := payload.SkillIsCore(name)
+		if err != nil {
+			t.Fatalf("SkillIsCore(%q): %v", name, err)
+		}
+		if !isCore && after[name] {
+			t.Errorf("scope core must not install the non-core skill %q", name)
+		}
+	}
+}
+
+// TestSelfupdate_RefreshNeverOverwritesAModifiedFile — Phase 3's non-destructive
+// rule, enforced on the unattended lane too: the operator's bytes stay, the
+// payload's land beside them as .new.
+func TestSelfupdate_RefreshNeverOverwritesAModifiedFile(t *testing.T) {
+	_, root := setupRefreshLaneTest(t)
+
+	if _, err := runSetupForTest(t, setupFlags{components: "claude-skills", skills: "core", yes: true}); err != nil {
+		t.Fatalf("seed setup run: %v", err)
+	}
+	var target string
+	for name := range installedSkillNames(t, root) {
+		target = name
+		break
+	}
+	edited := filepath.Join(root, "skills", target, "SKILL.md")
+	const mine = "# my own edit, do not touch\n"
+	if err := os.WriteFile(edited, []byte(mine), 0o644); err != nil {
+		t.Fatalf("edit %s: %v", edited, err)
+	}
+
+	if _, err := runSelfupdate(t); err != nil {
+		t.Fatalf("refresh must not error: %v", err)
+	}
+
+	got, err := os.ReadFile(edited)
+	if err != nil {
+		t.Fatalf("read edited file: %v", err)
+	}
+	if string(got) != mine {
+		t.Errorf("refresh overwrote a user-modified file: %q", got)
+	}
+	if _, err := os.Stat(edited + ".new"); err != nil {
+		t.Errorf("the payload's version must be written as %s.new: %v", edited, err)
+	}
+}
+
+// TestSelfupdate_RefreshMakesNoNetworkRequest is the D2 headline: the
+// SessionStart lane refreshes components from the embed with ZERO requests.
+// The notice's own 24h window is already stamped here, which is the steady
+// state on any machine that started a session in the last day.
+func TestSelfupdate_RefreshMakesNoNetworkRequest(t *testing.T) {
+	_, root := setupRefreshLaneTest(t)
+	t.Setenv("BRAVROS_NO_UPDATE_CHECK", "") // notice ENABLED — and still silent
+
+	if _, err := runSetupForTest(t, setupFlags{components: "claude-skills", skills: "core", yes: true}); err != nil {
+		t.Fatalf("seed setup run: %v", err)
+	}
+	var removed string
+	for name := range installedSkillNames(t, root) {
+		removed = name
+		break
+	}
+	if err := os.RemoveAll(filepath.Join(root, "skills", removed)); err != nil {
+		t.Fatalf("remove %s: %v", removed, err)
+	}
+
+	hits := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits++
+		w.Header().Set("Location", "/bravros/bravros/releases/tag/v99.0.0")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer ts.Close()
+	selfupdateNoticeResolverOverride = &fetch.Client{BaseURL: ts.URL, HTTP: ts.Client()}
+
+	// The passive check ran an hour ago — inside the 24h window.
+	if err := selfupdate.SaveNoticeState(selfupdate.NoticeStatePath(), selfupdate.NoticeState{
+		LastCheck: time.Now().Add(-time.Hour),
+		LatestTag: "v" + strings.TrimPrefix(Version, "v"),
+	}); err != nil {
+		t.Fatalf("seed notice state: %v", err)
+	}
+
+	if _, err := runSelfupdate(t); err != nil {
+		t.Fatalf("refresh must not error: %v", err)
+	}
+
+	if hits != 0 {
+		t.Errorf("the SessionStart lane made %d network request(s); want 0", hits)
+	}
+	if !installedSkillNames(t, root)[removed] {
+		t.Errorf("the refresh did not restore %q from the embedded payload", removed)
+	}
+}
+
+// TestSelfupdate_PassiveNotice_OneRequestPer24h is the named acceptance test:
+// two runs inside the window make exactly ONE remote request, counted at an
+// httptest server rather than inferred from an exit code.
+func TestSelfupdate_PassiveNotice_OneRequestPer24h(t *testing.T) {
+	_, root := setupRefreshLaneTest(t)
+	t.Setenv("BRAVROS_NO_UPDATE_CHECK", "")
+	seedSkill(t, root, "my-own-skill", "---\nname: my-own-skill\n---\nmine\n")
+
+	hits := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits++
+		w.Header().Set("Location", "/bravros/bravros/releases/tag/v99.0.0")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer ts.Close()
+	selfupdateNoticeResolverOverride = &fetch.Client{BaseURL: ts.URL, HTTP: ts.Client()}
+
+	first, err := runSelfupdate(t)
+	if err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	second, err := runSelfupdate(t)
+	if err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+
+	if hits != 1 {
+		t.Errorf("two runs inside 24h made %d remote request(s); want exactly 1", hits)
+	}
+	if !strings.Contains(first, "v99.0.0 is available") {
+		t.Errorf("first run must print the notice, got: %q", first)
+	}
+	if !strings.Contains(second, "v99.0.0 is available") {
+		t.Errorf("the cached notice must still print without a request, got: %q", second)
+	}
+}
+
+// TestSelfupdate_PassiveNotice_OptOutMakesNoRequest — BRAVROS_NO_UPDATE_CHECK=1
+// removes the last network call from the SessionStart lane entirely.
+func TestSelfupdate_PassiveNotice_OptOutMakesNoRequest(t *testing.T) {
+	_, root := setupRefreshLaneTest(t)
+	t.Setenv("BRAVROS_NO_UPDATE_CHECK", "1")
+	seedSkill(t, root, "my-own-skill", "---\nname: my-own-skill\n---\nmine\n")
+
+	hits := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits++
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer ts.Close()
+	selfupdateNoticeResolverOverride = &fetch.Client{BaseURL: ts.URL, HTTP: ts.Client()}
+
+	out, err := runSelfupdate(t)
+	if err != nil {
+		t.Fatalf("opt-out run: %v", err)
+	}
+	if hits != 0 {
+		t.Errorf("opt-out made %d request(s); want 0", hits)
+	}
+	if strings.Contains(out, "available") {
+		t.Errorf("opt-out must print no notice, got: %q", out)
+	}
+}
+
+// TestSelfupdate_CacheHitDoesNoWorkAtAll — the TTL cache sits in FRONT of
+// everything, which is what keeps the SessionStart hook near-free: a warm
+// marker means no refresh, no notice, no request.
+func TestSelfupdate_CacheHitDoesNoWorkAtAll(t *testing.T) {
+	home, root := setupRefreshLaneTest(t)
+	t.Setenv("BRAVROS_SELFUPDATE_TTL", "6h")
+	t.Setenv("BRAVROS_NO_UPDATE_CHECK", "")
+
+	if _, err := runSetupForTest(t, setupFlags{components: "claude-skills", skills: "core", yes: true}); err != nil {
+		t.Fatalf("seed setup run: %v", err)
+	}
+	var removed string
+	for name := range installedSkillNames(t, root) {
+		removed = name
+		break
+	}
+	if err := os.RemoveAll(filepath.Join(root, "skills", removed)); err != nil {
+		t.Fatalf("remove %s: %v", removed, err)
+	}
+
+	hits := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits++
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer ts.Close()
+	selfupdateNoticeResolverOverride = &fetch.Client{BaseURL: ts.URL, HTTP: ts.Client()}
+
+	writeCheckMarker(t, home, 0)
+
+	if _, err := runSelfupdate(t); err != nil {
+		t.Fatalf("cache-hit run: %v", err)
+	}
+	if hits != 0 {
+		t.Errorf("a cache hit made %d request(s); want 0", hits)
+	}
+	if installedSkillNames(t, root)[removed] {
+		t.Errorf("a cache hit must not even walk the embed, but %q was restored", removed)
+	}
+}
+
+// TestSelfupdate_RefreshNeverTouchesHooksOrAgents re-points the P-0014 scoping
+// invariant at the D2 lane. Its fetch-path twin
+// (TestSelfupdateFetchPathNeverPrunesHooksOrAgents) still guards the legacy
+// lane; the CONTRACT — bravros prunes only inside skills/ + templates/, and
+// ~/.claude/hooks and ~/.claude/agents are content it does not own — has to
+// hold on whichever lane is actually running on a user's machine, and after D2
+// that is this one.
+func TestSelfupdate_RefreshNeverTouchesHooksOrAgents(t *testing.T) {
+	_, root := setupRefreshLaneTest(t)
+
+	if _, err := runSetupForTest(t, setupFlags{components: "claude-skills", skills: "core", yes: true}); err != nil {
+		t.Fatalf("seed setup run: %v", err)
+	}
+	for _, sub := range []string{"hooks", "agents"} {
+		dir := filepath.Join(root, sub)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "mine.sh"), []byte("#!/bin/sh\necho mine\n"), 0o755); err != nil {
+			t.Fatalf("seed %s content: %v", sub, err)
+		}
+	}
+
+	if _, err := runSelfupdate(t); err != nil {
+		t.Fatalf("refresh must not error: %v", err)
+	}
+
+	for _, sub := range []string{"hooks", "agents"} {
+		p := filepath.Join(root, sub, "mine.sh")
+		got, err := os.ReadFile(p)
+		if err != nil {
+			t.Errorf("%s must be left alone by the refresh: %v", p, err)
+			continue
+		}
+		if string(got) != "#!/bin/sh\necho mine\n" {
+			t.Errorf("%s was rewritten: %q", p, got)
+		}
+	}
+}
+
+// TestSelfupdate_RefreshPrunesNothing is the FilterMode-shaped guarantee stated
+// as an absolute: replaying a recorded selection removes nothing at all, so
+// skills.preserve (config.PreservedSkills, which the legacy lane passes to
+// deploy) has nothing to defend against here. A removal on this lane requires a
+// skill to have been recorded by a previous `setup` AND dropped by the current
+// selection AND still be byte-identical to the embed — and a refresh replays
+// the SAME selection, so the second condition can never be met.
+func TestSelfupdate_RefreshPrunesNothing(t *testing.T) {
+	_, root := setupRefreshLaneTest(t)
+
+	if _, err := runSetupForTest(t, setupFlags{components: "claude-skills", skills: "core", yes: true}); err != nil {
+		t.Fatalf("seed setup run: %v", err)
+	}
+	// Three shapes that a careless prune would eat: a hand-added skill, a
+	// skill named in skills.preserve, and a modified copy of an installed one.
+	seedSkill(t, root, "hand-added", "---\nname: hand-added\n---\nmine\n")
+	seedSkill(t, root, "preserved-skill", "---\nname: preserved-skill\n---\nkeep me\n")
+	before := installedSkillNames(t, root)
+
+	var modified string
+	for name := range before {
+		if name != "hand-added" && name != "preserved-skill" {
+			modified = name
+			break
+		}
+	}
+	edited := filepath.Join(root, "skills", modified, "SKILL.md")
+	if err := os.WriteFile(edited, []byte("# edited by the operator\n"), 0o644); err != nil {
+		t.Fatalf("edit %s: %v", edited, err)
+	}
+
+	if _, err := runSelfupdate(t); err != nil {
+		t.Fatalf("refresh must not error: %v", err)
+	}
+
+	after := installedSkillNames(t, root)
+	for name := range before {
+		if !after[name] {
+			t.Errorf("refresh removed %q; a replay of the recorded selection must prune nothing", name)
+		}
+	}
+	if got, _ := os.ReadFile(edited); string(got) != "# edited by the operator\n" {
+		t.Errorf("the operator's edit was overwritten: %q", got)
 	}
 }

@@ -244,17 +244,9 @@ Preserve this pattern when modifying `cli/internal/plan/backlog.go`:
 
 ## Docs-sync requirement
 
-When you add, rename, or change a CLI verb / flag / output shape under `cli/cmd/` or `cli/internal/`, you MUST update these files in the same PR (same rules as root `CLAUDE.md` docs-sync table):
+When you add, rename, or change a CLI verb / flag / output shape under `cli/cmd/` or `cli/internal/`, you MUST update [`../docs/CLI.md`](../docs/CLI.md) — the grouped verb index — in the same PR: add/rename the verb's one-liner, note new load-bearing flags there, delete the row when a verb is removed.
 
-| You changed | Also update |
-|---|---|
-| New verb or sub-command | [`../example-bravros-cli.md`](../example-bravros-cli.md) — single-source skill-author reference |
-| Flag added/renamed | [`../example-bravros-cli.md`](../example-bravros-cli.md) (flag table for that verb) |
-| Output shape changed | [`../example-bravros-cli.md`](../example-bravros-cli.md) (Sample output block) |
-| Verb removed | Delete its section in [`../example-bravros-cli.md`](../example-bravros-cli.md) + remove from Quick Index |
-| Any of the above | Plus [`../docs/CLI.md`](../docs/CLI.md) index + the right [`../docs/cli/<group>.md`](../docs/cli/) deep-dive |
-
-`example-bravros-cli.md` is the canonical CLI surface for skill authors — if it's stale, skills break. Treat it like a public API contract.
+The richer targets are now ported (P-0015): [`../example-bravros-cli.md`](../example-bravros-cli.md) — the skill-author CLI contract, treat it like a public API — and the `docs/cli/<group>.md` deep-dive tree, currently [`../docs/cli/install-update.md`](../docs/cli/install-update.md). **All three must be updated in the same PR.** `example-bravros-cli.md` documents a subset of verbs in full and lists the rest with their `Short:` line; expand a section when you touch its verb. This effectively closes [[B-0014-restore-docs-sync-rule]]. `bravros <verb> --help` remains the authoritative per-verb reference — it is generated from `cli/cmd/*.go` and cannot drift.
 
 `bravros audit-docs` (the CI drift-linter for `docs/cli/*.md` flag tables) was retired with the
 audit engine in P-0187 — there is no automated docs-code sync check anymore. Verify manually

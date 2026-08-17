@@ -1,0 +1,33 @@
+category: sdlc
+icon: git-branch
+metadata:
+  en:
+    name: prune-merged
+    description: Safely prune already-merged branches (local + remote) with 7-day tombstone recovery. Manual-only — nothing auto-triggers it. Invoke via `/prune-merged`.
+  br:
+    name: prune-merged
+    description: Limpe com segurança ramificações já mescladas (locais + remotas) com recuperação por tombstone de 7 dias. Apenas manual — nada o dispara automaticamente. Invoque via `/prune-merged`.
+  es:
+    name: prune-merged
+    description: Elimine de forma segura las ramas ya fusionadas (locales + remotas) con recuperación mediante tombstone de 7 días. Solo manual — nada lo activa automáticamente. Invoque mediante `/prune-merged`.
+body: |
+  # Prune Merged Branches
+
+  Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
+
+  Safely delete branches already merged to the base branch. Dual-signal merge-truth, five safety guards, 7-day tombstone refs for recovery. Full safety contract: `references/safety.md`.
+
+  ## Critical Rules
+
+  - **Manual-only.** Nothing auto-triggers this skill — `/finish` and `/promote` never prune. The ONLY entry point is a user typing `/prune-merged`, and Step 2 user review is mandatory before any `--apply`.
+  - **Both local and remote refs deleted** on a successful prune.
+  - **Worktree safety.** A branch checked out in any worktree is OFF-LIMITS — skipped in both dry-run and `--apply`, reported as `SKIPPED-WORKTREE (<path>)`. Teardown is owned solely by `bravros worktree cleanup <path>`.
+  - **Protected by design.** Hard blocklist: `main`, `homolog`, `master`, `staging`, `develop`, current HEAD, open-plan branches, GitHub branch-protection rules, `.bravros.yml:branch_prune.protected`.
+  - **Recoverable.** Pruned branches write 7-day tombstone refs (`feat/foo` → `refs/tombstones/feat-foo`).
+
+  ## Flow
+
+  1. **Dry-run:** `bravros branch prune --base <detected-base>` — lists candidates with source attribution. Dry-run is the default; only `--apply` deletes.
+  2. **User review — MANDATORY.** Show full output then ask "Proceed with deletion?". Never continue without explicit yes.
+  3. **Apply:** `bravros branch prune --apply --base <detected-base>`.
+  4. **Report:** deleted count, log location (`~/.bravros/logs/branch-prune.log`), recovery instructions.

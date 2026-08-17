@@ -12,6 +12,9 @@
 /bin/
 /bravros
 /cli/bravros
+/cli/claude-cli
+/cli/test-bravros
+/cli/bravros-dev
 /tools/skillgen/skillgen
 /bravros-payload.tar.gz
 
@@ -34,6 +37,7 @@ go.work
 # Python cache
 __pycache__/
 *.pyc
+.trash/
 .planning/
 docs/prd/
 docs/prdv2/

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"syscall"
 	"time"
 )
 
@@ -53,27 +52,29 @@ func isValidState(s string) bool {
 }
 
 // acquireBatchLock opens (or creates) the batch progress lock file and
-// acquires an exclusive flock on it. The caller must call releaseBatchLock
-// when done. Pattern mirrors cli/internal/git/mergelock.go but inlined here
-// to avoid a cross-package import.
+// acquires an exclusive, blocking lock on it (batchFlockLock — see
+// batch_progress_unix.go / batch_progress_windows.go). The caller must call
+// releaseBatchLock when done. Pattern mirrors cli/internal/git/mergelock.go
+// but inlined here to avoid a cross-package import — note this lock is
+// blocking (no LOCK_NB), unlike mergelock's non-blocking retry loop.
 func acquireBatchLock() (*os.File, error) {
 	f, err := os.OpenFile(batchProgressLock, os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("batch progress: cannot open lock file: %w", err)
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+	if err := batchFlockLock(f); err != nil {
 		f.Close()
 		return nil, fmt.Errorf("batch progress: flock acquire failed: %w", err)
 	}
 	return f, nil
 }
 
-// releaseBatchLock releases the flock and closes the file.
+// releaseBatchLock releases the lock and closes the file.
 func releaseBatchLock(f *os.File) {
 	if f == nil {
 		return
 	}
-	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	batchFlockUnlock(f)
 	_ = f.Close()
 }
 

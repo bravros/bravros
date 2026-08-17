@@ -14,6 +14,7 @@ import (
 	"github.com/bravros/bravros/cli/internal/fetch"
 	"github.com/bravros/bravros/cli/internal/hooks"
 	"github.com/bravros/bravros/cli/internal/nowtime"
+	"github.com/bravros/bravros/cli/internal/payload"
 	"github.com/bravros/bravros/cli/internal/selfupdate"
 	"github.com/spf13/cobra"
 )
@@ -25,43 +26,62 @@ var (
 	selfupdateDryRun       bool
 	selfupdateDeep         bool
 	selfupdateForce        bool
+	selfupdateFetchPayload bool
 )
 
 var selfupdateCmd = &cobra.Command{
-	Use:     "selfupdate",
-	Aliases: []string{"update"},
-	Short:   "Fetch and deploy the newest published skills payload",
-	Long: `Resolves the newest published release and, when the payload on disk is behind it,
-downloads and minisign-verifies bravros-payload.tar.gz and deploys skills/ + templates/
-into ~/.claude/. Stays a silent no-op when already in sync or when offline.
+	Use:   "selfupdate",
+	Short: "Refresh installed components from this binary's embedded payload",
+	Long: `Refreshes ~/.claude from the payload EMBEDDED in this binary — a local file copy,
+no network, no source checkout, nothing that can leave the machine half-updated.
+This is the automatic half of the split update model (P-0015 D2): the risk-free
+work stays on the SessionStart hook, and replacing the binary itself became an
+explicit verb, 'bravros update'.
 
-There is no local checkout in the picture: selfupdate never runs git, never runs install.sh,
-and behaves identically whether or not a portable-repo clone happens to exist on disk.
+What it refreshes is whatever <config dir>/state/setup.json records — the choice
+'bravros setup' wrote. An install predating that file (no setup.json, but a
+populated ~/.claude/skills) is refreshed at scope 'all', which is exactly what
+such a machine already had: defaulting to 'core' there would silently delete
+every non-core skill the user was relying on.
 
-Use --dry-run to see what would be downloaded and updated without modifying anything on disk.
-Use --verbose to see the full trace (remote check, offline skips, deploy summary).
+Nothing is ever overwritten: a file that exists and differs is left alone and the
+payload's version is written beside it as <name>.new. Skills the user added by
+hand are never touched, and pruning stays scoped to skills/ + templates/.
 
-The check itself is cached: after every completed check the marker
-~/.claude/state/.bravros-last-check is stamped, and 'bravros selfupdate' within the TTL
-(default 6h, override via BRAVROS_SELFUPDATE_TTL, "0" disables) returns immediately —
-this keeps SessionStart hooks under 1s instead of ~9s. 'bravros update' and --force
-always bypass the cache and run the real check.`,
+At most once every 24h it also checks whether a newer bravros was published and
+prints a single line saying so. BRAVROS_NO_UPDATE_CHECK=1 turns that off; the
+check never blocks and never fails the run.
+
+The whole run is cached: after each completed run the marker
+~/.claude/state/.bravros-last-check is stamped, and a run within the TTL (default
+6h, override via BRAVROS_SELFUPDATE_TTL, "0" disables) returns immediately. --force
+bypasses the cache.
+
+--fetch-payload selects the legacy network lane instead: resolve the newest
+release, download and minisign-verify bravros-payload.tar.gz, and deploy it. It is
+opt-in because D2 moved the SessionStart hook off the network entirely.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return nil
 		}
 
-		// B-0345: TTL cache for the SessionStart check. A full check costs ~9s
-		// (the network fetch dominates); a cache-hit session skips it entirely.
-		// The marker is touched after every COMPLETED check — drift found or not —
-		// so unlike --skip-if-recent (whose marker moves only on real installs)
-		// the TTL bounds how often the fetch runs, not how often installs happen.
-		// Bypassed by --force and by the explicit `bravros update` alias (a manual
-		// run must always really check). BRAVROS_SELFUPDATE_TTL overrides the 6h
-		// default; "0" disables caching entirely.
+		// B-0345: TTL cache, and it stays in FRONT of everything. It is what
+		// keeps the SessionStart hook near-free — a cache-hit session does no
+		// remote check, no embed walk, and no file I/O beyond one stat. The
+		// marker is touched after every COMPLETED run, so unlike
+		// --skip-if-recent (whose marker moves only on real installs) the TTL
+		// bounds how often the work runs, not how often installs happen.
+		// BRAVROS_SELFUPDATE_TTL overrides the 6h default; "0" disables caching.
+		//
+		// Only --force bypasses it now. It used to be bypassed by `bravros
+		// update` as well, because that alias was the manual "really check now"
+		// entry point; P-0015 D2 gave `update` an independent meaning (network
+		// fetch + binary self-replace, cmd/update.go), and that command drops
+		// this marker itself after a successful swap so the very next session
+		// refreshes against the new embed.
 		checkTTL := selfupdateCheckTTL()
-		forceCheck := selfupdateForce || cmd.CalledAs() == "update"
+		forceCheck := selfupdateForce
 		if checkTTL > 0 && !forceCheck && !selfupdateDryRun {
 			markerFile := filepath.Join(legacyClaudeStateDir(home), selfupdateCheckMarker)
 			if info, err := os.Stat(markerFile); err == nil {
@@ -92,11 +112,282 @@ always bypass the cache and run the real check.`,
 			}
 		}
 
-		// The published-payload fetch is the ONE update path (P-0014). A
-		// portable-repo clone on disk is irrelevant: presence or absence of
-		// ~/Sites/claude/.git changes nothing about what happens next.
-		return selfupdateViaFetch(home)
+		// The legacy network lane, opt-in since D2 (see --fetch-payload).
+		if selfupdateFetchPayload {
+			return selfupdateViaFetch(home)
+		}
+
+		// The D2 SessionStart lane: local refresh from the embedded payload,
+		// then at most a one-line "newer version available" notice.
+		return selfupdateRefreshLane(home)
 	},
+}
+
+// selfupdateRefreshLane is what SessionStart runs post-D2: refresh ~/.claude
+// from THIS binary's embedded payload (zero network), re-check commit-msg hook
+// drift against the freshly deployed canonical, stamp the TTL marker, and only
+// then consider the passive version notice.
+//
+// Ordering matters. The refresh runs before detectHookDrift because the
+// canonical hook it compares against (~/.claude/templates/.githooks/commit-msg)
+// is a file this very refresh may have just created; and the notice runs last
+// because it is the only step that can touch the network, so nothing local
+// waits on it.
+func selfupdateRefreshLane(home string) error {
+	root := config.ConfigDir()
+
+	outcome, err := selfupdateRefreshFromEmbed(root)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "⚠️  bravros: refresh from embedded payload failed: %v\n", err)
+		return err
+	}
+	selfupdateReportRefresh(outcome)
+
+	if cwd, cwdErr := os.Getwd(); cwdErr == nil {
+		applyHookDrift(home, detectHookDrift(cwd, home))
+	}
+
+	if !outcome.Skipped {
+		// Sweep any executable a previous `bravros update` had to leave
+		// behind (Windows cannot delete a running .exe; it renames it and
+		// the next run cleans up). Best effort, one ReadDir of ~/.claude/bin.
+		if !selfupdateDryRun {
+			selfupdate.CleanupOldBinaries(filepath.Join(root, "bin"))
+		}
+	}
+
+	touchSelfupdateCheckMarker(home)
+	selfupdatePassiveNotice()
+	return nil
+}
+
+// selfupdateReportRefresh prints the refresh outcome. Silence is the contract
+// for the common case: a SessionStart run that changed nothing says nothing.
+func selfupdateReportRefresh(o embedRefreshOutcome) {
+	if o.Skipped {
+		if selfupdateVerbose {
+			fmt.Fprintf(os.Stderr, "ℹ️  bravros: nothing installed at %s yet — run `bravros setup` to choose components\n", o.Root)
+		}
+		return
+	}
+	res := o.Result
+	if res == nil {
+		return
+	}
+	changed := res.Created + len(res.Conflicts) + len(res.Pruned)
+	switch {
+	case selfupdateDryRun:
+		fmt.Fprintf(os.Stderr, "ℹ️  bravros (dry run): %d file(s) would be written, %d already current\n", res.Created, res.Unchanged)
+	case changed > 0:
+		fmt.Fprintf(os.Stderr, "✨ bravros refreshed %s from the embedded payload (%d written, %d unchanged, %d kept as .new)\n",
+			o.Root, res.Created, res.Unchanged, len(res.Conflicts))
+	case selfupdateVerbose:
+		fmt.Fprintf(os.Stderr, "ℹ️  bravros: %s already matches the embedded payload (%d file(s) verified)\n", o.Root, res.Unchanged)
+	}
+	for _, rel := range res.Conflicts {
+		fmt.Fprintf(os.Stderr, "  kept your %s — new version at %s.new\n", rel, rel)
+	}
+	if selfupdateVerbose {
+		for _, w := range o.Warnings {
+			fmt.Fprintln(os.Stderr, "  ⚠️  "+w)
+		}
+	}
+}
+
+// selfupdateNoticeTimeout is the hard ceiling on the passive check. A session
+// start must never wait on GitHub; three seconds, at most once every 24h, is
+// the entire network budget of this lane.
+const selfupdateNoticeTimeout = 3 * time.Second
+
+// selfupdateNoticeResolverOverride replaces the real tag resolver in tests, so
+// the request count is observable against an httptest server.
+var selfupdateNoticeResolverOverride selfupdate.TagResolver
+
+// selfupdatePassiveNotice prints "a newer bravros exists" at most once per
+// notice interval (24h default), never blocks beyond selfupdateNoticeTimeout,
+// and never turns a network failure into a command failure.
+func selfupdatePassiveNotice() {
+	if selfupdateDryRun || selfupdate.NoticeDisabled() {
+		return
+	}
+	resolver := selfupdateNoticeResolverOverride
+	if resolver == nil {
+		resolver = fetch.NewClient()
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), selfupdateNoticeTimeout)
+	defer cancel()
+
+	line := selfupdate.PassiveCheck(ctx, resolver, selfupdate.NoticeStatePath(), selfupdate.NoticeInterval(), Version)
+	if line != "" {
+		fmt.Fprintln(os.Stderr, line)
+	}
+}
+
+// ─── embedded-payload refresh (D2's local half) ─────────────────────────────
+
+// embedRefreshOutcome is what a refresh actually did — exit codes prove nothing
+// here (this command returns nil on almost every path, including "did
+// nothing"), so callers and tests read this and the filesystem instead.
+type embedRefreshOutcome struct {
+	Root string
+	// Skipped is true when there is nothing to refresh: no setup.json AND no
+	// pre-v2 install under Root. Installing components nobody asked for is
+	// `bravros setup`'s job, never a hook's.
+	Skipped bool
+	// Migrated is true when a pre-v2 install (no setup.json) was refreshed.
+	Migrated bool
+	Scope    payload.SkillScope
+	Result   *setupApplyResult
+	Warnings []string
+}
+
+// selfupdateRefreshFromEmbed re-materialises the recorded component selection
+// from THIS binary's embedded payload.
+//
+// It reuses the Phase 3 planner (setupBuildPlan/setupApply) rather than
+// deploy.Deploy on purpose: deploy's per-skill step is an atomic wipe-and-
+// recopy, so a hand-edited SKILL.md would vanish without a word. The planner
+// compares byte-for-byte, writes a differing file as <name>.new, and confines
+// removals to skills recorded by a previous `setup` that are still identical to
+// the embed. That is the same preservation guarantee FilterMode gave the deploy
+// lane (cmd/selfupdate.go's fetch path passes FilterMode: true for exactly this
+// reason) — an allowlist that is additive, never a prune instruction. Skills a
+// user added by hand are not in any recorded selection and can never be removed.
+//
+// MIGRATION (D11), and it is the data-loss-shaped decision of this phase: an
+// install predating `bravros setup` has no setup.json. It gets scope `all`,
+// because that is what today's deploy-everything behavior already put on that
+// machine. Defaulting to `core` here would drop the 17 non-core skills the user
+// already had. `core` is the default only for a FRESH wizard run
+// (setupResolveScope, cmd/setup.go:170).
+func selfupdateRefreshFromEmbed(root string) (embedRefreshOutcome, error) {
+	out := embedRefreshOutcome{Root: root}
+
+	prev, err := readSetupState(root)
+	if err != nil {
+		return out, err
+	}
+
+	sels, scope, migrated, err := selfupdateRefreshSelections(root, prev)
+	if err != nil {
+		return out, err
+	}
+	out.Scope, out.Migrated = scope, migrated
+	if len(sels) == 0 {
+		out.Skipped = true
+		return out, nil
+	}
+
+	staging, err := os.MkdirTemp("", "bravros-refresh-")
+	if err != nil {
+		return out, fmt.Errorf("create staging dir: %w", err)
+	}
+	defer os.RemoveAll(staging)
+
+	plan, err := setupBuildPlan(root, staging, sels, prev)
+	if err != nil {
+		return out, err
+	}
+	out.Warnings = plan.Warnings
+
+	if selfupdateDryRun {
+		res := &setupApplyResult{}
+		for _, it := range plan.Items {
+			switch it.Action {
+			case setupActionCreate:
+				res.Created++
+			case setupActionUnchanged:
+				res.Unchanged++
+			case setupActionConflict:
+				res.Conflicts = append(res.Conflicts, it.Rel)
+			case setupActionPrune:
+				res.Pruned = append(res.Pruned, it.Rel)
+			}
+		}
+		out.Result = res
+		return out, nil
+	}
+
+	res, err := setupApply(plan)
+	if err != nil {
+		return out, err
+	}
+	out.Result = res
+	out.Warnings = plan.Warnings
+
+	// Record the migration ONCE, so the next refresh replays a real selection
+	// instead of re-deriving one. An install that already has a setup.json is
+	// left alone: rewriting it here would re-derive install_method from the
+	// running binary's path and could clobber what install.sh recorded — and
+	// `bravros update` reads that field to decide whether it may replace the
+	// binary at all.
+	if migrated {
+		if _, _, wErr := setupWriteState(root, plan, scope); wErr != nil {
+			return out, wErr
+		}
+	}
+	return out, nil
+}
+
+// selfupdateRefreshSelections decides WHAT to refresh. Empty result means
+// "nothing is installed here" — the caller reports and returns.
+func selfupdateRefreshSelections(root string, prev *setupState) ([]payload.Selection, payload.SkillScope, bool, error) {
+	if prev != nil && len(prev.Components) > 0 {
+		scope := prev.SkillsScope
+		if !scope.Valid() {
+			// A state file written by a newer binary can name a scope this
+			// build cannot resolve. The recorded skill LIST is still exact
+			// (payload.Selection stores it precisely so this stays possible),
+			// so replay that verbatim rather than guessing a scope.
+			return selfupdateReplayRecorded(prev), prev.SkillsScope, false, nil
+		}
+		var sels []payload.Selection
+		for _, c := range prev.Components {
+			comp, ok := payload.ComponentByID(c.ID)
+			if !ok {
+				continue // a component this build no longer ships
+			}
+			// Re-resolve against THIS embed rather than replaying the stored
+			// list: a release that adds a core skill must reach a machine
+			// whose recorded scope already covers it.
+			sel, err := comp.Select(scope)
+			if err != nil {
+				return nil, scope, false, err
+			}
+			sels = append(sels, sel)
+		}
+		return sels, scope, false, nil
+	}
+
+	// No setup.json. Pre-v2 install → migrate at scope all; otherwise skip.
+	var ids []string
+	if _, err := os.Stat(filepath.Join(root, "skills")); err == nil {
+		ids = append(ids, "claude-skills")
+	}
+	if _, err := os.Stat(filepath.Join(root, "templates")); err == nil {
+		ids = append(ids, "claude-templates")
+	}
+	if len(ids) == 0 {
+		return nil, payload.ScopeAll, false, nil
+	}
+	sels, err := setupSelections(ids, payload.ScopeAll)
+	if err != nil {
+		return nil, payload.ScopeAll, false, err
+	}
+	return sels, payload.ScopeAll, true, nil
+}
+
+// selfupdateReplayRecorded rebuilds selections straight from state.json without
+// re-resolving a scope this build does not understand.
+func selfupdateReplayRecorded(prev *setupState) []payload.Selection {
+	var sels []payload.Selection
+	for _, c := range prev.Components {
+		if _, ok := payload.ComponentByID(c.ID); !ok {
+			continue
+		}
+		sels = append(sels, c.Selection)
+	}
+	return sels
 }
 
 // applyHookDrift emits the HOOK_DRIFT_CUSTOMIZED: lines, rewrites the
@@ -379,7 +670,12 @@ func init() {
 	// or hook still passing it gets a deprecation notice, not "unknown flag".
 	selfupdateCmd.Flags().BoolVar(&selfupdateDeep, "deep", false, "deprecated no-op: the expensive clone-based drift detectors were removed")
 	_ = selfupdateCmd.Flags().MarkDeprecated("deep", "the clone-based drift detectors it gated no longer exist")
-	selfupdateCmd.Flags().BoolVar(&selfupdateForce, "force", false, "bypass the check-TTL cache and run the full drift check now (the `bravros update` alias always does this)")
+	selfupdateCmd.Flags().BoolVar(&selfupdateForce, "force", false, "bypass the check-TTL cache and refresh now")
+	// The legacy P-0003/P-0014 network lane. D2 took it off the SessionStart
+	// hook (the embedded payload makes it unnecessary: skills now ship with
+	// the binary), but it still works for anyone who wants the published
+	// payload rather than this binary's embed.
+	selfupdateCmd.Flags().BoolVar(&selfupdateFetchPayload, "fetch-payload", false, "legacy lane: fetch and deploy the published bravros-payload.tar.gz instead of refreshing from the embedded payload")
 }
 
 // HookDriftReport summarises the state of commit-msg hooks found in the project.

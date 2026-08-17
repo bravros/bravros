@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -63,8 +64,17 @@ func TestSyncClaudeSettings_CreatesFile(t *testing.T) {
 			cmd, _ := e["command"].(string)
 			if strings.Contains(cmd, want) {
 				found = true
-				if !strings.Contains(cmd, "com.anthropic.*") {
-					t.Errorf("desktop-app guard missing from %q", cmd)
+				// The __CFBundleIdentifier desktop-app guard is macOS-specific
+				// (settings_unix.go) and deliberately absent on Windows
+				// (settings_windows.go, no `case` statement cmd.exe could
+				// parse) — see the runtime.GOOS-keyed shape assertion below.
+				// This branch must stay the unweakened unix assertion.
+				if runtime.GOOS != "windows" {
+					if !strings.Contains(cmd, "com.anthropic.*") {
+						t.Errorf("desktop-app guard missing from %q", cmd)
+					}
+				} else if strings.Contains(cmd, "com.anthropic.*") {
+					t.Errorf("desktop-app guard unexpectedly present on windows: %q", cmd)
 				}
 				if e[ManagedByKey] != ManagedByValue {
 					t.Errorf("entry %q lacks the bravros marker", cmd)
@@ -73,6 +83,23 @@ func TestSyncClaudeSettings_CreatesFile(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("no SessionStart entry running %q", want)
+		}
+	}
+
+	// Windows command shape: %USERPROFILE%\.claude\bin\bravros.exe, no `sh -c`
+	// wrapper. Table-keyed off runtime.GOOS rather than a separate
+	// //go:build windows file, per the "add a test if you can do so without
+	// requiring a Windows host" instruction — this asserts the shape of code
+	// compiled for the current GOOS, which is darwin/linux in CI today.
+	if runtime.GOOS == "windows" {
+		for _, e := range entries {
+			cmd, _ := e["command"].(string)
+			if strings.HasPrefix(cmd, "sh -c") {
+				t.Errorf("unix sh -c wrapper leaked into windows command: %q", cmd)
+			}
+			if !strings.Contains(cmd, `%USERPROFILE%\.claude\bin\bravros.exe`) {
+				t.Errorf("expected windows bravros.exe path in %q", cmd)
+			}
 		}
 	}
 

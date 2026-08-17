@@ -27,7 +27,7 @@ Every `bravros` subcommand lives here as one `.go` file (+ `_test.go`). Flat str
    ```
 2. **Add `yourcmd_test.go`** — happy path + at least one error case. Required for every non-trivial command.
 3. **Keep `cmd/` thin.** Non-trivial logic goes in `cli/internal/<domain>/`.
-4. **Document** in `docs/CLI.md` (one-liner table) AND the correct `docs/cli/<group>.md` detail file (sdlc-core, git-project, audit-autopr-hooks, or integrations).
+4. **Document** in all three, same PR: `docs/CLI.md` (one-liner in the right group table), `example-bravros-cli.md` (the skill-author contract), and the matching `docs/cli/<group>.md` deep-dive — `docs/cli/install-update.md` exists today; add a group file when yours has none.
 
 ## Where logic goes
 
@@ -67,5 +67,5 @@ Module name is `claude-cli` for backwards compat; the binary is `bravros`.
 
 - Put business logic in `cmd/*.go` — belongs in `internal/`
 - Reach outside `cli/` (into `skills/`, `.planning/`, etc.) — the CLI is self-contained
-- Ship a new command without updating both `docs/CLI.md` AND the detail file under `docs/cli/`
+- Ship a new command without updating `docs/CLI.md`, `example-bravros-cli.md`, and its `docs/cli/<group>.md` deep-dive
 - Skip the test file

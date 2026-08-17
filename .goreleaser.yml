@@ -5,8 +5,14 @@ project_name: bravros
 # Builds the signed payload asset (skills/ + templates/) that `bravros selfupdate`
 # fetches at runtime — see cli/internal/fetch. Runs from the repo root (this file's
 # directory), so the paths inside the tarball are `skills/...` and `templates/...`.
+#
+# The generate hook runs FIRST so the binary's compiled-in cli/internal/payload
+# mirror (see cli/internal/payload/embed.go) can never go stale at release time,
+# even if CI's drift check somehow didn't catch it — go:embed reads whatever is
+# on disk in cli/internal/payload/{skills,templates} at build time.
 before:
   hooks:
+    - sh -c "cd cli && go generate ./internal/payload/..."
     - sh -c "tar -czf bravros-payload.tar.gz skills templates"
 
 builds:
@@ -19,12 +25,16 @@ builds:
     goos:
       - darwin
       - linux
+      - windows
     goarch:
       - amd64
       - arm64
-    ignore:
-      - goos: linux
-        goarch: arm64
+    # No `ignore:` block. linux/arm64 was blocked here AND in install.sh:35-37;
+    # P-0015 Phase 5 unblocks both in the same change, because unblocking one
+    # alone either offers a target the release never publishes or publishes a
+    # target the installer refuses. windows/{amd64,arm64} joins as the native
+    # degraded tier (D3) — GoReleaser appends .exe to `binary: bravros` itself.
+    # Six builds total: {darwin,linux,windows} x {amd64,arm64}.
     ldflags:
       # Version var lives in cmd package (see cli/cmd/root.go `var Version`).
       # Prepend `v` so the print path (`strings.TrimPrefix(Version, "v")`)
@@ -36,15 +46,32 @@ archives:
     # `formats` (plural, list) — `format` was deprecated in GoReleaser v2.
     # install.sh fetches bravros-<os>-<arch>.tar.gz, so this name_template and
     # the tar.gz format are load-bearing: changing either breaks every installer.
+    #
+    # The name_template is UNCHANGED on purpose (P-0015 D4). Four independent
+    # places recompute this exact string — install.sh, install.ps1, the generated
+    # Homebrew formula, and release.yml's verify gate — so the spec's proposed
+    # `bravros_{version}_{os}_{arch}` rename was rejected. Friendly labels
+    # ("Mac (M series)") live in the docs, never in asset names.
     formats: [tar.gz]
     name_template: "bravros-{{ .Os }}-{{ .Arch }}"
+    # Windows gets .zip because Windows has no native tar.gz story that
+    # PowerShell 5.1 can unpack; Expand-Archive handles zip out of the box.
+    # install.ps1 therefore fetches bravros-windows-<arch>.zip.
+    format_overrides:
+      - goos: windows
+        formats: [zip]
 
 checksum:
   name_template: 'checksums.txt'
   # Folds bravros-payload.tar.gz's sha256 into checksums.txt so it rides the same
   # minisign signature chain as the platform binaries — no second signing key.
+  # The two installer scripts ride along for the same reason: a user who wants to
+  # audit the one-liner before running it can verify install.sh / install.ps1
+  # against the signed checksums.txt instead of trusting the CDN.
   extra_files:
     - glob: bravros-payload.tar.gz
+    - glob: install.sh
+    - glob: install.ps1
 
 signs:
   - artifacts: checksum
@@ -73,8 +100,12 @@ release:
   # moved into this monorepo and the old cross-repo sync step disappeared.
   # Attaching it here also keeps the installer in lockstep with the binaries it
   # installs, since each release carries the script that fetches it.
+  # install.ps1 is the Windows half of the same contract: the release must carry
+  # the script that fetches it, or install.bravros.dev/install.ps1 404s exactly
+  # the way install.sh did when the cross-repo sync step disappeared.
   extra_files:
     - glob: install.sh
+    - glob: install.ps1
     - glob: bravros-payload.tar.gz
 
 brews:

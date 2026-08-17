@@ -65,7 +65,7 @@ func TestDeployB0286_FilteredDeploy_IsAdditive(t *testing.T) {
 	}
 
 	// Step 2: filtered deploy — only alpha-skill in filter.
-	// FilterMode: true mirrors `kaisser deploy --filter alpha-skill`: additive,
+	// FilterMode: true mirrors `bravros deploy --filter alpha-skill`: additive,
 	// non-filtered skills must survive.
 	result, err := Deploy(DeployOpts{
 		SourceDir:     src,
