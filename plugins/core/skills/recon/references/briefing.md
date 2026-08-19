@@ -4,7 +4,7 @@ Read this document on demand for complete execution details, review rules, recor
 
 INTENT: produce ONE folder — `.planning/P-NNNN-<slug>/` — that `/orchestrate` executes with zero
 translation, reviewed in the same run. No second skill, no second session. Folder shape:
-[`references/dossier-template.md`](references/dossier-template.md) — read it before writing.
+[`references/dossier-template.md`](dossier-template.md) — read it before writing.
 
 ## 1 — Reserve identity
 
@@ -67,5 +67,5 @@ bravros ha say --force "Plano <NUM> criado e revisado, pronto para orquestraçã
 
 - `--auto`: skip all prompts (used by `/auto-pr`).
 - `--worktree`: plan inside an isolated git worktree — follow
-  [`references/worktree-extension.md`](references/worktree-extension.md) (also
+  [`references/worktree-extension.md`](worktree-extension.md) (also
   `BRAVROS_WORKTREE=true`). `/worktree destroy` tears down; `/finish` never removes a worktree.

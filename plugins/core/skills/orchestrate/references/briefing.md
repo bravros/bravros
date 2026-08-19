@@ -6,7 +6,7 @@ writing product code yourself — the moment you open an editor on app code, you
 thread that makes parallel dispatch safe.
 
 Dossier anatomy, staleness traps, and the recon-vs-plan distinction:
-[`references/dossier-format.md`](references/dossier-format.md) — read it before parsing an
+[`references/dossier-format.md`](dossier-format.md) — read it before parsing an
 unfamiliar folder.
 
 ## Step 0 — Resolve and absorb the folder

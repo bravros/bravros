@@ -25,10 +25,12 @@ against `cli/cmd/*.go` `Use:` and flag definitions.
 
 | Verb | Short | Documented here |
 |---|---|---|
+| `active-command` | Manage the per-session active-command marker | — |
 | `autopr` | Manage autonomous pipeline lock | — |
 | `branch` | Branch management utilities | — |
 | `clean-untracked` | Preserve into `.trash/` then remove untracked files (no token) | — |
 | `commit` | Commit plan + code changes | — |
+| `commit-types` | List canonical commit types from `templates/commit-types.txt` | — |
 | `config` | Read project configuration values from `.bravros/config.json` | — |
 | `deploy` | Deploy the toolkit runtime into the host config dir | `docs/cli/install-update.md` |
 | `destructive` | Gate permanently destructive commands with a human-presence token | — |
@@ -39,12 +41,15 @@ against `cli/cmd/*.go` `Use:` and flag definitions.
 | `init` | Initialize the current repository with the SDLC structure | — |
 | `install` | Install the toolkit runtime (delegates to `install.sh`) | `docs/cli/install-update.md` |
 | `merge-lock` | Atomic merge-lock primitive (acquire / release / status) | — |
+| `mcp` | MCP server management (`mcp register`) | — |
 | `nextid` | Atomically reserve next plan, backlog, report and user-report IDs (JSON) | — |
 | `pr-review` | Write the PR review stamp from the latest bot verdict (`--write-stamp`) | — |
+| `police` | PreToolUse gate on pushes/merges to `main` | ✅ |
 | `promote` | Promote `homolog` → `main` with human-presence token | — |
 | `secrets` | Manage bravros secrets (`op` / `env` / `none` backends) | — |
 | `selfupdate` | Refresh installed components from this binary's embedded payload | ✅ |
 | `setup` | Install bravros components from the embedded payload | ✅ |
+| `skills` | Manage bravros skills (`skills deps`) | — |
 | `statusline` | Render Claude Code status line (reads JSON from stdin) | — |
 | `trash` | Inspect and manage the `.trash/` preserve area | — |
 | `update` | Download, verify and install the newest bravros binary | ✅ |
@@ -222,3 +227,58 @@ one line naming the correct command is not buried.
 Platform note: on POSIX the replace is a single atomic `rename(2)`. On Windows the running image
 is locked, so the current binary is renamed aside first and the leftover `bravros.exe.old-<rand>`
 is swept on a later run.
+
+---
+
+## `police` ✅
+
+The PreToolUse merge gate. Deep-dive: [`docs/cli/police.md`](docs/cli/police.md).
+
+```
+bravros police pretooluse              # hook entry point (stdin: the tool payload)
+bravros police unlock                  # mint the human-presence token
+bravros police revoke
+bravros police status
+bravros police standdown on [--ttl 4h] # suspend the gate for this session
+bravros police standdown off
+bravros police standdown status        # JSON
+```
+
+**What a skill must know before it shells out to git or gh.**
+
+`police pretooluse` is wired into the host `settings.json` at matcher `.*` by `deploy`/`setup`/`config`,
+so it inspects **every** Bash tool call. It gates `main` and `master` only:
+
+| A skill running… | Outcome |
+|---|---|
+| `git push origin homolog` | allowed — homolog is never gated |
+| `gh pr merge <n>` into `homolog` | allowed — base resolved from the forge |
+| `git push origin main`, `HEAD:main`, bare `git push` while on `main` | **blocked** |
+| `gh pr merge <n>` into `main` | **blocked** |
+| `git push origin fix/maintain-cache` | allowed — word-boundary match, not substring |
+
+`/push`, `/hotfix`, `/finish`, `/batch-merge-prs` and `/auto-pr` therefore need no token for their
+normal homolog work. **Do not add one defensively.**
+
+**The block is an envelope, not an error.** A gated command yields JSON on stdout with `exitCode: 2`
+and a stderr message naming `bravros police unlock`; the verb itself returns `nil` on every path,
+including a malformed payload. Never branch on `$?` — read the envelope.
+
+**A skill can never mint its own authority.** `police unlock` refuses outright when
+`CLAUDE_CODE_SESSION_ID` or `CLAUDE_SESSION_ID` is set:
+
+```
+bravros police unlock MUST be run from a separate terminal, outside of Claude Code
+```
+
+On a Police Block the contract is: stop, tell the operator to run `bravros police unlock` in another
+terminal, and wait. The token (`~/.claude/state/police-token`) **expires 10 minutes after its mtime**
+and self-deletes on the next read — it buys one merge, not one session. Same shape as
+`bravros promote unlock` and `bravros destructive unlock`.
+
+`standdown on` suppresses the gate for the whole session (marker at
+`${TMPDIR}/agent-audit-<session>/standdown.json`, default TTL 4h; `BRAVROS_POLICE_STANDDOWN=1` forces
+it on where there is no session id). It is broader and longer-lived than the token — prefer the token.
+
+**`police status` reports only the token**, never stand-down state; ask `police standdown status` for
+that, which emits `active`, `source` (`env` / `marker`), `session_id` and `expires_at`.

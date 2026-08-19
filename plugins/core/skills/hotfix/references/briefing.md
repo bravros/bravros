@@ -6,7 +6,7 @@ INTENT: ship an urgent production fix now, bypassing the plan workflow. Flow: co
 
 - **Running `/hotfix` IS the approval for merge-to-main** — the emergency-path exemption: no `ask_question` checkpoints between commit and merge. The exemption covers approval only, never the gates below.
 - **The autopr lock is the one hard gate that remains.** If `bravros autopr status` reports the lock present, refuse to merge — an autonomous `/auto-pr` session holds the repo and the hotfix must not punch through it. The user clears it explicitly: `bravros autopr clear-lock` from a separate terminal, then re-run `/hotfix`.
-- **Merge-lock is intentionally skipped** — documented here per [`../shared/merge-flow.md`](../shared/merge-flow.md): one emergency at a time; lock-wait latency is not acceptable in an incident. Every other part of the merge recipe still applies.
+- **Merge-lock is intentionally skipped** — documented here per [`../shared/merge-flow.md`](../../shared/merge-flow.md): one emergency at a time; lock-wait latency is not acceptable in an incident. Every other part of the merge recipe still applies.
 - **NEVER delete the homolog branch after merge. NEVER skip the PR** — main is protected; there is no direct-push path.
 - If targeted tests fail, STOP and ask — don't push broken code, even in an emergency.
 

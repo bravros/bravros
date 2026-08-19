@@ -31,9 +31,7 @@ func TestListTopLevel_SkillsMatchesRepoRoot(t *testing.T) {
 	}
 	var want []string
 	for _, e := range srcEntries {
-		if e.IsDir() {
-			want = append(want, e.Name())
-		}
+		want = append(want, e.Name())
 	}
 	sort.Strings(want)
 

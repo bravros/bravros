@@ -387,6 +387,9 @@ func SkillNames() ([]string, error) {
 		if !e.IsDir() {
 			continue
 		}
+		if e.Name() == "shared" || e.Name() == "_shared" {
+			continue
+		}
 		names = append(names, e.Name())
 	}
 	sort.Strings(names)

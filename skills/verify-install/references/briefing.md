@@ -8,13 +8,13 @@ bash $S            # report          bash $S --auto   # SessionStart: silent whe
 bash $S --fix      # report + repair bash $S --json   # machine-readable
 ```
 
-Source repo resolves `$PORTABLE_REPO` → `~/Code/monorepos/bravros/bravros` → `~/bravros`. Check list, `--auto` line shapes, and what this deliberately does NOT check: [`references/checks.md`](references/checks.md).
+Source repo resolves `$PORTABLE_REPO` → `~/Code/monorepos/bravros/bravros` → `~/bravros`. Check list, `--auto` line shapes, and what this deliberately does NOT check: [`references/checks.md`](checks.md).
 
 ## Hard constraints
 
 - **`ℹ️ INTENTIONAL` is not a failure.** It comes from `~/.bravros/.verify-ignore`, which lists checks the operator diverges from on purpose (this machine runs with the hooks stripped out of `settings.json`). Ignored checks never count as failures and `--fix` skips them. Never "repair" one; never suggest deleting the file without asking.
 - **A locked `settings.json` is healthy, not drift.** `chmod 400` or macOS `chflags uchg` is a deliberate operator lock; `bravros deploy` honours it and so must every fix. `--fix` never writes a locked path.
-- **`~/.bravros/CLAUDE.md` is reconciled on its managed block only** (`# >>> bravros-managed-global >>> … <<<`). Personal content outside the markers is never compared and never touched — a whole-file `cp -f` destroys it. Cleaning that region up is a judgment call: [`references/managed-global-cleanup.md`](references/managed-global-cleanup.md).
+- **`~/.bravros/CLAUDE.md` is reconciled on its managed block only** (`# >>> bravros-managed-global >>> … <<<`). Personal content outside the markers is never compared and never touched — a whole-file `cp -f` destroys it. Cleaning that region up is a judgment call: [`references/managed-global-cleanup.md`](managed-global-cleanup.md).
 - **The skill digest has exactly one implementation:** `bravros deploy skill-sha <dir>` (Go, `deploy.ComputeSkillSHA`). Never re-derive it in bash or python — bash strings are NUL-terminated, so the `relpath\0sha\n` record format is unbuildable in shell and every reimplementation silently diverges.
 - `skills/shared/` is repo-only source material. Finding it *deployed* is an install-hygiene failure, not an orphan.
 

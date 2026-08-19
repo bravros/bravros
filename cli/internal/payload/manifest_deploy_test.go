@@ -72,6 +72,9 @@ func TestResolveSkills_ScopesDerivedFromTree(t *testing.T) {
 		if !e.IsDir() {
 			continue
 		}
+		if deploy.NonRuntimeSkillDir(e.Name()) {
+			continue
+		}
 		wantAll = append(wantAll, e.Name())
 		if deploy.IsSkillCore(filepath.Join(srcDir, e.Name(), "SKILL.md")) {
 			wantCore = append(wantCore, e.Name())

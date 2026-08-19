@@ -29,8 +29,7 @@ body: |
   ## Step 0 — lock (before Stage 1)
 
   ```bash
-  bravros autopr force-clear --stale-after 21600   # clear a crashed run's lock (>6h)
-  bravros autopr set-lock --skill auto-pr
+  bravros autopr preflight --skill auto-pr
   ```
 
   The lock persists until the user clears it from a separate terminal. Opt-in verify suite

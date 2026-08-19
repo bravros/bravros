@@ -10,9 +10,11 @@ set -uo pipefail
 DEPLOYED_DIR="${DEPLOYED_DIR:-$HOME/.claude}"
 export PATH="$DEPLOYED_DIR/bin:$HOME/.local/bin:$PATH"
 
-# Source repo: $PORTABLE_REPO wins, then the two canonical checkout locations.
+# Source repo: $PORTABLE_REPO wins, then the canonical checkout locations.
 if [ -n "${PORTABLE_REPO:-}" ]; then
     :
+elif [ -d "$HOME/Code/monorepos/bravros/private" ]; then
+    PORTABLE_REPO="$HOME/Code/monorepos/bravros/private"
 elif [ -d "$HOME/Code/monorepos/bravros/bravros" ]; then
     PORTABLE_REPO="$HOME/Code/monorepos/bravros/bravros"
 else

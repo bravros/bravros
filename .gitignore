@@ -38,6 +38,9 @@ go.work
 __pycache__/
 *.pyc
 .trash/
+
+# Derived planning index
+.planning/index.json
 .planning/
 docs/prd/
 docs/prdv2/

@@ -108,7 +108,7 @@ func SyncClaudeSettings(path string) (SettingsSyncResult, error) {
 	}
 
 	// hooks — merge our SessionStart entries in.
-	newHooks, err := mergeSessionStartHooks(vals[hooksKey])
+	newHooks, err := mergeHooks(vals[hooksKey])
 	if err != nil {
 		return res, fmt.Errorf("%s: %w", path, err)
 	}
@@ -171,7 +171,7 @@ func SyncClaudeSettings(path string) (SettingsSyncResult, error) {
 // the existing object with every bravros-managed SessionStart entry dropped and
 // the canonical bravros group appended. Other events, other groups and
 // user-authored entries are preserved.
-func mergeSessionStartHooks(existing json.RawMessage) (json.RawMessage, error) {
+func mergeHooks(existing json.RawMessage) (json.RawMessage, error) {
 	var eventKeys []string
 	eventVals := map[string]json.RawMessage{}
 	if len(bytes.TrimSpace(existing)) > 0 {
@@ -203,6 +203,7 @@ func mergeSessionStartHooks(existing json.RawMessage) (json.RawMessage, error) {
 		kept = append(kept, rebuilt)
 	}
 
+	// Append our SessionStart hooks
 	ours, err := json.Marshal(map[string][]managedEntry{"hooks": bravrosSessionStartEntries()})
 	if err != nil {
 		return nil, err
@@ -214,6 +215,39 @@ func mergeSessionStartHooks(existing json.RawMessage) (json.RawMessage, error) {
 		return nil, err
 	}
 	setKey(&eventKeys, eventVals, sessionStartEvent, encodedGroups)
+
+	// -- PRETOOLUSE MERGING --
+	var ptGroups []json.RawMessage
+	if ptRaw, ok := eventVals["PreToolUse"]; ok {
+		if err := json.Unmarshal(ptRaw, &ptGroups); err != nil {
+			return nil, fmt.Errorf(`"hooks.PreToolUse" is not a JSON array (%v) — refusing to merge`, err)
+		}
+	}
+
+	ptKept := make([]json.RawMessage, 0, len(ptGroups)+1)
+	for _, group := range ptGroups {
+		rebuilt, drop, err := stripManagedEntries(group)
+		if err != nil {
+			ptKept = append(ptKept, group)
+			continue
+		}
+		if drop {
+			continue
+		}
+		ptKept = append(ptKept, rebuilt)
+	}
+
+	ptOurs, err := json.Marshal(map[string]interface{}{"matcher": ".*", "hooks": bravrosPreToolUseEntries()})
+	if err != nil {
+		return nil, err
+	}
+	ptKept = append(ptKept, ptOurs)
+
+	encodedPtGroups, err := json.Marshal(ptKept)
+	if err != nil {
+		return nil, err
+	}
+	setKey(&eventKeys, eventVals, "PreToolUse", encodedPtGroups)
 
 	compact, err := encodeObject(eventKeys, eventVals)
 	if err != nil {
@@ -312,7 +346,7 @@ func commandLooksBravros(cmd string) bool {
 	if !strings.Contains(cmd, "bravros") {
 		return false
 	}
-	for _, verb := range []string{"bravros selfupdate", "bravros hook verify-install-check", "bravros statusline"} {
+	for _, verb := range []string{"bravros selfupdate", "bravros hook verify-install-check", "bravros statusline", "bravros police pretooluse"} {
 		if strings.Contains(cmd, verb) {
 			return true
 		}
@@ -548,3 +582,11 @@ func atomicWrite(path string, content, original []byte) error {
 	}
 	return nil
 }
+
+// bravrosPreToolUseEntries are the PreToolUse hooks bravros owns.
+func bravrosPreToolUseEntries() []managedEntry {
+	return []managedEntry{
+		{ManagedByValue, "command", guardedCommand("police pretooluse")},
+	}
+}
+
