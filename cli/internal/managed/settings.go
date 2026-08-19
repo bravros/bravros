@@ -586,7 +586,10 @@ func atomicWrite(path string, content, original []byte) error {
 // bravrosPreToolUseEntries are the PreToolUse hooks bravros owns.
 func bravrosPreToolUseEntries() []managedEntry {
 	return []managedEntry{
-		{ManagedByValue, "command", guardedCommand("police pretooluse")},
+		// Deliberately NOT guardedCommand: the desktop guard exists to spare
+		// SessionStart the cost of selfupdate inside the desktop app, and a
+		// safety gate that any launch context can silently switch off is the
+		// wrong shape. Police runs everywhere, on every host.
+		{ManagedByValue, "command", bravrosBin + " police pretooluse"},
 	}
 }
-

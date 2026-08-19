@@ -40,6 +40,44 @@ func sessionStartEntries(t *testing.T, path string) []map[string]interface{} {
 	return entries
 }
 
+// The police PreToolUse hook must never carry the desktop-app guard. The guard
+// exists to spare SessionStart the cost of selfupdate inside the desktop app;
+// applied to a safety gate it means any launch context whose bundle id matches
+// silently disables the merge block. Regression test for exactly that.
+func TestSyncClaudeSettings_PoliceHookIsNeverGuarded(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	if _, err := SyncClaudeSettings(path); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	settings := readSettings(t, path)
+	hooks, _ := settings["hooks"].(map[string]interface{})
+	groups, _ := hooks["PreToolUse"].([]interface{})
+
+	found := false
+	for _, g := range groups {
+		group, _ := g.(map[string]interface{})
+		inner, _ := group["hooks"].([]interface{})
+		for _, e := range inner {
+			entry, _ := e.(map[string]interface{})
+			cmd, _ := entry["command"].(string)
+			if !strings.Contains(cmd, "police pretooluse") {
+				continue
+			}
+			found = true
+			if strings.Contains(cmd, "__CFBundleIdentifier") {
+				t.Errorf("police hook carries the desktop guard: %q", cmd)
+			}
+			if entry[ManagedByKey] != ManagedByValue {
+				t.Errorf("police entry lacks the bravros marker: %q", cmd)
+			}
+		}
+	}
+	if !found {
+		t.Error("no PreToolUse entry running police pretooluse")
+	}
+}
+
 func TestSyncClaudeSettings_CreatesFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "settings.json")
 
@@ -70,10 +108,16 @@ func TestSyncClaudeSettings_CreatesFile(t *testing.T) {
 				// parse) — see the runtime.GOOS-keyed shape assertion below.
 				// This branch must stay the unweakened unix assertion.
 				if runtime.GOOS != "windows" {
-					if !strings.Contains(cmd, "com.anthropic.*") {
+					if !strings.Contains(cmd, "com.anthropic.claudefordesktop)") {
 						t.Errorf("desktop-app guard missing from %q", cmd)
 					}
-				} else if strings.Contains(cmd, "com.anthropic.*") {
+					// A prefix glob would also match com.anthropic.claude-code,
+					// Claude Code's own bundle id, disabling the hook whenever
+					// Claude Code is launched from its bundle.
+					if strings.Contains(cmd, "com.anthropic.*") {
+						t.Errorf("guard must name one bundle id, not a com.anthropic.* glob: %q", cmd)
+					}
+				} else if strings.Contains(cmd, "com.anthropic") {
 					t.Errorf("desktop-app guard unexpectedly present on windows: %q", cmd)
 				}
 				if e[ManagedByKey] != ManagedByValue {

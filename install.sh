@@ -414,7 +414,7 @@ main() {
 # only here — is what lets the piped one-liner still reach an interactive
 # wizard; a CI runner with no controllable terminal falls through to the
 # non-interactive branch inside main instead of failing.
-if [ ! -t 0 ] && [ -r /dev/tty ] && [ -c /dev/tty ]; then
+if [ ! -t 0 ] && (: < /dev/tty) 2>/dev/null; then
   main < /dev/tty
 else
   main
