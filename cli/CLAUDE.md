@@ -83,132 +83,113 @@ Two paths after editing skills/configs in this repo:
 
 ## Release & Tagging
 
-**Tagging is AUTOMATED.** `.github/workflows/auto-release.yml` watches pushes to `main` that touch `cli/**`, computes the semver bump from conventional-commit subjects since the last tag, and pushes the tag itself. `release.yml` then cross-compiles all 3 binaries (`darwin-arm64`, `darwin-amd64`, `linux-amd64`) and publishes the GitHub Release. Version is injected via `-ldflags="-X github.com/bravros/bravros/cli/cmd.Version=${VERSION}"` from the tag name, so the source `Version` constant in `cmd/root.go` is just a local-dev fallback.
+**Versioning is AUTOMATED, and it does not happen in this repo.** Releases are cut from the
+public mirror `bravros/bravros`. A merge to `main` here triggers
+`.github/workflows/publish-public.yml`, which syncs the allowlisted subset to the mirror **and
+computes the semver bump at publish time**, declaring it in the mirror commit subject
+(`🚀 deploy: vX.Y.Z`). The mirror's own `auto-release.yml` *consumes* that declared version
+rather than recomputing it, then its `release.yml` cross-compiles the three binaries
+(`darwin-arm64`, `darwin-amd64`, `linux-amd64`) and publishes the GitHub Release. Version is
+injected via `-ldflags="-X github.com/bravros/bravros/cli/cmd.Version=${VERSION}"`, so the
+`Version` var in `cmd/root.go` is only a local-dev fallback.
 
-⛔ **NEVER push a tag manually** for a normal CLI ship — auto-release already does it. ⛔ **NEVER build binaries locally** for releases. Manual tagging is bypass-only — see "When to use manual tagging" below.
+**`publish-public.yml` is the ONE place a version is computed** (decision D6, P-0018). That is a
+hard invariant: a second computation anywhere produces two counters over the same commits.
 
-### Default flow: PR → homolog → main → auto-tag → release
+> **This repo carries no release tags.** `git tag` / `git describe` here is **not** the product
+> version and must never be read as one. A `.github/workflows/auto-release.yml` used to live in
+> this repo and tagged `main` independently; by 2026-08-19 it had drifted to a `v2.7.x` line while
+> the shipped product was `v2.14.1`, and `git describe --tags` returned `v2.7.1`. It was removed.
+> **Do not reintroduce a tagging workflow here.** Ask the mirror instead:
+>
+> ```bash
+> gh release list --repo bravros/bravros --limit 5     # what actually shipped
+> gh release view --repo bravros/bravros --json tagName -q .tagName
+> ```
 
-This is the validated path (proven end-to-end during P-0129 / v3.26.1, 2026-05-07):
+### Default flow: PR → homolog → main → publish → release
 
 1. Feature branch → PR → merge to `homolog` (via `/finish`).
-2. Open a homolog → main PR (also via `/finish` step 7) and merge it.
-3. **`auto-release.yml` fires** within seconds of the main merge. It:
-   - Computes the bump from commit subjects since the last tag (rules below).
-   - Pushes the new tag to origin.
-4. **`release.yml` fires** on the tag push. It cross-compiles 3 binaries and publishes the GitHub Release.
-5. Total wall-clock time: ~1-2 minutes after the main merge completes.
-6. Users pick up the new binary on next `bravros selfupdate` — which auto-fires via the SessionStart hook.
+2. Open a homolog → main PR (also `/finish` step 7, or `/hotfix` for the emergency path) and merge it.
+3. **`publish-public.yml` fires** on the main merge. It syncs the allowlisted subset to the
+   mirror, computes the bump from the private commit subjects since the last sync, and pushes a
+   mirror commit whose subject declares the version.
+4. **The mirror's `auto-release.yml` fires**, reads the declared version, and tags it.
+5. **The mirror's `release.yml` fires** on that tag, builds the binaries, publishes the Release.
+6. Wall-clock: ~3 minutes from main merge to a downloadable release (observed 2026-08-19 —
+   PR #63 merged 06:10:26Z, `v2.14.1` published 06:13:16Z).
+7. Users pick it up on the next `bravros selfupdate`, which auto-fires from the SessionStart hook.
 
-You don't run any `git tag` / `git push origin v*` commands during normal flow.
+You run no `git tag` / `git push origin v*` commands at any point.
 
-### Auto-release semver rules
+### Semver rules
 
-`auto-release.yml` evaluates every commit subject between the last `vX.Y.Z` tag and the new main HEAD. Emoji prefixes (e.g. `🐛 fix:`, `✨ feat:`) are stripped before matching, so this repo's emoji+conventional style works the same as plain conventional commits.
+The bump is computed in `publish-public.yml` from the private commit subjects replayed since the
+last sync. Emoji prefixes (`🐛 fix:`, `✨ feat:`) are stripped before matching, and the accepted
+type set is read from `templates/commit-types.txt` — the single source of truth.
 
 | Commit pattern | Bump |
 |---|---|
-| `BREAKING CHANGE` in body, or `feat!:` / `fix!:` / `hotfix!:` prefix | major |
+| `BREAKING CHANGE` in body, or `<type>!:` prefix | major |
 | `feat:` / `feat(scope):` | minor |
-| `fix:` / `hotfix:` / `refactor:` / `perf:` / `chore:` / etc. | patch |
-| No conventional-commit type found in the range | **skip** (no release) |
+| any other canonical type (`fix:`, `hotfix:`, `refactor:`, `perf:`, …) | patch |
+| no typed commit found | **patch** — see below |
 
-`hotfix:` is a patch-bump synonym for `fix:` — the `/hotfix` skill emits `🩹 hotfix: <description>`,
-and a hotfix landing on main MUST tag a release. Added in v3.46.1 after a hotfix on v3.46.0 was
-silently skipped (auto-release didn't recognize the prefix; manual tag-push was required to
-recover). Both `auto-release.yml` and this table track the canonical accepted-prefix set.
+The highest bump in the range wins: one `feat:` among ten `fix:`es still yields a minor bump.
 
-The highest bump in the range wins. So one `feat:` mixed with ten `fix:`es still produces a minor bump.
+**There is no skip path, and `[skip-release]` does nothing here.** Unlike the removed
+`auto-release.yml`, `publish-public.yml` never skips — a mirror content change always needs a
+version to declare, so an untyped range still gets a patch bump. If a change must not ship, keep
+it out of the publish allowlist.
 
-> **Caveat noted on 2026-05-07:** plan/PR documents that pre-write a target version (e.g. "tag v3.27.0") may be wrong by one tier — auto-release decides the version at merge time from the commits, not from the plan. P-0129 documented v3.27.0 but actually shipped as v3.26.1 because every commit was `fix:`-prefixed. Don't promise a specific version in plan acceptance criteria; promise "the next semver bump auto-release computes."
+> **Don't promise a version number in a plan.** The bump is decided at merge time from the actual
+> commits, not from what the plan predicted. P-0129 documented v3.27.0 and shipped v3.26.1 because
+> every commit was `fix:`-prefixed. Promise "the next semver bump publish computes."
 
-### Skip a specific release
-
-Add `[skip-release]` to the merged commit subject. `auto-release.yml` will exit without tagging. Use sparingly — for changes that touch `cli/` but don't need user-facing release (e.g., test-only edits).
-
-### Dry-run before merge
-
-To preview the version `auto-release.yml` would compute on the current main:
+### Verify a release
 
 ```bash
-gh workflow run auto-release.yml -f dry_run=true
+gh release list --repo bravros/bravros --limit 5
+gh release view --repo bravros/bravros vX.Y.Z --json tagName,assets -q '.assets[].name'
+gh run list --repo bravros/bravros --workflow=release.yml --limit=1
 ```
 
-Then `gh run list --workflow=auto-release.yml --limit=1` to find the run, and view the logs for the computed tag.
-
-### When to use manual tagging (bypass auto-release)
-
-Auto-release covers ~all cases. Manual tag push is only needed when:
-
-- **Forcing a higher bump than commits suggest.** If conventional-commit prefixes don't reflect actual semantics (e.g., a `fix:` that's actually a breaking API change), tag manually with the desired version BEFORE auto-release evaluates — push the tag, then push the main commit. Auto-release sees the new tag exists and the commit is at-or-before it, and skips.
-- **Recovering from a wrong-commit tag.** See "Recovering from a wrong-commit tag" below.
-- **Releasing on a non-main branch.** Auto-release only fires on `main`. Releases from `homolog` or feature branches require manual tag push.
-- **Re-tagging a release that auto-release skipped.** If you intended a release but every commit was non-conventional and auto-release exited without tagging, push the tag manually.
-
-### Manual release flow (override path)
-
-Run from a `main` checkout. The pre-push hook (PR #132+) allows tag pushes from any branch including main, but blocks branch pushes to main.
+To confirm a specific fix actually shipped, read the file at the tag rather than trusting the
+version string:
 
 ```bash
-# 1. Make sure local main matches origin/main
-git checkout main
-git pull origin main
-
-# 2. Pick the version manually (auto-release would have computed it, but you're overriding)
-NEW_VERSION="v3.27.0"  # check current: gh release view --json tagName -q .tagName
-
-# 3. Tag and push
-git tag -a "$NEW_VERSION" -m "🚀 deploy: $NEW_VERSION — <one-line summary>
-
-<bullet list of what's in this release — usually copies from the merged PR's body>"
-
-git push origin "$NEW_VERSION"
-
-# 4. Watch release.yml (auto-release skips since the tag already exists)
-sleep 8 && gh run list --workflow=release.yml --limit=1
-
-# 5. Verify assets
-gh release view "$NEW_VERSION"   # should show 3 binaries
+curl -sL https://raw.githubusercontent.com/bravros/bravros/vX.Y.Z/cli/<path> | grep <symbol>
 ```
 
-That's it. Users running `bravros selfupdate` get the new binary on their next session.
+### Manual tagging — mirror-only, and rarely
+
+Manual tagging is a **mirror** operation (`bravros/bravros`); tagging this repo achieves nothing.
+It is the override path for: forcing a higher bump than the commits imply, recovering from a tag
+on the wrong commit, or re-tagging a release the mirror skipped. **Never move an existing tag** —
+published Releases and binaries are immutable from a user's perspective, and editing them
+invalidates `bravros selfupdate`'s drift detector. Bump the patch and tag again instead.
 
 ### Common gotchas
 
-- **Tag from main, not from a feature branch.** If the tag commit isn't on main, `git describe` from main won't find it and future tools (changelog, release-notes generation) get confused. The published binary still works either way — but lineage matters.
-- **Don't tag from a pre-squash feat-branch commit.** Squash-merging a feature PR creates a brand-new commit on the base branch; the original feat-branch commits are orphaned once the branch is deleted. Tag the squash-merge commit instead.
-- **Tag pushes ARE allowed from a `main` checkout.** The local pre-push hook only blocks branch pushes to main (`refs/heads/main`); it explicitly permits tag pushes (`refs/tags/*`). If you see "Direct push to main is not allowed!" while pushing a tag, your hook is out of date — pull main and re-deploy.
-- **Don't manually create the GitHub Release.** Pushing the tag is enough — the Action builds binaries, creates the Release, attaches assets, and generates release notes automatically.
-- **Don't commit `bin/bravros` for releases.** It's a local dev build only; users get binaries from the GitHub Release assets via `install.sh`.
-
-### Recovering from a wrong-commit tag
-
-If a tag was pushed against the wrong commit (e.g. a pre-squash feat commit), the cleanest fix is to bump the patch version and tag again from the correct commit. **Don't move an existing tag** — the published Release + binaries are immutable from the user's perspective and editing them invalidates `bravros selfupdate`'s drift detector.
-
-```bash
-# Wrong: v3.15.0 tagged at e63417b (orphan feat commit)
-# Right: bump and re-tag
-git checkout main
-git pull origin main
-git tag -a v3.15.1 -m "🚀 deploy: v3.15.1 — main-lineage tag of <whatever>"
-git push origin v3.15.1
-```
-
-### Verify any release
-
-```bash
-gh run list --workflow=release.yml --limit=1   # build status
-gh release view vX.Y.Z                          # assets + release notes
-gh release view vX.Y.Z --json tagName,assets -q '.assets[].name'  # asset names only
-```
+- **Never build binaries locally for a release.** Users get binaries from the mirror's Release
+  assets via `install.sh`.
+- **Don't commit `bin/bravros`.** It is a local dev build only.
+- **A local binary can outrank the published one.** `bravros version` reports what is installed,
+  which after a local `go build` + deploy may be ahead of, behind, or divergent from the mirror's
+  latest. Check the mirror before concluding anything about "the" version.
+- **Don't manually create a GitHub Release.** The mirror's Action builds, creates, attaches and
+  generates notes on its own.
 
 ### Rule: Don't reference unreleased CLI flags
 
-Never reference a `bravros` CLI flag in `settings.json`, hook commands, or skill files until the release containing that flag is tagged AND the GitHub Action has published the binary. install.sh prefers a local `cli/bravros-${OS}-${ARCH}` binary if present, but most users get the binary from the GitHub release — those users will hit a flag-not-found error on every hook fire until they run `selfupdate`.
+Never reference a `bravros` CLI flag in `settings.json`, hook commands, or skill files until the
+release containing that flag has published on the mirror. `install.sh` prefers a local
+`cli/bravros-${OS}-${ARCH}` binary when present, but most users get the binary from the mirror
+Release — those users hit a flag-not-found error on every hook fire until they `selfupdate`.
 
 Safe order:
-1. Add the flag to `cli/cmd/<x>.go`, commit + tag + push (Action ships the binary).
-2. Wait for `gh release view` to show the new release.
+1. Add the flag to `cli/cmd/<x>.go`, merge to main, let publish ship it.
+2. Wait for `gh release view --repo bravros/bravros` to show the new release.
 3. THEN reference the flag in `settings.json` / hooks / skills, in a separate commit.
 
 ## Audit Rules — deleted (P-0187)
