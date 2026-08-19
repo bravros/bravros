@@ -58,9 +58,25 @@ cd cli && go build -ldflags="-s -w -X github.com/bravros/bravros/cli/cmd.Version
 
 ## Local Build Rules
 
-- **Always use `-ldflags` with version** when building for `bin/` or `~/.claude/bin/` — never `go build -o` without it
-- **Version tag format**: `-X github.com/bravros/bravros/cli/cmd.Version=v1.9.5` — the `v` prefix is stripped at print time, so always include it for consistency with git tags
-- **Never commit `bin/bravros`** — releases ship via tag-push only (`release.yml` cross-compiles all 3 platform binaries) and manually committed binaries break selfupdate's drift detection. For in-session iteration, build a separate `bravros-dev` binary instead of overwriting the live one
+⛔ **Never install a locally-built binary. Install the way every user does.** `~/.claude/bin/bravros`
+is owned by the release chain — it comes from `bravros update` / `selfupdate` / `install.sh`, which
+download the signed tarball from the mirror Release and verify it against the minisign-signed
+`checksums.txt`. A hand-built binary skips that verification and, worse, makes `bravros version`
+lie: it reports a version string that matches no published release, so nothing downstream can tell
+what is actually installed. That confusion cost a full debugging detour on 2026-08-19.
+
+To ship a change, merge it and let the chain publish (§ Release & Tagging), then `bravros update`.
+The round trip is ~3 minutes — cheaper than reasoning about a divergent local binary.
+
+- **Build only to verify compilation**, never to install: `go build -o /tmp/bravros-check ./cli`
+  and delete it. Never `-o ~/.claude/bin/bravros`, never `-o bin/bravros`.
+- **`go test ./...` is the local feedback loop**, not a locally-installed binary.
+- **`goreleaser` locally produces `dist/` (~72 MB, gitignored).** It is scratch output; the real
+  artifacts are built by the mirror's `release.yml`. Don't install from it.
+- **If a local binary must exist** for a one-off experiment, name it `bravros-dev` and keep it out
+  of `~/.claude/bin/`. Always use `-ldflags "-X github.com/bravros/bravros/cli/cmd.Version=vX.Y.Z"`
+  so it cannot masquerade as an unversioned build.
+- **Never commit `bin/bravros`** — committed binaries break selfupdate's drift detection.
 
 ## Deploy (source repo → `~/.claude/`)
 
@@ -183,9 +199,10 @@ invalidates `bravros selfupdate`'s drift detector. Bump the patch and tag again 
 ### Rule: Don't reference unreleased CLI flags
 
 Never reference a `bravros` CLI flag in `settings.json`, hook commands, or skill files until the
-release containing that flag has published on the mirror. `install.sh` prefers a local
-`cli/bravros-${OS}-${ARCH}` binary when present, but most users get the binary from the mirror
-Release — those users hit a flag-not-found error on every hook fire until they `selfupdate`.
+release containing that flag has published on the mirror. `install.sh` has no local-binary path —
+it always downloads `bravros-${OS}-${ARCH}.tar.gz` from the mirror Release (`install.sh:321`), so
+**every** user hits a flag-not-found error on every hook fire until the release ships and they
+`selfupdate`.
 
 Safe order:
 1. Add the flag to `cli/cmd/<x>.go`, merge to main, let publish ship it.
