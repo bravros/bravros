@@ -13,6 +13,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -356,6 +357,147 @@ func TestAutoUpdateLeavesASourceBuildAlone(t *testing.T) {
 	}
 	if !strings.Contains(out, "v99.0.0 is available") {
 		t.Errorf("a source build still gets the notice, got:\n%s", out)
+	}
+}
+
+// ── announce lane (P-0020 Phase 3) ──────────────────────────────────────────
+
+// writeStateWithAnnounce writes a setup.json carrying install_method plus the
+// three announce fields, mirroring writeStateWithInstallMethod's shape so a
+// missing field ("") reads exactly like a file that predates P-0020.
+func writeStateWithAnnounce(t *testing.T, root, method, command, template, language string) {
+	t.Helper()
+	st := setupState{
+		Schema:           setupStateSchema,
+		InstallMethod:    method,
+		ClaudeRoot:       root,
+		AnnounceCommand:  command,
+		AnnounceTemplate: template,
+		AnnounceLanguage: language,
+	}
+	data, err := json.MarshalIndent(st, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal state: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(setupStatePath(root)), 0o755); err != nil {
+		t.Fatalf("mkdir state dir: %v", err)
+	}
+	if err := os.WriteFile(setupStatePath(root), append(data, '\n'), 0o644); err != nil {
+		t.Fatalf("write state.json: %v", err)
+	}
+}
+
+// writeAnnounceStub writes a recording shell script: every invocation appends
+// its argv, one element per line, to recordPath.
+func writeAnnounceStub(t *testing.T, recordPath string) string {
+	t.Helper()
+	scriptPath := filepath.Join(t.TempDir(), "announce-stub.sh")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"" + recordPath + "\"\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write announce stub: %v", err)
+	}
+	return scriptPath
+}
+
+// waitForFile polls for path to appear, up to timeout, returning its content
+// or nil if the deadline passes first. The dispatch under test is
+// fire-and-forget async, so a fixed sleep would either flake or waste time.
+func waitForFile(t *testing.T, path string, timeout time.Duration) []byte {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		if data, err := os.ReadFile(path); err == nil {
+			return data
+		}
+		if time.Now().After(deadline) {
+			return nil
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// TestAutoUpdateAnnouncesAfterSwap — a swap with announce_command set in
+// setup.json invokes it with --force <rendered message> studio.
+func TestAutoUpdateAnnouncesAfterSwap(t *testing.T) {
+	root, _ := autoUpdateTestEnv(t)
+	t.Setenv("BRAVROS_ANNOUNCE_CMD", "")
+	recordPath := filepath.Join(t.TempDir(), "record.txt")
+	stub := writeAnnounceStub(t, recordPath)
+	writeStateWithAnnounce(t, root, "installer", stub, "", "")
+
+	installer := &fakeInstaller{}
+	updateInstallerOverride = installer
+	selfupdateNoticeResolverOverride = &fakeTagResolver{tag: "v99.0.0"}
+	selfupdateAgerOverride = &fakeAger{age: 24 * time.Hour}
+
+	runAutoLane(t)
+
+	data := waitForFile(t, recordPath, 2*time.Second)
+	if data == nil {
+		t.Fatal("announce_command was never invoked")
+	}
+	want := []string{"--force", selfupdate.RenderAnnouncement("", "", "v99.0.0"), "studio"}
+	got := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	if len(got) != len(want) {
+		t.Fatalf("argv = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("argv[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+// TestAutoUpdateAnnounceAbsentInvokesNothing — no announce_command anywhere
+// (env or setup.json) means no notifier is ever run.
+func TestAutoUpdateAnnounceAbsentInvokesNothing(t *testing.T) {
+	root, _ := autoUpdateTestEnv(t)
+	t.Setenv("BRAVROS_ANNOUNCE_CMD", "")
+	recordPath := filepath.Join(t.TempDir(), "record.txt")
+	_ = writeAnnounceStub(t, recordPath) // never wired into state — proves absence, not a broken path
+	writeStateWithInstallMethod(t, root, "installer")
+
+	installer := &fakeInstaller{}
+	updateInstallerOverride = installer
+	selfupdateNoticeResolverOverride = &fakeTagResolver{tag: "v99.0.0"}
+	selfupdateAgerOverride = &fakeAger{age: 24 * time.Hour}
+
+	runAutoLane(t)
+
+	time.Sleep(50 * time.Millisecond)
+	if _, err := os.Stat(recordPath); err == nil {
+		t.Error("no announce_command was configured, but the stub ran")
+	}
+}
+
+// TestAutoUpdateAnnounceBadCommandStillSwaps — a nonexistent announce_command
+// path must never block the swap or the component refresh.
+func TestAutoUpdateAnnounceBadCommandStillSwaps(t *testing.T) {
+	root, exePath := autoUpdateTestEnv(t)
+	t.Setenv("BRAVROS_ANNOUNCE_CMD", "")
+	nonexistent := filepath.Join(t.TempDir(), "does-not-exist", "stub.sh")
+	writeStateWithAnnounce(t, root, "installer", nonexistent, "", "")
+
+	installer := &fakeInstaller{}
+	updateInstallerOverride = installer
+	selfupdateAgerOverride = &fakeAger{age: 24 * time.Hour}
+	refreshedWith := ""
+	updateRefreshHook = func(p string) error { refreshedWith = p; return nil }
+
+	var swapped bool
+	captureStderr(t, func() { swapped = selfupdateAutoUpdate("v99.0.0") })
+
+	if !swapped {
+		t.Fatal("a bad announce_command must not block the swap")
+	}
+	if installer.calls != 1 {
+		t.Errorf("expected exactly one install, got %d", installer.calls)
+	}
+	if got, _ := os.ReadFile(exePath); string(got) != "new binary v99.0.0" {
+		t.Errorf("binary was not replaced, got %q", got)
+	}
+	if refreshedWith != exePath {
+		t.Errorf("component refresh must still run, got %q", refreshedWith)
 	}
 }
 

@@ -25,3 +25,4 @@ CREATE: `gh pr create --base "$BASE" --title "<emoji> <type>: <title>" --body �
 HANDOFF (the routing IS the contract):
 - **Autonomous** (`.planning/.auto-*-lock` glob matches, or `--auto` in `$ARGUMENTS`): print `STATUS: pr-created. PR: #<n>. NEXT: review` and return — the pipeline owns the review trigger.
 - **Interactive:** always invoke `Skill({skill: "pr-review"})` — no asking, no detection. A just-created PR cannot already have a review. Re-reviews later are `/pr-review` on its own, never `/pr`.
+- **The handoff survives interruptions.** The gap between `gh pr create` and the review trigger is where this silently breaks: a user question, a failed tool call, or a new instruction lands mid-turn, gets answered, and the handoff is never reached — leaving the user to type `/pr-review` themselves, which is exactly what `/pr` exists to avoid. Treat an unrun handoff as unfinished work and complete it before reporting done.

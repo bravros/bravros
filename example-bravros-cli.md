@@ -178,7 +178,18 @@ bravros selfupdate [flags]
 Environment: `BRAVROS_SELFUPDATE_TTL` (default `6h`, `0` disables the whole-run cache) ·
 `BRAVROS_NO_UPDATE_CHECK=1` (disables the passive notice and the auto-update lane) ·
 `BRAVROS_UPDATE_NOTICE_TTL` (default `24h`) · `BRAVROS_REMOTE_CHECK_TTL` ·
-`BRAVROS_MIN_RELEASE_AGE` (default `6h`, the auto-update canary window; `0` disables).
+`BRAVROS_MIN_RELEASE_AGE` (default `6h`, the auto-update canary window; `0` disables) ·
+`BRAVROS_ANNOUNCE_CMD` (overrides `announce_command` for the announce lane below).
+
+**Announce lane (P-0020).** An unattended auto-swap can additionally invoke an operator-supplied
+notifier, governed by three setup.json fields (operator-set, no wizard UI): `announce_command`
+(path to the notifier executable; empty/absent disables the lane — the default everywhere; a
+leading `~/` is expanded), `announce_template` (message template, `{version}` replaced with the
+bare version, leading `v` stripped), and `announce_language` (`pt-BR` or `en`, picks a built-in
+template when `announce_template` is empty). The notifier runs fire-and-forget as
+`<announce_command> --force <message> studio`, output discarded, failures silent — it can never
+block the swap or the SessionStart hook. Only the unattended auto-swap announces; manual
+`bravros update` stays silent.
 
 **Trap for skill authors: exit code proves nothing here.** `selfupdate` returns `nil` on nearly
 every path, including "did nothing at all" (a TTL cache hit). If a skill needs to know whether

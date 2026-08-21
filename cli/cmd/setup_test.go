@@ -757,6 +757,42 @@ func TestSetupPreservesAutoUpdatePreference(t *testing.T) {
 	}
 }
 
+// TestSetupPreservesAnnouncePreferences — setup.json's new announce_command,
+// announce_template and announce_language fields (P-0020 Phase 1 coordination
+// glue for the unattended auto-update announce lane) must survive a run
+// untouched: setup itself has no UI for them, so a run that finds them
+// already recorded must carry them forward rather than dropping them when
+// state.json is rebuilt from scratch.
+func TestSetupPreservesAnnouncePreferences(t *testing.T) {
+	root := setupTestRoot(t)
+	statePath := setupStatePath(root)
+	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prior := `{"schema":1,"bravros_version":"0.0.0","install_method":"source","claude_root":"` + root +
+		`","skills_scope":"core","components":[],"auto_update":true,` +
+		`"announce_command":"bravros ha say","announce_template":"Atualizado para {version}.","announce_language":"pt-BR"}`
+	if err := os.WriteFile(statePath, []byte(prior), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := runSetupForTest(t, setupFlags{yes: true})
+	if err != nil {
+		t.Fatalf("setup: %v\n%s", err, out)
+	}
+
+	st := readState(t, root)
+	if st.AnnounceCommand != "bravros ha say" {
+		t.Errorf("announce_command was not preserved across the run: %q", st.AnnounceCommand)
+	}
+	if st.AnnounceTemplate != "Atualizado para {version}." {
+		t.Errorf("announce_template was not preserved across the run: %q", st.AnnounceTemplate)
+	}
+	if st.AnnounceLanguage != "pt-BR" {
+		t.Errorf("announce_language was not preserved across the run: %q", st.AnnounceLanguage)
+	}
+}
+
 // ─── Phase 8: picker clarity + consolidated result table ──────────────────
 
 // extractResultTable returns the "Result" table section of a run's output,

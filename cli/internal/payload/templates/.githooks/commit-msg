@@ -113,7 +113,9 @@ AI_PATTERNS=(
     "Generated with Cursor"
     "Generated with Copilot"
     "via Claude Code"
-    "via Cursor"
+    # NOTE: a bare "via Cursor" was removed here — case-insensitive, it blocked ordinary
+    # commits like "paginate via cursor" / "via cursor position". Attribution to Cursor is
+    # already covered by the Co-Authored-By and "Generated with Cursor" entries.
     "Made with.*[Cc]opilot"
     "Powered by.*[Aa][Ii]"
     # Common robot/AI footer patterns
@@ -153,7 +155,7 @@ done
 # Note the order dependency: "ai-powered" reads name-then-verb and does NOT match,
 # while "powered by AI" does. Validated against 200 real commits: 0 false positives.
 #
-AI_ATTRIB='co[-_ ]?authored?([-_ ]?(by|with))?|coauthor|assisted([-_ ]?(by|with))?|generated([-_ ]?(by|with))?|created([-_ ]?(by|with))?|written([-_ ]?(by|with))?|authored([-_ ]?(by|with))?|powered([-_ ]?by)?|made([-_ ]?with)?|pair[-_ ]?programmed([-_ ]?with)?|with help from|signed[-_ ]?off[-_ ]?by|reviewed[-_ ]?by|via'
+AI_ATTRIB='(co[-_ ]?authored?|assisted|generated|created|written|authored|made|powered|pair[-_ ]?programmed|reviewed|prompted)[-_ ]?(by|with|from)|with help from|signed[-_ ]?off[-_ ]?by|co[-_ ]?authors?[-_ ]?[:=]'
 AI_NAMES='claude|chat ?gpt|gpt-?[0-9.]*|openai|anthropic|copilot|gemini|bard|codeium|windsurf|cursor|devin|aider|cline|roo[-_ ]?code|cody|tabby|amazon q|code ?whisperer|deep ?seek|grok|mistral|llama|phind|bolt\.new|v0\.dev|augment|continue\.dev|jarvis|sourcegraph|codex|junie|ai assistant|assistant ai|artificial intelligence|language model|\bllm\b|\bai\b'
 
 if echo "$COMMIT_MSG_CLEAN" | grep -qiE "(${AI_ATTRIB})[[:space:]:<@_-]{0,4}.{0,40}(${AI_NAMES})"; then
@@ -233,17 +235,23 @@ show_format_help() {
     echo "" >&2
     echo -e "${YELLOW}Required format:${NC} <emoji> <type>[(scope)][!]: <description>" >&2
     echo "" >&2
-    echo "Valid types & emojis (from templates/commit-types.txt):" >&2
     if [ -n "$_CANONICAL_FILE" ]; then
+        echo "Valid types & emojis (from templates/commit-types.txt):" >&2
         while IFS='|' read -r slug emoji desc; do
             [[ "$slug" =~ ^[[:space:]]*# ]] && continue
             [[ -z "${slug// }" ]] && continue
             printf "  %s %-12s %s\n" "${emoji// /}" "${slug// /}:" "${desc// /}" >&2
         done < "$_CANONICAL_FILE"
     else
-        echo "  ✨ feat:      New features" >&2
-        echo "  🐛 fix:       Bug fixes" >&2
-        echo "  ... (run: cut -d'|' -f1,2 templates/commit-types.txt | grep -v '^#')" >&2
+        echo "Valid types & emojis:" >&2
+        # Consumer repos have no templates/commit-types.txt — print the real list
+        # rather than a command that resolves to nothing (PR #1972 review).
+        echo "  ✨ feat       🐛 fix        📚 docs       💄 style" >&2
+        echo "  ♻️ refactor   ⚡ perf       🧪 test       🔧 build" >&2
+        echo "  🧹 chore      📋 plan       🔒 security   🗃️ migration" >&2
+        echo "  📦 deps       🚀 deploy     🤖 ci         🔥 remove" >&2
+        echo "  🩹 hotfix     🔀 merge      🔍 debug      🔙 revert" >&2
+        echo "  🌐 i18n" >&2
     fi
     echo "" >&2
     echo -e "${GREEN}Examples:${NC}" >&2

@@ -117,6 +117,16 @@ type setupState struct {
 	// somewhere to persist the choice); setup itself only preserves whatever
 	// a previous run recorded — see setupWriteStateForRun.
 	AutoUpdate *bool `json:"auto_update,omitempty"`
+
+	// AnnounceCommand, AnnounceTemplate and AnnounceLanguage carry the
+	// operator's unattended-auto-update announcement preferences across
+	// setup.json read/write. There is no wizard UI for them (P-0020 Phase 1
+	// only adds the fields so a later phase can announce an unattended
+	// auto-update); setup itself only preserves whatever a previous run
+	// recorded — see setupWriteStateForRun.
+	AnnounceCommand  string `json:"announce_command,omitempty"`
+	AnnounceTemplate string `json:"announce_template,omitempty"`
+	AnnounceLanguage string `json:"announce_language,omitempty"`
 }
 
 // setupStatePath is where the state record lives: <config dir>/state/setup.json.
@@ -821,6 +831,9 @@ func setupWriteStateForRun(root string, plan *setupPlan, scope payload.SkillScop
 	}
 	if prev != nil {
 		st.AutoUpdate = prev.AutoUpdate
+		st.AnnounceCommand = prev.AnnounceCommand
+		st.AnnounceTemplate = prev.AnnounceTemplate
+		st.AnnounceLanguage = prev.AnnounceLanguage
 	}
 	skipped := map[string]bool{}
 	for _, id := range plan.SkippedIDs {

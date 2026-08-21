@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -69,7 +70,16 @@ bypasses the cache.
 
 --fetch-payload selects the legacy network lane instead: resolve the newest
 release, download and minisign-verify bravros-payload.tar.gz, and deploy it. It is
-opt-in because D2 moved the SessionStart hook off the network entirely.`,
+opt-in because D2 moved the SessionStart hook off the network entirely.
+
+When the auto-update lane swaps the binary, it fires an optional operator-supplied
+notifier (P-0020). Three setup.json fields govern this: announce_command (path to
+notifier executable; empty/absent disables), announce_template (message template with
+{version} placeholder; overrides language-picked template if set), and announce_language
+(en or pt-BR; defaults to en when announce_template is empty). The announce lane is off
+unless announce_command is set. The notifier is invoked fire-and-forget as
+<announce_command> --force <message> studio, with failures silent and non-fatal.
+BRAVROS_ANNOUNCE_CMD env var overrides announce_command for testing.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -326,6 +336,8 @@ func selfupdateAutoUpdate(tag string) bool {
 
 	fmt.Fprintln(os.Stderr, selfupdate.SwapLine(Version, tag))
 
+	selfupdateAnnounce(root, tag)
+
 	// The new binary carries a new embedded payload, and the TTL marker would
 	// otherwise suppress the refresh for up to 6h. Drop it, then refresh from
 	// the NEW binary's embed — this process still holds the old one.
@@ -391,6 +403,56 @@ func selfupdateRecordedInstallMethod(root string) string {
 // whole auto lane back to notify-only.
 func selfupdateAutoUpdatePreference(root string) *bool {
 	return selfupdateReadAutoState(root).AutoUpdate
+}
+
+// selfupdateAnnounceStateFields is a minimal, forward-compatible view of
+// setup.json decoding only the three announce fields — same rationale as
+// selfupdateAutoState: this lane must not couple to setupState's schedule.
+type selfupdateAnnounceStateFields struct {
+	AnnounceCommand  string `json:"announce_command"`
+	AnnounceTemplate string `json:"announce_template"`
+	AnnounceLanguage string `json:"announce_language"`
+}
+
+// selfupdateAnnounceState reads the three announce fields from setup.json.
+// Missing or unparsable state reads as all-empty, exactly like
+// selfupdateReadAutoState.
+func selfupdateAnnounceState(root string) selfupdateAnnounceStateFields {
+	var st selfupdateAnnounceStateFields
+	data, err := os.ReadFile(setupStatePath(root))
+	if err != nil {
+		return st
+	}
+	_ = json.Unmarshal(data, &st)
+	return st
+}
+
+// selfupdateAnnounce fires a fire-and-forget notifier command telling the
+// operator an unattended swap just happened. It never blocks the SessionStart
+// hook: the command is started and immediately released, its stdout/stderr
+// discarded, and every error — resolving the command, running it, anything —
+// is silently swallowed. A missing command (env var AND setup.json both
+// empty) is a silent no-op, not an error.
+func selfupdateAnnounce(root, tag string) {
+	command := strings.TrimSpace(os.Getenv("BRAVROS_ANNOUNCE_CMD"))
+	st := selfupdateAnnounceState(root)
+	if command == "" {
+		command = strings.TrimSpace(st.AnnounceCommand)
+	}
+	if command == "" {
+		return
+	}
+	command = selfupdate.ExpandHome(command)
+
+	message := selfupdate.RenderAnnouncement(st.AnnounceTemplate, st.AnnounceLanguage, tag)
+
+	// argv, never a shell string: the message is one argument, so it can
+	// never be reinterpreted by a shell no matter what it contains.
+	cmd := exec.Command(command, "--force", message, "studio")
+	if err := cmd.Start(); err != nil {
+		return
+	}
+	_ = cmd.Process.Release()
 }
 
 // ─── embedded-payload refresh (D2's local half) ─────────────────────────────
