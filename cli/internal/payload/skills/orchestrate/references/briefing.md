@@ -122,7 +122,15 @@ command for a separate tab, and anything deliberately skipped. Then announce:
 bravros ha say --force "Plano {NUM} orquestrado, todas as fases concluídas. Ramo <fragmento>, projeto <repo>." studio >/dev/null 2>&1 || true
 ```
 
-Direct CLI call, not the `announce.sh` wrapper: `HASS_TOKEN` now comes from the macOS
-keychain via `~/.zshenv`, so the wrapper's 1Password hydration is dead weight here —
-0.29s instead of 0.80s. Mute is honored either way (both read `~/.bravros/.mute`).
-Redirect stdout: the CLI prints `Sent to studio: …`.
+Direct CLI call, not the `announce.sh` wrapper. Both reach the same Echo and both honor
+the same kill-switch: `~/.agent_config/.mute` — defined by `ha.MuteFile()` in
+`cli/internal/ha/devices.go`, asserted in `cli/cmd/ha_test.go`. (Write it with the neutral
+prefix, never `~/.bravros/.mute`: that spelling is outside the `hostPathRules` allowlist in
+`cli/internal/deploy/hostpaths.go`, so it deploys verbatim and names a file that does not
+exist.) The wrapper costs ~0.4s more for a home/away gateway probe, and when away from home
+it falls back to local macOS `say`; on the studio host that branch never fires, so the bare
+CLI is the cheaper equivalent there. It is NOT equivalent on a roaming MacBook — prefer the
+wrapper if the announcement must be heard off the home network. (The wrapper does not
+hydrate `HASS_TOKEN` from 1Password when it is already set, which `~/.zshenv` does from the
+keychain, so that is not part of the cost.) Redirect stdout: the CLI prints
+`Sent to studio: …`; the wrapper silences that itself.
