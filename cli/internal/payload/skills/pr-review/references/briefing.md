@@ -23,6 +23,13 @@ Do NOT wrap the line in an HTML comment, code fence, blockquote, or list item �
 The sentinel lines must stay plain visible text — the Action strips HTML comments, which is why
 the old `<!-- bravros-verdict -->` form never survived. Comment fails → STOP and report.
 
+**`bravros police` enforces this template at tool-call time, before the comment ever reaches
+GitHub.** `gh pr comment` bodies containing `@claude` + `review` must start with the exact
+opening sentence above and end with the exact `Required:` block — extra instructions between the
+two are fine, `--body-file`/`-F` is refused (the hook cannot inspect file content), and a blocked
+attempt gets the canonical template echoed back in the block message for an immediate retry. See
+`docs/cli/police.md` for the full contract.
+
 ## Verdict authority — sentinel over prose
 
 - **Tier 1 — the visible `BRAVROS-VERDICT:` line is authoritative both ways:** `approved` allows

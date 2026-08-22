@@ -1,8 +1,8 @@
 // Package github — stamp.go
 //
-// WriteReviewStamp writes (or skips idempotently) a review-stamp JSON file at
-// .planning/.review-stamp-<PR>.json. The schema is canonical and matches the
-// inline jq patterns used by /auto-merge Step 3E and /local-review.
+// WriteReviewStamp writes (or refreshes, or skips idempotently) a review-stamp
+// JSON file at .planning/.review-stamp-<PR>.json. The schema is canonical and
+// matches the inline jq patterns used by /auto-merge Step 3E and /local-review.
 //
 // Stamp schema:
 //
@@ -17,7 +17,14 @@
 //	}
 //
 // The file is written to <repoRoot>/.planning/.review-stamp-<PR>.json.
-// If the file already exists, WriteReviewStamp is a no-op (idempotent).
+//
+// Commit-sha-keyed refresh: when the stamp file already exists, WriteReviewStamp
+// compares its recorded commit_sha against the current git HEAD SHA.
+//   - Same SHA → the stamp still describes HEAD; the write is a silent no-op
+//     (Skipped: true).
+//   - Different SHA (or the existing file is unreadable/corrupt) → the stamp is
+//     stale and is overwritten in place with fresh data (Written: true,
+//     Refreshed: true on the differing-SHA path).
 //
 // ResolvePlanID resolves the plan ID for the stamp:
 //  1. Read `id:` frontmatter field from the active plan file
@@ -51,18 +58,28 @@ type reviewStamp struct {
 type StampResult struct {
 	// Path is the absolute path of the stamp file (written or already present).
 	Path string
-	// Written is true when the stamp was newly written; false when it already existed.
+	// Written is true when the stamp was newly written to disk — either because
+	// no stamp existed yet, or because an existing stamp was refreshed (stale
+	// commit_sha). Callers that only care "is there fresh data on disk now"
+	// should keep checking Written; Refreshed distinguishes the two cases.
 	Written bool
-	// Skipped is true when the stamp already existed and the write was a no-op.
+	// Skipped is true when an existing stamp's commit_sha already matched the
+	// current HEAD and the write was a no-op.
 	Skipped bool
+	// Refreshed is true when an existing stamp was overwritten in place because
+	// its commit_sha no longer matched HEAD (or the existing file was
+	// unreadable/corrupt). Written is also true in this case.
+	Refreshed bool
 }
 
-// WriteReviewStamp writes a real review stamp at
+// WriteReviewStamp writes (or refreshes) a real review stamp at
 // <repoRoot>/.planning/.review-stamp-<prNumber>.json.
 //
-// When the stamp file already exists, WriteReviewStamp logs to stderr and
-// returns immediately without overwriting (idempotent behaviour — the merge
-// gate only checks for presence, not content).
+// When the stamp file already exists, WriteReviewStamp compares its recorded
+// commit_sha against the current git HEAD SHA: a match means the stamp still
+// describes HEAD and the write is a silent no-op (Skipped: true); a mismatch
+// (or an unreadable/corrupt existing file) means the stamp is stale and gets
+// overwritten in place with fresh data (Written: true, Refreshed: true).
 //
 // prNumber must be a non-empty decimal string (e.g. "202").
 // verdict must be one of "approved", "changes-requested", "unclear".
@@ -81,10 +98,26 @@ func WriteReviewStamp(prNumber, verdict, repoRoot string) (StampResult, error) {
 	planningDir := filepath.Join(root, ".planning")
 	stampPath := filepath.Join(planningDir, fmt.Sprintf(".review-stamp-%s.json", prNumber))
 
-	// Idempotency: if the stamp already exists, skip.
-	if _, err := os.Stat(stampPath); err == nil {
-		fmt.Fprintf(os.Stderr, "stamp already present at %s — skipping write\n", stampPath)
-		return StampResult{Path: stampPath, Written: false, Skipped: true}, nil
+	commitSHA := gitHeadSHA()
+
+	// Commit-sha-keyed refresh: if a stamp already exists, only skip when its
+	// commit_sha still matches HEAD. A stale or unreadable/corrupt stamp falls
+	// through to the write path below (fail open toward fresh data).
+	isRefresh := false
+	if existing, err := os.ReadFile(stampPath); err == nil {
+		var prev reviewStamp
+		if jsonErr := json.Unmarshal(existing, &prev); jsonErr == nil {
+			if prev.CommitSHA == commitSHA {
+				fmt.Fprintf(os.Stderr, "stamp already present at %s and matches HEAD (%s) — skipping write\n", stampPath, commitSHA)
+				return StampResult{Path: stampPath, Written: false, Skipped: true}, nil
+			}
+			// commit_sha differs from HEAD — stale, refresh it.
+			isRefresh = true
+		} else {
+			// Existing stamp is unreadable JSON — treat as stale and refresh.
+			fmt.Fprintf(os.Stderr, "stamp at %s is corrupt/unreadable (%v) — refreshing\n", stampPath, jsonErr)
+			isRefresh = true
+		}
 	}
 
 	// Ensure .planning/ exists.
@@ -97,7 +130,6 @@ func WriteReviewStamp(prNumber, verdict, repoRoot string) (StampResult, error) {
 	fmt.Sscanf(prNumber, "%d", &prInt)
 
 	planID := ResolvePlanID(root)
-	commitSHA := gitHeadSHA()
 	reviewedAt := time.Now().UTC().Format(time.RFC3339)
 
 	stamp := reviewStamp{
@@ -119,7 +151,7 @@ func WriteReviewStamp(prNumber, verdict, repoRoot string) (StampResult, error) {
 		return StampResult{}, fmt.Errorf("write stamp file: %w", err)
 	}
 
-	return StampResult{Path: stampPath, Written: true, Skipped: false}, nil
+	return StampResult{Path: stampPath, Written: true, Skipped: false, Refreshed: isRefresh}, nil
 }
 
 // ResolvePlanID returns the plan ID string for use in the stamp.

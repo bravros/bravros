@@ -43,7 +43,7 @@ against `cli/cmd/*.go` `Use:` and flag definitions.
 | `merge-lock` | Atomic merge-lock primitive (acquire / release / status) | — |
 | `mcp` | MCP server management (`mcp register`) | — |
 | `nextid` | Atomically reserve next plan, backlog, report and user-report IDs (JSON) | — |
-| `pr-review` | Write the PR review stamp from the latest bot verdict (`--write-stamp`) | — |
+| `pr-review` | Write the PR review stamp (`--write-stamp`) or read-only report the latest bot verdict (`--latest [--json]`) | — |
 | `police` | PreToolUse gate on pushes/merges to `main` | ✅ |
 | `promote` | Promote `homolog` → `main` with human-presence token | — |
 | `secrets` | Manage bravros secrets (`op` / `env` / `none` backends) | — |
@@ -293,3 +293,11 @@ it on where there is no session id). It is broader and longer-lived than the tok
 
 **`police status` reports only the token**, never stand-down state; ask `police standdown status` for
 that, which emits `active`, `source` (`env` / `marker`), `session_id` and `expires_at`.
+
+**The same hook also polices `@claude review` PR comments.** Any `gh pr comment` body containing
+both `@claude` and `review` (case-insensitive) must start with the exact canonical opening
+sentence and end with the exact `Required:` BRAVROS-VERDICT block — extra instructions in between
+are fine, `--body-file`/`-F` is refused because the hook cannot inspect file content. A blocked
+attempt gets the full canonical template echoed back in the block message. Full contract:
+[`docs/cli/police.md`](docs/cli/police.md#the-comment-cop--claude-review-bodies-are-policed-too).
+`/pr-review` sends this template verbatim — never hand-write or paraphrase the comment.

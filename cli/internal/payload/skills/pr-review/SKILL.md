@@ -21,6 +21,10 @@ and posts back to the PR. This skill never reviews, never polls, never merges.
      issue's timeline, so referring to "finding #3" silently spams an unrelated old issue and
      renders as its title mid-sentence. Write `finding 3`, or wrap it in backticks. Reserve bare
      `#N` for a genuine issue/PR you mean to link. Same rule applies to the PR body.
+   - `bravros police` enforces this comment at tool-call time: the body must start with the exact
+     canonical opening and end with the exact `Required:` block (extra instructions may go in
+     between); `--body-file`/`-F` is refused outright. A blocked attempt gets the canonical
+     template back in the block message — retry with that verbatim.
 4. **Verdict & Stamp Rules**:
    - `BRAVROS-VERDICT:` is authoritative. Prose is report-only.
    - `bravros pr-review "$PR" --write-stamp` is the single source of truth for writing `.planning/.review-stamp-<PR>.json`.

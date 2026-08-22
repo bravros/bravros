@@ -68,6 +68,23 @@ var policePreToolUseCmd = &cobra.Command{
 				return nil
 			}
 		}
+
+		if !isStandDownActive() {
+			if msg := checkPrCommentBody(command); msg != "" {
+				out := struct {
+					Stdout string `json:"stdout"`
+					Stderr string `json:"stderr"`
+					Exit   int    `json:"exitCode"`
+				}{
+					Stdout: "",
+					Stderr: msg,
+					Exit:   2,
+				}
+				enc, _ := json.Marshal(out)
+				fmt.Fprintln(cmd.OutOrStdout(), string(enc))
+				return nil
+			}
+		}
 		return nil
 	},
 }

@@ -6,9 +6,12 @@
 // after /pr instead of an inline bash poll loop.
 //
 // The @claude GitHub Action posts review replies as issue comments (author login
-// "claude", body starts with "**Claude finished"), not as formal reviews[].
-// fetchLatestBotReviewOrComment queries both sources and picks the latest entry
-// after sinceTime.
+// "claude"), not as formal reviews[]. A comment is admitted as a verdict
+// candidate when it is bot/Action-authored AND carries a line-anchored
+// BRAVROS-VERDICT sentinel (see isVerdictCandidateComment) — B-0023: the
+// Action's presentation copy ("**Claude finished ...") is not part of the wire
+// contract and changes without notice; the sentinel is. fetchLatestBotReviewOrComment
+// queries both sources and picks the latest entry after sinceTime.
 //
 // Exit codes (matches GNU timeout convention):
 //
@@ -32,6 +35,17 @@ import (
 
 // prReviewWriteStamp is the --write-stamp flag, registered in init() of pr.go.
 var prReviewWriteStamp bool
+
+// prReviewLatest and prReviewJSON back the --latest / --json flags,
+// registered in init() of pr.go. --latest restores ONE minimal read verb
+// after P-0187 retired every other pr-review read path: fetch the latest bot
+// review/comment and report its parsed verdict. It is READ-ONLY — it never
+// writes the review stamp (that stays --write-stamp's exclusive job) and
+// never touches the review-stamp token.
+var (
+	prReviewLatest bool
+	prReviewJSON   bool
+)
 
 // Verdict TIERS. The tier is the SOURCE of the verdict, and it is the whole
 // safety story of this file — it says whether the bot ASSERTED a verdict or
@@ -1509,14 +1523,107 @@ func adviseTier2NoToken(prNumber string, vr parseVerdictResult) {
 	fmt.Fprintf(os.Stderr, "   Claude Code CANNOT mint this token — that is intentional.\n")
 }
 
+// prReviewLatestJSON is the stable JSON shape emitted by
+// `bravros pr-review <PR> --latest --json`. This field set IS the read-only
+// contract — do not rename or remove a field without updating docs/CLI.md and
+// example-bravros-cli.md in the same PR (see cli/CLAUDE.md § Docs-sync
+// requirement).
+type prReviewLatestJSON struct {
+	Author   string `json:"author"`    // GitHub login that posted the candidate
+	Kind     string `json:"kind"`      // "review" or "comment" — which source it came from
+	State    string `json:"state"`     // GitHub review state (e.g. "APPROVED"), or "posted" for a comment
+	PostedAt string `json:"posted_at"` // ISO 8601 timestamp
+	Body     string `json:"body"`      // raw review/comment body
+	Verdict  struct {
+		Tier      string `json:"tier"`      // "marker", "prose", or "" when unclear
+		Value     string `json:"value"`     // "approved", "changes-requested", or "unclear"
+		Confident bool   `json:"confident"` // whether Value is stamp-grade (see parseVerdictResult)
+	} `json:"verdict"`
+}
+
+// runPRReviewLatest implements `bravros pr-review <PR> --latest [--json]`: a
+// READ-ONLY report of the latest bot review/comment and its parsed verdict.
+// It fetches via the same fetchLatestBotReviewOrComment used by
+// --write-stamp, but NEVER writes the review stamp and NEVER consumes the
+// review-stamp token — those stay --write-stamp's exclusive job. Returns the
+// process exit code.
+func runPRReviewLatest(prNumber string, asJSON bool) int {
+	botLogin := os.Getenv("REVIEW_BOT_LOGIN")
+	if botLogin == "" {
+		botLogin = "claude[bot]"
+	}
+
+	candidate, found, err := fetchLatestBotReviewOrComment(prNumber, botLogin, time.Time{})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "❌ could not fetch bot review: %v\n", err)
+		return 1
+	}
+	if !found {
+		fmt.Fprintf(os.Stderr, "❌ no bot review or comment found for PR #%s\n", prNumber)
+		return 1
+	}
+
+	vr := parseVerdict(candidate.Body)
+	if asJSON {
+		return printLatestJSON(candidate, vr)
+	}
+	printLatestHuman(candidate, vr)
+	return 0
+}
+
+// printLatestHuman renders the human-readable --latest output: author,
+// posted_at, the parsed verdict (tier + value + confidence), and the body.
+// Extracted from runPRReviewLatest so it is unit-testable against a stubbed
+// *botCandidate + parseVerdictResult without shelling out to gh.
+func printLatestHuman(candidate *botCandidate, vr parseVerdictResult) {
+	tier := vr.Tier
+	if tier == "" {
+		tier = "none"
+	}
+	fmt.Printf("author:     %s\n", candidate.Login)
+	fmt.Printf("posted_at:  %s\n", candidate.SubmittedAt)
+	fmt.Printf("verdict:    %s (tier=%s, confident=%t)\n", vr.Verdict, tier, vr.Confident)
+	fmt.Println("---")
+	fmt.Println(candidate.Body)
+}
+
+// printLatestJSON renders the --latest --json output: exactly one
+// prReviewLatestJSON object on stdout. Extracted from runPRReviewLatest so
+// the field set is unit-testable against a stubbed *botCandidate +
+// parseVerdictResult without shelling out to gh. Returns the process exit
+// code (1 on a marshal failure, which should not happen for this shape).
+func printLatestJSON(candidate *botCandidate, vr parseVerdictResult) int {
+	out := prReviewLatestJSON{
+		Author:   candidate.Login,
+		Kind:     candidate.Kind,
+		State:    candidate.State,
+		PostedAt: candidate.SubmittedAt,
+		Body:     candidate.Body,
+	}
+	out.Verdict.Tier = vr.Tier
+	out.Verdict.Value = vr.Verdict
+	out.Verdict.Confident = vr.Confident
+
+	enc, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "❌ could not marshal result: %v\n", err)
+		return 1
+	}
+	fmt.Println(string(enc))
+	return 0
+}
+
 // fetchLatestBotReviewOrComment queries both `gh pr view --json reviews` and
 // the issue-comments endpoint (via github.FetchLatestBotCommentJSON), then
 // returns the most recent matching entry after sinceTime (if any).
 //
 // The @claude GitHub Action posts review replies as issue comments (author login
-// "claude", body starting with "**Claude finished"), not as formal reviews[].
-// This function covers both sources so --wait reliably detects a bot reply
-// regardless of which posting mechanism was used.
+// "claude"), not as formal reviews[]. A comment only counts as a candidate when
+// it is bot/Action-authored AND carries a line-anchored BRAVROS-VERDICT
+// sentinel — see isVerdictCandidateComment and B-0023. Formal reviews keep
+// their existing author-only admission (no sentinel required). This function
+// covers both sources so --wait reliably detects a bot reply regardless of
+// which posting mechanism was used.
 //
 // Design note: isBot is called with the bare login from each source. The
 // default --bot flag is "claude[bot]" but we also accept the bare login
@@ -1562,14 +1669,21 @@ func fetchLatestBotReviewOrComment(prNumber string, botLogin string, sinceTime t
 	if repoErr == nil {
 		comment, commentErr := github.FetchLatestBotCommentJSON(repo, prNumber, botLogin)
 		if commentErr == nil && comment != nil {
-			// Only count comments whose body starts with "**Claude finished" —
-			// the @claude GitHub Action posts replies like:
-			//   **Claude finished @sbravros's task in 2m 59s** —— [View job](...)
-			// The closing `**` appears AFTER extra text (timing/job link), so we
-			// match the opening `**Claude finished` prefix only. This still excludes
-			// the user's "@claude review" request comment, which never starts with
-			// that literal.
-			if strings.HasPrefix(comment.Body, "**Claude finished") {
+			// A comment counts as a candidate when it is bot/Action-authored
+			// AND carries a line-anchored BRAVROS-VERDICT sentinel (B-0023).
+			// The @claude Action's presentation copy has already changed once
+			// (it no longer opens with the old "**Claude finished ..." prefix —
+			// it now posts prose like "### Review complete" followed by a
+			// checklist and the sentinel line), so matching on presentation
+			// text is not durable; the sentinel is the actual wire contract.
+			//
+			// isVerdictCandidateComment is what keeps the operator's own
+			// "@claude review ..." request comment from being misread as a
+			// verdict: that comment literally quotes the sentinel lines
+			// (BRAVROS-VERDICT: approved / BRAVROS-VERDICT: changes-requested)
+			// as instructions, but it is authored by the operator's login, not
+			// the bot/Action login — isBotOrAction is what excludes it.
+			if isVerdictCandidateComment(comment.Author, comment.Body, botLogin) {
 				if !sinceTime.IsZero() {
 					t, err := time.Parse(time.RFC3339, comment.PostedAt)
 					if err == nil && t.Before(sinceTime) {
@@ -1624,6 +1738,25 @@ func pickLatestCandidate(candidates []botCandidate) *botCandidate {
 		}
 	}
 	return best
+}
+
+// isVerdictCandidateComment reports whether an issue comment is eligible to be
+// treated as a verdict candidate by fetchLatestBotReviewOrComment (B-0023):
+// bot/Action authorship (isBotOrAction) AND a line-anchored BRAVROS-VERDICT
+// sentinel somewhere in the RAW body (findVerdictMarker). Both conditions are
+// required — authorship alone would let the operator's own "@claude review ..."
+// request comment through (it quotes the sentinel lines as instructions), and
+// a sentinel alone would let anyone's echo of the wire contract through.
+//
+// Extracted as its own pure function so the acceptance rule is unit-testable
+// without shelling out to gh — see prreview_test.go's
+// TestIsVerdictCandidateComment* cases.
+func isVerdictCandidateComment(login, body, botLogin string) bool {
+	if !isBotOrAction(login, botLogin) {
+		return false
+	}
+	_, ok := findVerdictMarker(body)
+	return ok
 }
 
 // isBotOrAction returns true when the login matches the configured botLogin

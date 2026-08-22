@@ -67,7 +67,8 @@ func TestWriteReviewStamp_WritesFile(t *testing.T) {
 }
 
 // TestWriteReviewStamp_Idempotent verifies that calling WriteReviewStamp twice
-// does NOT overwrite the existing stamp (idempotency).
+// in a row — with no intervening commit, so the recorded commit_sha still
+// matches HEAD — is a silent no-op (same-SHA skip path).
 func TestWriteReviewStamp_Idempotent(t *testing.T) {
 	dir := t.TempDir()
 
@@ -79,20 +80,26 @@ func TestWriteReviewStamp_Idempotent(t *testing.T) {
 	if !r1.Written {
 		t.Fatal("expected Written=true on first call")
 	}
+	if r1.Refreshed {
+		t.Error("expected Refreshed=false on first (fresh) call")
+	}
 
 	// Capture mtime.
 	info1, _ := os.Stat(r1.Path)
 
-	// Second write — should be skipped.
+	// Second write, same HEAD SHA — should be skipped.
 	r2, err := WriteReviewStamp("203", "changes-requested", dir)
 	if err != nil {
 		t.Fatalf("second WriteReviewStamp error: %v", err)
 	}
 	if r2.Written {
-		t.Error("expected Written=false on second call (stamp already exists)")
+		t.Error("expected Written=false on second call (commit_sha still matches HEAD)")
 	}
 	if !r2.Skipped {
 		t.Error("expected Skipped=true on second call")
+	}
+	if r2.Refreshed {
+		t.Error("expected Refreshed=false on a skipped call")
 	}
 
 	// Verify mtime unchanged (file was not re-written).
@@ -107,6 +114,137 @@ func TestWriteReviewStamp_Idempotent(t *testing.T) {
 	json.Unmarshal(data, &stamp)
 	if stamp["reviewer_verdict"] != "approved" {
 		t.Errorf("expected verdict to remain approved after second call, got %v", stamp["reviewer_verdict"])
+	}
+}
+
+// TestWriteReviewStamp_RefreshesOnStaleCommitSHA verifies that an existing
+// stamp whose commit_sha differs from the current HEAD is overwritten in
+// place with fresh data (plan_id, reviewed_at, reviewer_verdict, commit_sha),
+// preserving the schema and reporting Written=true, Refreshed=true.
+func TestWriteReviewStamp_RefreshesOnStaleCommitSHA(t *testing.T) {
+	dir := t.TempDir()
+
+	// First write establishes the file and the real HEAD SHA.
+	r1, err := WriteReviewStamp("204", "approved", dir)
+	if err != nil {
+		t.Fatalf("first WriteReviewStamp error: %v", err)
+	}
+
+	data, err := os.ReadFile(r1.Path)
+	if err != nil {
+		t.Fatalf("failed to read stamp file: %v", err)
+	}
+	var original reviewStamp
+	if err := json.Unmarshal(data, &original); err != nil {
+		t.Fatalf("stamp is not valid JSON: %v", err)
+	}
+	realSHA := original.CommitSHA
+
+	// Hand-craft a stale stamp: same schema, but commit_sha pointing at a
+	// commit that is not HEAD.
+	stale := original
+	stale.CommitSHA = "0000000000000000000000000000000000dead"
+	stale.PlanID = "stale-plan-id"
+	stale.ReviewerVerdict = "changes-requested"
+	staleData, err := json.MarshalIndent(stale, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal stale stamp: %v", err)
+	}
+	if err := os.WriteFile(r1.Path, append(staleData, '\n'), 0o644); err != nil {
+		t.Fatalf("write stale stamp: %v", err)
+	}
+
+	// Refresh call — commit_sha in the stale file no longer matches HEAD.
+	r2, err := WriteReviewStamp("204", "approved", dir)
+	if err != nil {
+		t.Fatalf("refresh WriteReviewStamp error: %v", err)
+	}
+	if !r2.Written {
+		t.Error("expected Written=true when refreshing a stale-SHA stamp")
+	}
+	if r2.Skipped {
+		t.Error("expected Skipped=false when refreshing a stale-SHA stamp")
+	}
+	if !r2.Refreshed {
+		t.Error("expected Refreshed=true when refreshing a stale-SHA stamp")
+	}
+
+	refreshedData, err := os.ReadFile(r1.Path)
+	if err != nil {
+		t.Fatalf("failed to read refreshed stamp file: %v", err)
+	}
+	var refreshed reviewStamp
+	if err := json.Unmarshal(refreshedData, &refreshed); err != nil {
+		t.Fatalf("refreshed stamp is not valid JSON: %v", err)
+	}
+
+	// Schema fields unchanged in shape.
+	if refreshed.PR != original.PR {
+		t.Errorf("expected pr to remain %d, got %d", original.PR, refreshed.PR)
+	}
+	// commit_sha recomputed to the real current HEAD, not the stale value.
+	if refreshed.CommitSHA != realSHA {
+		t.Errorf("expected commit_sha refreshed to %q, got %q", realSHA, refreshed.CommitSHA)
+	}
+	// plan_id recomputed rather than carried over from the stale file.
+	if refreshed.PlanID == "stale-plan-id" {
+		t.Error("expected plan_id to be recomputed on refresh, got stale value")
+	}
+	// reviewer_verdict updated to the value passed on the refresh call.
+	if refreshed.ReviewerVerdict != "approved" {
+		t.Errorf("expected reviewer_verdict=approved after refresh, got %q", refreshed.ReviewerVerdict)
+	}
+	// reviewed_at updated (non-empty, and not equal to a zero value).
+	if refreshed.ReviewedAt == "" {
+		t.Error("expected reviewed_at to be set on refresh")
+	}
+	// bypass/source untouched by the refresh — schema invariants hold.
+	if refreshed.Bypass != false {
+		t.Errorf("expected bypass=false after refresh, got %v", refreshed.Bypass)
+	}
+	if refreshed.Source != "github" {
+		t.Errorf("expected source=github after refresh, got %q", refreshed.Source)
+	}
+}
+
+// TestWriteReviewStamp_RefreshesOnCorruptExistingStamp verifies that an
+// existing stamp file containing invalid JSON is treated as stale and
+// overwritten (fail open toward fresh data), rather than erroring out.
+func TestWriteReviewStamp_RefreshesOnCorruptExistingStamp(t *testing.T) {
+	dir := t.TempDir()
+	planningDir := filepath.Join(dir, ".planning")
+	if err := os.MkdirAll(planningDir, 0o755); err != nil {
+		t.Fatalf("failed to create .planning dir: %v", err)
+	}
+	stampPath := filepath.Join(planningDir, ".review-stamp-205.json")
+	if err := os.WriteFile(stampPath, []byte("{not valid json"), 0o644); err != nil {
+		t.Fatalf("failed to write corrupt stamp: %v", err)
+	}
+
+	result, err := WriteReviewStamp("205", "approved", dir)
+	if err != nil {
+		t.Fatalf("WriteReviewStamp returned error on corrupt existing stamp: %v", err)
+	}
+	if !result.Written {
+		t.Error("expected Written=true when the existing stamp is corrupt")
+	}
+	if result.Skipped {
+		t.Error("expected Skipped=false when the existing stamp is corrupt")
+	}
+	if !result.Refreshed {
+		t.Error("expected Refreshed=true when the existing stamp is corrupt")
+	}
+
+	data, err := os.ReadFile(stampPath)
+	if err != nil {
+		t.Fatalf("failed to read stamp file after refresh: %v", err)
+	}
+	var stamp map[string]interface{}
+	if err := json.Unmarshal(data, &stamp); err != nil {
+		t.Fatalf("stamp is not valid JSON after refresh: %v", err)
+	}
+	if stamp["reviewer_verdict"] != "approved" {
+		t.Errorf("expected reviewer_verdict=approved after refresh, got %v", stamp["reviewer_verdict"])
 	}
 }
 

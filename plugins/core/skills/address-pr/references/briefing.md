@@ -6,12 +6,17 @@ PR number: `$ARGUMENTS` if numeric, else `PR=$(gh pr view --json number -q .numb
 
 ## Fetch the review — two sources, never CI logs
 
-**GitHub — latest bot review.** The @claude Action posts under login `claude`, NOT `claude[bot]` — keep BOTH filter halves. Keep `--paginate`: GitHub returns issue comments oldest-first, so a page-1-only read on a >30-comment PR returns the 30th-oldest and calls it "latest".
+**GitHub — latest bot review.** Use the CLI's own read-only verb instead of hand-rolling `gh api`
+pagination — it already handles both bot-comment and formal-review sources, paginates fully, and
+never writes the stamp:
 
 ```bash
-BODY=$(gh api --paginate "repos/{owner}/{repo}/issues/$PR/comments" --jq '[.[] | select(.user.login == "claude" or (.user.login | endswith("[bot]")))] | sort_by(.created_at) | last | .body')
-VERDICT=$(printf '%s\n' "$BODY" | grep -oE '^BRAVROS-VERDICT: (approved|changes-requested)$' | tail -1)
+bravros pr-review "$PR" --latest --json
 ```
+
+`.body` carries the raw review text, `.verdict.value` the parsed sentinel (`approved` /
+`changes-requested` / `unclear`), `.verdict.tier` (`marker`/`prose`/``) and `.verdict.confident`
+whether it's stamp-grade. Human-readable form: `bravros pr-review "$PR" --latest` (no `--json`).
 
 **Local** — newest `.planning/pr-reviews/${PR}-*.md` (written by `/local-review`; earlier files are historical). Frontmatter schema, merge/dedupe rules, fix priorities: `references/fetch-review-data.md`.
 
@@ -34,19 +39,14 @@ gh pr checks "$PR" --watch --fail-fast > /tmp/bravros-checks-$PR.txt 2>&1
 RC=$?; tail -8 /tmp/bravros-checks-$PR.txt; echo "checks_rc=$RC"
 ```
 
-**Round ≥ 2: drop the previous round's stamp first.** `--write-stamp` skips when a stamp file
-already exists, so from the second round on it silently preserves round 1's `commit_sha` — an
-approval for code that no longer exists. That stale record then blocks `/finish`, which is exactly
-how PR #1919 stalled mid-merge and needed a hand-run `rm`. Deleting a stamp only ever *removes*
-authority (the gate reads presence, so a missing stamp blocks and never permits), so this needs no
-operator sign-off — but only ever delete one whose `commit_sha` differs from HEAD:
-
-```bash
-STAMP=".planning/.review-stamp-${PR}.json"
-[ -f "$STAMP" ] && [ "$(grep -o '"commit_sha": *"[^"]*"' "$STAMP" | cut -d'"' -f4)" != "$(git rev-parse HEAD)" ] && rm -f "$STAMP"
-```
-
-Then unconditionally: `bravros pr-review "$PR" --write-stamp` — the ONE stamp authority. It writes only on a sentinel `BRAVROS-VERDICT: approved`; prose approval, `changes-requested`, or no review are safe no-ops. NEVER hand-write `.planning/.review-stamp-*` files. Prose-only approval blocked? The operator runs `bravros pr-review unlock` in a separate terminal (Claude cannot mint it) — never loop the review to force a marker.
+`bravros pr-review "$PR" --write-stamp` is the ONE stamp authority, and it is commit-sha-keyed:
+same HEAD as the existing stamp → skip (no-op); different HEAD → refresh the stamp in place. Safe
+to re-run every round without any manual stamp deletion first — the old "delete the stamp if its
+`commit_sha` differs from HEAD" dance is obsolete. It writes only on a sentinel `BRAVROS-VERDICT:
+approved`; prose approval, `changes-requested`, or no review are safe no-ops. NEVER hand-write
+`.planning/.review-stamp-*` files. Prose-only approval blocked? The operator runs `bravros
+pr-review unlock` in a separate terminal (Claude cannot mint it) — never loop the review to force
+a marker.
 
 ## Route — severity matrix selects the branch (not advisory)
 

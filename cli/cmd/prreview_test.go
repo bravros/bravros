@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -164,22 +165,57 @@ func TestFetchLatestBotReviewOrComment_ReviewWinsWhenNewer(t *testing.T) {
 	}
 }
 
-// TestFetchLatestBotReviewOrComment_UserRequestCommentExcluded verifies that a
-// comment whose body does NOT start with "**Claude finished" is never counted
-// as a bot review. The "@claude review" request comment posted by the human must
-// be ignored, even if the author login matches.
-func TestFetchLatestBotReviewOrComment_UserRequestCommentExcluded(t *testing.T) {
-	// The body-prefix filter is: strings.HasPrefix(body, "**Claude finished")
-	// Simulate a user's "@claude review" comment — it should not pass the filter.
-	userRequestBody := "@claude review\nPlease take a look at this PR."
-	// Realistic bot reply shape — closing `**` lands AFTER timing/job text.
-	botReplyBody := "**Claude finished @sbravros's task in 2m 59s** —— [View job](https://example/run/1)\n\nReview verdict."
+// b0023CanonicalRequestBody is the byte-shape of the operator's own
+// "@claude review" request comment (skills/pr-review/references/briefing.md),
+// which QUOTES both sentinel lines verbatim as instructions. This is the trap
+// B-0023's fix has to survive: a naive sentinel-only scan would misread the
+// request itself as a verdict. Author (isBotOrAction), not sentinel presence,
+// is what must separate it from a real bot verdict.
+const b0023CanonicalRequestBody = `@claude review this PR and check if we are able to merge. Analyze the code changes for any issues, security concerns, or improvements needed.
 
-	if strings.HasPrefix(userRequestBody, "**Claude finished") {
-		t.Error("user's @claude review request comment incorrectly passed the body-prefix filter")
+Required: end your review with EXACTLY ONE of these lines, as plain text, alone on its own line, as the final line:
+
+BRAVROS-VERDICT: approved
+BRAVROS-VERDICT: changes-requested
+
+Do NOT wrap the line in an HTML comment, code fence, blockquote, or list item — plain visible text only. Emit approved only if you would merge this PR as-is. A finding you consider non-blocking does not prevent approved. Any blocking finding requires changes-requested.`
+
+// b0023ActionReplyBody is the B-0023 repro shape from PR #59: the @claude
+// Action's current output opens with a markdown heading and a progress
+// checklist instead of the old "**Claude finished" presentation prefix, and
+// ends with the sentinel as the final line.
+const b0023ActionReplyBody = `### Review complete
+
+- [x] Gather context (diff, CLAUDE.md, changed files)
+- [x] Check for issues, security concerns, improvements
+- [x] Post final verdict
+
+No blocking issues found.
+
+BRAVROS-VERDICT: approved`
+
+// TestIsVerdictCandidateComment_B0023Repro pins the B-0023 fix directly: a
+// candidate is (bot/Action authorship) AND (a line-anchored BRAVROS-VERDICT
+// sentinel), not presentation text. Three required shapes (dispatch spec):
+// the "### Review complete"-style Action reply IS a candidate; the operator's
+// own canonical request comment is NOT (author filter); a bot comment with no
+// sentinel at all is NOT (falls through to tier-2/no-stamp, as reviews still do).
+func TestIsVerdictCandidateComment_B0023Repro(t *testing.T) {
+	const botLogin = "claude[bot]" // the actual --bot flag default
+
+	if !isVerdictCandidateComment("claude", b0023ActionReplyBody, botLogin) {
+		t.Error("the ### Review complete Action reply (bare 'claude' login, trailing sentinel) must be a candidate")
 	}
-	if !strings.HasPrefix(botReplyBody, "**Claude finished") {
-		t.Error("bot reply did not pass the body-prefix filter — filter may be broken")
+	if isVerdictCandidateComment("skaisser", b0023CanonicalRequestBody, botLogin) {
+		t.Error("the operator's own request comment (non-bot author) must NOT be a candidate, even though it quotes both sentinel lines")
+	}
+	if isVerdictCandidateComment("claude", "Looks fine overall, no concerns.", botLogin) {
+		t.Error("a bot comment with no BRAVROS-VERDICT sentinel must NOT be a candidate")
+	}
+	// A non-bot author with a well-formed sentinel is still excluded —
+	// authorship is not optional even when the sentinel is real.
+	if isVerdictCandidateComment("some-random-contributor", "BRAVROS-VERDICT: approved", botLogin) {
+		t.Error("a well-formed sentinel from a non-bot author must NOT be a candidate")
 	}
 }
 
@@ -1971,12 +2007,19 @@ func TestParseVerdict_ClearToMergePhrases(t *testing.T) {
 // --terse failure: the human's "@claude re-review" request was the
 // chronologically-last comment, and the old verdict path classified it
 // (→ unclear) instead of the bot's "Clear to merge" reply that preceded the
-// request being answered. Every verdict-consuming path now selects via
-// fetchLatestBotReviewOrComment, whose comment source only admits bodies with
-// the "**Claude finished" prefix — so the human request never enters the pool.
+// request being answered.
+//
+// Post-B-0023, the admission rule differs by source: an issue COMMENT is only
+// a candidate when it carries a line-anchored BRAVROS-VERDICT sentinel
+// (isVerdictCandidateComment) — a marker-less prose reply like PR #149's
+// "Clear to merge" body would no longer reach the pool via the comment
+// source. A formal REVIEW keeps its original author-only admission (no
+// sentinel required), which is where this scenario now lives: the pool below
+// models the bot reply as Kind "review", matching fetchLatestBotReviewOrComment's
+// unchanged Source 1 handling.
 func TestVerdictSelection_BotReplyBeatsNewerHumanRequest(t *testing.T) {
 	humanRequestBody := "@claude re-review — all 6 prior findings addressed, please confirm."
-	botReplyBody := "**Claude finished @sbravros's task in 2m 59s** —— [View job](https://example/run/1)\n\nClear to merge. All 6 prior findings are correctly resolved with no new concerns introduced."
+	botReplyBody := "Clear to merge. All 6 prior findings are correctly resolved with no new concerns introduced."
 
 	// The old bug: classifying the raw newest comment (the human request)
 	// yields unclear. Pin that shape so the test documents the failure mode.
@@ -1984,23 +2027,25 @@ func TestVerdictSelection_BotReplyBeatsNewerHumanRequest(t *testing.T) {
 		t.Fatalf("human re-review request should parse unclear/unconfident, got (%q, %v)", got.Verdict, got.Confident)
 	}
 
-	// The comment-source admission filter excludes the human request even
-	// though it is newer; only the bot reply is eligible for the pool.
-	if strings.HasPrefix(humanRequestBody, "**Claude finished") {
-		t.Error("human request comment must not pass the **Claude finished prefix filter")
+	// Confirm the comment-source rule directly: this bot reply has no
+	// sentinel, so as an issue COMMENT it would NOT be admitted at all —
+	// which is exactly why the pool below models it as a review instead.
+	if isVerdictCandidateComment("claude", botReplyBody, "claude[bot]") {
+		t.Fatal("a marker-less prose reply must NOT be a comment candidate post-B-0023")
 	}
-	if !strings.HasPrefix(botReplyBody, "**Claude finished") {
-		t.Error("bot reply must pass the **Claude finished prefix filter")
+	if isVerdictCandidateComment("skaisser", humanRequestBody, "claude[bot]") {
+		t.Error("the human's own re-review request must never be a candidate (non-bot author)")
 	}
 
-	// Pool as fetchLatestBotReviewOrComment would build it: the bot reply is
-	// admitted; the human request is not (prefix filter + isBotOrAction).
+	// Pool as fetchLatestBotReviewOrComment would build it: the bot's formal
+	// review is admitted (author-only, unchanged); the human's issue comment
+	// is not — it is not even bot-authored.
 	candidates := []botCandidate{
 		{
-			Kind:        "comment",
+			Kind:        "review",
 			Login:       "claude",
 			Body:        botReplyBody,
-			State:       "posted",
+			State:       "COMMENTED",
 			SubmittedAt: "2026-06-01T20:50:00Z",
 		},
 	}
@@ -2049,3 +2094,156 @@ func TestPickLatestCandidate(t *testing.T) {
 
 // TestApplyBotVerdict verifies the --terse verdict population helper: a found
 // bot body is classified through parseVerdict; found=false records "none".
+
+// ---------------------------------------------------------------------------
+// P-0021 Phase 4 — pr-review --latest [--json] (the restored read-only verb)
+// ---------------------------------------------------------------------------
+
+// captureStdout is defined in testutil_test.go and reused here.
+
+// TestPrintLatestHuman_RendersFieldsAndWritesNoStamp pins the --latest
+// (non-JSON) rendering: the output must carry author, posted_at, the parsed
+// verdict, and the raw body — and the read path must NEVER write a review
+// stamp, unlike --write-stamp.
+func TestPrintLatestHuman_RendersFieldsAndWritesNoStamp(t *testing.T) {
+	orig, _ := os.Getwd()
+	dir := t.TempDir()
+	os.Chdir(dir)
+	defer os.Chdir(orig)
+
+	candidate := &botCandidate{
+		Kind:        "comment",
+		Login:       "claude",
+		Body:        "BRAVROS-VERDICT: approved\n\nLGTM overall.",
+		State:       "posted",
+		SubmittedAt: "2026-08-21T10:00:00Z",
+	}
+	vr := parseVerdict(candidate.Body)
+
+	out := captureStdout(t, func() { printLatestHuman(candidate, vr) })
+
+	for _, want := range []string{"claude", "2026-08-21T10:00:00Z", "approved", candidate.Body} {
+		if !strings.Contains(out, want) {
+			t.Errorf("printLatestHuman output missing %q; got:\n%s", want, out)
+		}
+	}
+
+	stampPath := filepath.Join(dir, ".planning", ".review-stamp-42.json")
+	if _, err := os.Stat(stampPath); err == nil {
+		t.Error("printLatestHuman (read-only --latest) must never write a review stamp")
+	}
+}
+
+// TestPrintLatestJSON_FieldSetIsExactlyDocumented pins the --latest --json
+// field set: top-level author/kind/state/posted_at/body/verdict, and the
+// nested verdict object's tier/value/confident — no more, no less. Changing
+// this shape needs a docs/CLI.md + example-bravros-cli.md update in the same
+// PR (cli/CLAUDE.md § Docs-sync requirement).
+func TestPrintLatestJSON_FieldSetIsExactlyDocumented(t *testing.T) {
+	orig, _ := os.Getwd()
+	dir := t.TempDir()
+	os.Chdir(dir)
+	defer os.Chdir(orig)
+
+	candidate := &botCandidate{
+		Kind:        "review",
+		Login:       "claude[bot]",
+		Body:        "Ready to merge.",
+		State:       "APPROVED",
+		SubmittedAt: "2026-08-21T11:00:00Z",
+	}
+	vr := parseVerdict(candidate.Body)
+
+	var code int
+	out := captureStdout(t, func() { code = printLatestJSON(candidate, vr) })
+	if code != 0 {
+		t.Fatalf("printLatestJSON: expected exit code 0, got %d", code)
+	}
+
+	var got map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("output is not valid JSON: %v\noutput: %s", err, out)
+	}
+
+	wantTop := map[string]bool{
+		"author": true, "kind": true, "state": true,
+		"posted_at": true, "body": true, "verdict": true,
+	}
+	for k := range got {
+		if !wantTop[k] {
+			t.Errorf("unexpected top-level field %q in --latest --json output", k)
+		}
+	}
+	for k := range wantTop {
+		if _, ok := got[k]; !ok {
+			t.Errorf("missing expected top-level field %q in --latest --json output", k)
+		}
+	}
+
+	verdict, ok := got["verdict"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("verdict field is not an object: %v", got["verdict"])
+	}
+	wantVerdict := map[string]bool{"tier": true, "value": true, "confident": true}
+	for k := range verdict {
+		if !wantVerdict[k] {
+			t.Errorf("unexpected verdict field %q", k)
+		}
+	}
+	for k := range wantVerdict {
+		if _, ok := verdict[k]; !ok {
+			t.Errorf("missing expected verdict field %q", k)
+		}
+	}
+
+	if got["author"] != "claude[bot]" || got["kind"] != "review" || got["state"] != "APPROVED" {
+		t.Errorf("unexpected values in --latest --json output: %+v", got)
+	}
+	if verdict["value"] != "approved" {
+		t.Errorf("verdict.value = %v; want approved", verdict["value"])
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, ".planning")); err == nil {
+		t.Error("--latest --json (read-only) must never create .planning (no stamp side effects)")
+	}
+}
+
+// TestLatestFlagsRegistered verifies --latest and --json are registered on
+// pr-review with the documented defaults.
+func TestLatestFlagsRegistered(t *testing.T) {
+	latest := prReviewCmd.Flags().Lookup("latest")
+	if latest == nil {
+		t.Fatal("expected --latest flag on pr-review, but it was not registered")
+	}
+	if latest.Value.Type() != "bool" || latest.DefValue != "false" {
+		t.Errorf("expected --latest to be a bool defaulting false, got type=%q default=%q", latest.Value.Type(), latest.DefValue)
+	}
+
+	jsonFlag := prReviewCmd.Flags().Lookup("json")
+	if jsonFlag == nil {
+		t.Fatal("expected --json flag on pr-review, but it was not registered")
+	}
+	if jsonFlag.Value.Type() != "bool" || jsonFlag.DefValue != "false" {
+		t.Errorf("expected --json to be a bool defaulting false, got type=%q default=%q", jsonFlag.Value.Type(), jsonFlag.DefValue)
+	}
+}
+
+// TestRetiredReadPathsMessage_NamesSurvivingVerbs pins the bare
+// `bravros pr-review <PR>` (no flags) error content: it must still refuse
+// (pr.go's Run() os.Exit(1)s right after printing it, which a unit test
+// cannot survive — see TestReviewStampGate_MintRefusedInsideClaude in
+// reviewstamp_test.go for the same pattern), and the message must name every
+// surviving verb, including the newly restored --latest [--json].
+func TestRetiredReadPathsMessage_NamesSurvivingVerbs(t *testing.T) {
+	msg := strings.Join(retiredReadPathsMessage(), "\n")
+	for _, want := range []string{
+		"retired (P-0187)",
+		"pr-review <PR> --latest [--json]",
+		"pr-review --write-stamp",
+		"pr-review unlock|status|revoke",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("retired-paths message missing %q; got:\n%s", want, msg)
+		}
+	}
+}
