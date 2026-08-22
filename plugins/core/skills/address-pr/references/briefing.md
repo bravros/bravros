@@ -50,10 +50,18 @@ a marker.
 
 ## Route — severity matrix selects the branch (not advisory)
 
+**🟢 no fixes** when the round applied ZERO code changes — every finding was informational, out of
+scope, already satisfied, or a suggestion you declined *and* the decline needs no code. HEAD is
+unchanged since the review, so steps 2–3 were correctly skipped: nothing to ship, nothing to push,
+no CI to re-watch, and the existing stamp still keys to HEAD.
 **⚠️ re-review** if ANY: blockers fixed (logic/security/validation) · files significantly restructured · business logic or control flow changed · test behavior modified (not just added) · security-sensitive files touched (auth, payments, permissions).
-**✅ optional** only when ALL fixes were style/formatting, typos/comments, simple additions (return types, null checks), or test-only additions.
+**✅ optional** only when fixes WERE applied and all of them were style/formatting, typos/comments, simple additions (return types, null checks), or test-only additions.
 
-- **Autonomous:** print `STATUS: fixes-pushed. NEXT: review`, return.
+- **Autonomous:** print `STATUS: fixes-pushed. NEXT: review`, return. On 🟢 print `STATUS: no-fixes-needed. NEXT: finish` instead — the pipeline owns the hand-off, never call `/finish` yourself here.
+- **🟢 matched (interactive): invoke `Skill({skill: "finish"})` immediately — do NOT ask.** State in one line that nothing was actionable, then hand off. There is nothing to re-review (no diff) and no merge question to pose that `/finish` does not already ask itself, so parking on `ask_question` only burns the stamp's lifetime. **Pass NO args** — `--merge-main`/`--no-main` are pre-authorizations reserved for a skill that just ran its own `ask_question`, and this branch deliberately ran none; bare `/finish` merges to homolog and runs its own homolog→main confirmation.
+  - *Why auto:* `.planning/.review-stamp-${PR}.json` is commit-sha-keyed to HEAD. Any pull, rebase, branch switch, or hook that moves HEAD stales it and forces an entire extra review round for a PR that needed no work. Advancing straight to the merge closes that window; asking holds it open.
+  - **Two hard exceptions — stop and report, do not auto-finish:** the review's sentinel says `BRAVROS-VERDICT: changes-requested` (you judged nothing actionable, the reviewer disagreed — that conflict is the operator's call), or a finding WAS actionable and you chose not to fix it (that is blocked, not clean). "Informational" is a property of the finding, never a convenience label for work you skipped.
+  - Skip the step-8 announce on this branch — nothing was published, and `/finish` fires its own. One announcement per event.
 - **⚠️ matched (interactive): invoke `Skill({skill: "pr-review"})` immediately — state which condition fired, do NOT ask.** Announcing the recommendation instead of acting on it is the exact failure this branch prevents. Only two skip conditions: already auto-triggered this invocation, or the stale-review gate owns the wait. "Bot already approved" / "small change" are NOT skips.
 - **✅ only (interactive): ask ONCE for the whole remaining path** — the single merge-decision handoff. Only a skill that just ran its own ask_question may pass `--merge-main`/`--no-main`:
   - Merge to homolog, then main → `Skill({skill: "finish", args: "--merge-main"})` — a pre-authorization, not a guarantee: `/finish` still stops on failing CI, conflicts, or an autonomous lock. Say so in the option text.

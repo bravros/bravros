@@ -282,12 +282,21 @@ a human is present. A project `CLAUDE.md` that routes promotion through `/promot
 the standalone case; it does not make Step 7 a bypass, and Step 7 never needs a promote token.
 Say which path you are on, then take it — do not stop mid-merge to reconcile the two.
 
+⛔ **Never say "promote" to the operator in this step, and never imply a token is wanted.** The
+word is `/promote`'s trigger: an operator who reads it leaves for a second terminal, runs
+`bravros promote unlock`, and pastes back a token this path has no use for. Observed live on
+afterpay PR #395/#396 — the token was minted mid-merge and expired unused while Step 7 merged
+through its own PR gate. Operator-facing text in this step says **merge to main**; `/promote` is
+named only inside the *defer* option, where it is genuinely the next path. If the operator hands
+you a token anyway, say plainly that Step 7 does not consume one and carry on — never abandon a
+green main PR to re-enter through `/promote`.
+
 ```bash
 # <!-- announce-template: "Mesclagem na produção aguarda sua decisão. Projeto {PROJECT}." -->
 bravros ha say --force "Mesclagem na produção aguarda sua decisão. Projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio >/dev/null 2>&1 || true
 ```
 
-First **report the promotion scope** — this merge ships everything accumulated on homolog, not
+First **report the main-merge scope** — this merge ships everything accumulated on homolog, not
 just this feature, and the operator answered "merge to main" about their own PR:
 
 ```bash
@@ -298,13 +307,30 @@ echo "count: $(git rev-list --count origin/main..origin/homolog)"
 
 Commits from other features in that list → name them before merging.
 
+### The question — ask it with these three options, in this order
+
+Header chip: **`Main merge`** (never `Promote`). Question: *"PR #N is merged into homolog. Merge
+homolog → main now?"* Three options, always all three — a run that silently drops the middle one
+is drift, not brevity:
+
+| Option label | Description must say |
+|---|---|
+| `Not yet — accumulate` | Stop here; homolog keeps the work. Merge later with `/promote`, which is the standalone path and **does** need a token minted in a separate terminal. |
+| `Yes — merge to main now` | Opens a PR from homolog → main and runs the full check + readiness gate again. **No promote token needed — this merges through the PR gate.** Name the commit count it ships. |
+| `Open the PR, I'll merge it myself` | Same PR, same gates, stops before the merge and hands you the URL. |
+
+Pick the recommendation from the repo's own convention (bundling several fixes before one
+main merge ⇒ recommend *Not yet*), and put it first with `(Recommended)` appended. The **no
+token needed** clause is not optional garnish — it is the sentence that stops the operator
+leaving to mint one.
+
 On "merge to main":
 
 ```bash
 MAIN_PR=$(gh pr list --base main --head homolog --json number -q '.[0].number')
 if [ -z "$MAIN_PR" ]; then
   gh pr create --base main --head homolog --title "🔀 merge: homolog → main" \
-    --body "Promoting accumulated homolog work to main. Opened by /finish." \
+    --body "Merges accumulated homolog work into main. Opened by /finish step 7 — PR-gated, no promote token involved." \
     || { echo "❌ could not open the homolog→main PR"; exit 1; }
   MAIN_PR=$(gh pr list --base main --head homolog --json number -q '.[0].number')
   [ -z "$MAIN_PR" ] && { echo "❌ PR opened but its number could not be resolved"; exit 1; }

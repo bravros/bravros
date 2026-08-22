@@ -17,13 +17,16 @@ PR number: `$ARGUMENTS` if numeric, else `PR=$(get-pr-info --json number -q .num
 
 1. **Fetch Review**: GitHub bot comment + local `.workflow/pr-reviews/${PR}-*.md`.
 2. **Fix**: Apply all fixes (blockers → code issues → style → suggestions). Touch only files named in review.
-3. **Push, Verify, Stamp**:
+3. **Push, Verify, Stamp** — skip this whole step when no fixes were applied; HEAD has not moved, so there is nothing to ship and the stamp still keys to HEAD:
    - `/ship` with `🐛 fix: address PR #XX review feedback`
    - `gh pr checks "$PR" --watch --fail-fast > /tmp/bravros-checks-$PR.txt 2>&1` then `RC=$?` — **never pipe the gate**; `| tail` returns the pipe's status and a red build reads as success.
    - `bravros pr-review "$PR" --write-stamp` is commit-sha-keyed and safe to re-run every round: same HEAD → no-op, new HEAD → refreshes in place. No manual stamp deletion needed.
 4. **Route**:
+   - **🟢 No fixes**: ZERO code changes this round — every finding informational, out of scope, or already satisfied -> invoke `Skill({skill: "finish"})` immediately, **no args, no ask**. Say in one line that nothing was actionable, then hand off. Stop and report instead when the sentinel said `changes-requested`, or when something WAS actionable and you skipped it.
    - **⚠️ Re-review**: if blockers fixed, logic changed, test behavior modified, or security files touched -> invoke `Skill({skill: "pr-review"})`.
-   - **✅ Optional**: only if style/typos/comments/simple additions -> ask single merge handoff for `/finish`.
+   - **✅ Optional**: fixes applied and all cosmetic (style/typos/comments/simple additions) -> ask single merge handoff for `/finish`.
+
+Announce below only on ⚠️ / ✅. On 🟢 nothing was published and `/finish` fires its own — one announcement per event.
 
 ```bash
 bravros ha say --force "Correções da revisão $PR publicadas, próxima etapa pendente. Projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." >/dev/null 2>&1 || true
@@ -273,7 +276,7 @@ Complete a feature — merge the approved PR, record plan completion, route the 
 
 Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
-INTENT: land this feature — merge the PR into its base, record completion in `.workflow/events.jsonl`, route the promotion-to-main decision. Git/project operation only; never touches application code.
+INTENT: land this feature — merge the PR into its base, record completion in `.workflow/events.jsonl`, route the homolog→main decision. Git/project operation only; never touches application code.
 
 ## Quick Summary
 
@@ -282,7 +285,7 @@ INTENT: land this feature — merge the PR into its base, record completion in `
 3. **CI Check**: `gh pr checks --watch --fail-fast` **redirected to a file**, then `RC=$?` — never piped. Then the readiness gate: merge only at `mergeStateStatus: CLEAN`.
 4. **Merge & Verify**: Execute merge gate and post-merge blob verification.
 5. **Sync & Clean**: Fast-forward local branches and sweep review stamps.
-6. **Main Route**: Route homolog→main decision with operator confirmation — the main PR repeats step 3 in full.
+6. **Main Route**: Route the homolog→main decision with operator confirmation — the main PR repeats step 3 in full. Ask it under a **`Main merge`** header with all three options, and **never use the word "promote" toward the operator here**: this path merges through its own PR gate and consumes no promote token, but the word sends them off to mint one (afterpay #395/#396 — minted mid-merge, expired unused). `/promote` belongs only in the *defer* option, where it is the real next path.
 
 Refer to [`references/flow.md`](references/flow.md) for full shell script flow details. Its bash
 is copy-paste code, not illustration: a shell-trap table, the stamp-freshness block, the CI and
