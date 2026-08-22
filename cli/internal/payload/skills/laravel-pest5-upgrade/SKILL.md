@@ -1,5 +1,5 @@
 ---
-name: pest5-upgrade
+name: laravel-pest5-upgrade
 description: Upgrade a PHP/Laravel repo from Pest 4 to Pest 5 and turn on Test Impact Analysis (TIA) so local full runs only re-execute the tests a change can reach. Use this whenever someone mentions upgrading Pest, moving to Pest 5, `pestphp/pest ^5`, Test Impact Analysis, `--tia`, "why is my test suite so slow", speeding up a slow PHP test suite, `Tia mode requires Pest tests`, `WorkerCrashedException` after enabling TIA, converting PHPUnit class-style tests to Pest, or setting up a TIA baseline — even if they don't say "Pest 5" outright. Also use it when a Pest/PHPUnit dependency bump has broken tests and they need help attributing the fallout.
 ---
 

@@ -31,21 +31,39 @@ var policePreToolUseCmd = &cobra.Command{
 			return nil
 		}
 		var payload struct {
-			ToolName string `json:"toolName"`
-			Input    struct {
+			ToolName  string `json:"tool_name"`
+			ToolName2 string `json:"toolName"` // legacy shim: nothing real sends this
+			Input     struct {
 				Command string `json:"command"`
-			} `json:"input"`
+			} `json:"tool_input"`
+			Input2 struct {
+				Command string `json:"command"`
+			} `json:"input"` // legacy shim: nothing real sends this
 		}
 		if err := json.Unmarshal(data, &payload); err != nil {
 			return nil
 		}
 
-		// Only intercept bash commands
-		if payload.ToolName != "bash" && payload.ToolName != "Bash" {
-			return nil
+		// Claude Code's real PreToolUse contract is snake_case
+		// (tool_name/tool_input). The camelCase fallback below (toolName/input)
+		// is defense-in-depth only: no supported caller emits it, but a payload
+		// in that legacy shape silently approving a main push is the exact bug
+		// this fixes, so the shim fails closed instead of being dropped.
+		// Remove once a payload-contract version field lets us assert the shape
+		// instead of guessing.
+		toolName := payload.ToolName
+		if toolName == "" {
+			toolName = payload.ToolName2
+		}
+		command := payload.Input.Command
+		if command == "" {
+			command = payload.Input2.Command
 		}
 
-		command := payload.Input.Command
+		// Only intercept bash commands
+		if toolName != "bash" && toolName != "Bash" {
+			return nil
+		}
 		if isMainMerge(command) {
 			if isStandDownActive() {
 				return nil

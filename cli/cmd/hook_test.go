@@ -3,10 +3,13 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 
+	"github.com/bravros/bravros/cli/internal/payload"
 	"github.com/bravros/bravros/cli/internal/secrets"
 	"github.com/spf13/cobra"
 )
@@ -110,8 +113,14 @@ func TestVerifyInstallCheck_MarkerPresent(t *testing.T) {
 	if !containsStr(ctx, "v1.10.2") {
 		t.Errorf("additionalContext should mention version v1.10.2, got %q", ctx)
 	}
-	if !containsStr(ctx, "/auto-verify-install") {
-		t.Errorf("additionalContext should mention /auto-verify-install, got %q", ctx)
+	if !containsStr(ctx, "/verify-install") {
+		t.Errorf("additionalContext should mention /verify-install, got %q", ctx)
+	}
+	if !containsStr(ctx, "--auto") {
+		t.Errorf("additionalContext should mention the --auto flag, got %q", ctx)
+	}
+	if containsStr(ctx, "auto-verify-install") {
+		t.Errorf("additionalContext should not mention the nonexistent auto-verify-install skill, got %q", ctx)
 	}
 
 	// Marker must be deleted.
@@ -243,8 +252,14 @@ func TestVerifyInstallCheck_SecretsNudge_Fires(t *testing.T) {
 	if !containsStr(ctx, secretsSetupSentinel) {
 		t.Errorf("expected additionalContext to mention %s, got %q", secretsSetupSentinel, ctx)
 	}
-	if !containsStr(ctx, "/auto-verify-install") {
+	if !containsStr(ctx, "/verify-install") {
 		t.Errorf("verify-install sentence must still be present, got %q", ctx)
+	}
+	if !containsStr(ctx, "--auto") {
+		t.Errorf("verify-install sentence must still mention --auto, got %q", ctx)
+	}
+	if containsStr(ctx, "auto-verify-install") {
+		t.Errorf("additionalContext should not mention the nonexistent auto-verify-install skill, got %q", ctx)
 	}
 	if !secretsSetupNudgedMarkerExists(dir) {
 		t.Error("expected the permanent .secrets-setup-nudged marker to be written")
@@ -335,5 +350,64 @@ func TestVerifyInstallCheck_SecretsNudge_NoEmitOnNormalSession(t *testing.T) {
 	}
 	if secretsSetupNudgedMarkerExists(dir) {
 		t.Error("normal session must not write the nudge marker")
+	}
+}
+
+// skillNameRe extracts every skill name referenced in a nudge note as "/<name>".
+var skillNameRe = regexp.MustCompile(`/([a-z0-9-]+)`)
+
+// TestVerifyInstallCheck_NoteNamesInstalledSkill closes the defect class behind
+// this whole phase: the post-upgrade note is free-form prose naming a skill,
+// and nothing checked that the named skill actually exists. For every
+// "/<name>" reference found in the emitted note, assert skills/<name> is a
+// real directory in the embedded payload (cli/internal/payload.FS is rooted
+// at the repo-root tree, so "skills/verify-install" is the correct path).
+//
+// Uses a non-nudging secrets status (BackendEnv) so only the verify-install
+// sentence is present. The secrets nudge sentence separately references
+// /secrets-setup, and skills/secrets-setup does NOT exist in the embedded
+// payload tree (checked directly against cli/internal/payload/skills/) —
+// that is a real, pre-existing gap, but a distinct one from this phase's
+// defect, so this test is deliberately scoped to the verify-install sentence
+// rather than papering over it.
+func TestVerifyInstallCheck_NoteNamesInstalledSkill(t *testing.T) {
+	dir := t.TempDir()
+	writeUpgradeMarker(t, dir)
+	withSecretsStatus(t, secrets.StatusInfo{Backend: secrets.BackendEnv, SATokenBlock: "none"})
+
+	out := execVerifyInstallCheck(t, dir)
+
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("expected valid JSON, got %q: %v", out, err)
+	}
+	hso, _ := result["hookSpecificOutput"].(map[string]interface{})
+	ctx, _ := hso["additionalContext"].(string)
+	if ctx == "" {
+		t.Fatal("additionalContext is empty")
+	}
+
+	matches := skillNameRe.FindAllStringSubmatch(ctx, -1)
+	if len(matches) == 0 {
+		t.Fatalf("expected at least one /<skill> reference in note, got %q", ctx)
+	}
+
+	seen := map[string]bool{}
+	for _, m := range matches {
+		seen[m[1]] = true
+	}
+	if !seen["verify-install"] {
+		t.Fatalf("expected /verify-install to be referenced, got skills %v in %q", seen, ctx)
+	}
+
+	for name := range seen {
+		info, err := fs.Stat(payload.FS, "skills/"+name)
+		if err != nil {
+			t.Errorf("note references /%s but skills/%s does not exist in the embedded payload: %v", name, name, err)
+			continue
+		}
+		if !info.IsDir() {
+			t.Errorf("skills/%s exists in the embedded payload but is not a directory", name)
+		}
 	}
 }

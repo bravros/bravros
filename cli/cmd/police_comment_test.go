@@ -26,7 +26,7 @@ func runPreToolUseComment(t *testing.T, command string) (envelope struct {
 	t.Setenv("CLAUDE_SESSION_ID", "")
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
 
-	payload := `{"toolName":"bash","input":{"command":` + jsonString(command) + `}}`
+	payload := `{"tool_name":"bash","tool_input":{"command":` + jsonString(command) + `}}`
 	var out bytes.Buffer
 	policePreToolUseCmd.SetIn(strings.NewReader(payload))
 	policePreToolUseCmd.SetOut(&out)
@@ -103,6 +103,15 @@ func TestPoliceComment_ParaphrasedOpening_Blocks(t *testing.T) {
 	envelope, raw := runPreToolUseComment(t, ghPrCommentCmd(body))
 	if raw == "" {
 		t.Fatal("expected paraphrased opening to be blocked, got no output")
+	}
+	// Assert on the raw stdout content directly — the process always exits
+	// rc=0, so exitCode:2 inside the printed JSON envelope is what actually
+	// blocks (see runPreToolUseComment's doc comment).
+	if !strings.Contains(raw, `"exitCode":2`) {
+		t.Errorf("expected exitCode 2 in stdout, got %q", raw)
+	}
+	if !strings.Contains(raw, commentOpening) {
+		t.Errorf("expected canonical template (with opening) in stdout for retry, got %q", raw)
 	}
 	if envelope.Exit != 2 {
 		t.Errorf("exitCode = %d; want 2", envelope.Exit)
@@ -185,7 +194,7 @@ func TestPoliceComment_StandDownSuppressesBlock(t *testing.T) {
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
 
 	body := "@claude please review this PR, thanks."
-	payload := `{"toolName":"bash","input":{"command":` + jsonString(ghPrCommentCmd(body)) + `}}`
+	payload := `{"tool_name":"bash","tool_input":{"command":` + jsonString(ghPrCommentCmd(body)) + `}}`
 	var out bytes.Buffer
 	policePreToolUseCmd.SetIn(strings.NewReader(payload))
 	policePreToolUseCmd.SetOut(&out)

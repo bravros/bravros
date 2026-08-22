@@ -633,7 +633,7 @@ func selfupdateReplayRecorded(prev *setupState) []payload.Selection {
 // a checkout of its own to point a hooks path at.
 func applyHookDrift(home string, report HookDriftReport) {
 	// Emit structured lines for customized hooks (always, not just verbose).
-	// Write the same lines to the cache buffer file so auto-verify-install can read them.
+	// Write the same lines to the cache buffer file so verify-install can read them.
 	// Truncate the cache file every run — even when CustomizedPaths is empty — so
 	// stale entries from a prior selfupdate don't keep surfacing after the user fixes
 	// their hook.

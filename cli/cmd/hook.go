@@ -76,7 +76,7 @@ var hookVerifyInstallCheckCmd = &cobra.Command{
 	Long: `Reads ~/.config/bravros/state/.verify-install-pending, falling back to
 ~/.claude/state/.verify-install-pending for older Claude installs. If absent or
 unreadable, exits silently (exit 0). If present, emits a JSON block to stdout
-instructing the host to run /auto-verify-install, then removes the marker so it
+instructing the host to run /verify-install, then removes the marker so it
 fires only once.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		home, err := os.UserHomeDir()
@@ -100,11 +100,12 @@ fires only once.`,
 		// Remove marker before emitting (best-effort; don't block on failure)
 		_ = os.Remove(markerPath)
 
-		// Emit SessionStart hook JSON instructing the host to run /auto-verify-install.
+		// Emit SessionStart hook JSON instructing the host to run /verify-install --auto.
 		note := fmt.Sprintf(
 			"bravros auto-update installed a new version (%s). "+
-				"IMPORTANT: immediately invoke the /auto-verify-install skill now "+
-				"to confirm the installation is healthy. "+
+				"IMPORTANT: immediately invoke the /verify-install skill with the --auto flag now "+
+				"to confirm the installation is healthy (--auto stays silent when healthy and only "+
+				"speaks up on drift). "+
 				"Do not wait for the user to ask — run it as your very first action this session.",
 			version,
 		)

@@ -254,7 +254,7 @@ func TestPolicePreToolUse_BlockedWithoutToken(t *testing.T) {
 	t.Setenv("CLAUDE_SESSION_ID", "")
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
 
-	payload := `{"toolName":"bash","input":{"command":"git push origin main"}}`
+	payload := `{"tool_name":"bash","tool_input":{"command":"git push origin main"}}`
 	var out bytes.Buffer
 	policePreToolUseCmd.SetIn(strings.NewReader(payload))
 	policePreToolUseCmd.SetOut(&out)
@@ -264,13 +264,23 @@ func TestPolicePreToolUse_BlockedWithoutToken(t *testing.T) {
 		t.Fatalf("RunE: %v", err)
 	}
 
+	// The command always exits rc=0; the block is a JSON envelope printed to
+	// stdout carrying exitCode:2 — assert on that stdout content directly.
+	raw := out.String()
+	if !strings.Contains(raw, "Police Block") {
+		t.Errorf("expected Police Block in stdout, got %q", raw)
+	}
+	if !strings.Contains(raw, `"exitCode":2`) {
+		t.Errorf("expected exitCode 2 in stdout, got %q", raw)
+	}
+
 	var res struct {
 		Stdout string `json:"stdout"`
 		Stderr string `json:"stderr"`
 		Exit   int    `json:"exitCode"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &res); err != nil {
-		t.Fatalf("failed to unmarshal block json: %v, raw output: %q", err, out.String())
+		t.Fatalf("failed to unmarshal block json: %v, raw output: %q", err, raw)
 	}
 	if res.Exit != 2 {
 		t.Errorf("exitCode = %d; want 2", res.Exit)
@@ -292,7 +302,7 @@ func TestPolicePreToolUse_PermittedWithToken(t *testing.T) {
 	_ = os.MkdirAll(filepath.Dir(tokPath), 0755)
 	_ = os.WriteFile(tokPath, []byte("valid\n"), 0644)
 
-	payload := `{"toolName":"bash","input":{"command":"gh pr merge 123 --auto --squash"}}`
+	payload := `{"tool_name":"bash","tool_input":{"command":"gh pr merge 123 --auto --squash"}}`
 	var out bytes.Buffer
 	policePreToolUseCmd.SetIn(strings.NewReader(payload))
 	policePreToolUseCmd.SetOut(&out)
@@ -313,7 +323,7 @@ func TestPolicePreToolUse_PermittedWithStandDownEnv(t *testing.T) {
 	t.Setenv("CLAUDE_SESSION_ID", "")
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
 
-	payload := `{"toolName":"bash","input":{"command":"git push origin main"}}`
+	payload := `{"tool_name":"bash","tool_input":{"command":"git push origin main"}}`
 	var out bytes.Buffer
 	policePreToolUseCmd.SetIn(strings.NewReader(payload))
 	policePreToolUseCmd.SetOut(&out)
@@ -344,7 +354,7 @@ func TestPolicePreToolUse_PermittedWithStandDownMarker(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	payload := `{"toolName":"bash","input":{"command":"git push origin homolog"}}`
+	payload := `{"tool_name":"bash","tool_input":{"command":"git push origin homolog"}}`
 	var out bytes.Buffer
 	policePreToolUseCmd.SetIn(strings.NewReader(payload))
 	policePreToolUseCmd.SetOut(&out)
@@ -364,7 +374,7 @@ func TestPolicePreToolUse_NonBash_Permitted(t *testing.T) {
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
 	t.Setenv("CLAUDE_SESSION_ID", "")
 
-	payload := `{"toolName":"readFile","input":{"command":"git push origin main"}}`
+	payload := `{"tool_name":"readFile","tool_input":{"command":"git push origin main"}}`
 	var out bytes.Buffer
 	policePreToolUseCmd.SetIn(strings.NewReader(payload))
 	policePreToolUseCmd.SetOut(&out)
@@ -384,7 +394,7 @@ func TestPolicePreToolUse_NonMainBash_Permitted(t *testing.T) {
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
 	t.Setenv("CLAUDE_SESSION_ID", "")
 
-	payload := `{"toolName":"bash","input":{"command":"git checkout -b feat/my-feature"}}`
+	payload := `{"tool_name":"bash","tool_input":{"command":"git checkout -b feat/my-feature"}}`
 	var out bytes.Buffer
 	policePreToolUseCmd.SetIn(strings.NewReader(payload))
 	policePreToolUseCmd.SetOut(&out)
@@ -524,5 +534,40 @@ func TestPoliceStandDown_On_NoSession_Warns(t *testing.T) {
 	}
 	if !strings.Contains(errBuf.String(), "no agent session detected") {
 		t.Errorf("expected warning on stderr, got %q", errBuf.String())
+	}
+}
+
+// TestPolicePreToolUse_LegacyCamelCasePayload_StillBlocked pins the Phase 1
+// fail-closed shim: Claude Code's real PreToolUse contract is snake_case
+// (tool_name/tool_input), but a payload in the legacy camelCase shape below —
+// which no supported caller emits — must still be blocked, not silently
+// approved. This is the exact bug the shim exists to prevent from
+// reintroducing itself once someone "cleans up" the legacy fallback.
+func TestPolicePreToolUse_LegacyCamelCasePayload_StillBlocked(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+	t.Setenv("BRAVROS_POLICE_STANDDOWN", "")
+	t.Setenv("CLAUDE_SESSION_ID", "")
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
+
+	// Deliberately camelCase/legacy shape — this is the one literal the
+	// cleanliness grep in Phase 2 is expected to find. Do not convert it to
+	// snake_case; that would delete the regression this test exists for.
+	payload := `{"toolName":"bash","input":{"command":"git push origin main"}}`
+	var out bytes.Buffer
+	policePreToolUseCmd.SetIn(strings.NewReader(payload))
+	policePreToolUseCmd.SetOut(&out)
+	policePreToolUseCmd.SetErr(&bytes.Buffer{})
+
+	if err := policePreToolUseCmd.RunE(policePreToolUseCmd, nil); err != nil {
+		t.Fatalf("RunE: %v", err)
+	}
+
+	raw := out.String()
+	if !strings.Contains(raw, "Police Block") {
+		t.Errorf("legacy camelCase payload must still be blocked, got %q", raw)
+	}
+	if !strings.Contains(raw, `"exitCode":2`) {
+		t.Errorf("expected exitCode 2 for legacy camelCase payload, got %q", raw)
 	}
 }

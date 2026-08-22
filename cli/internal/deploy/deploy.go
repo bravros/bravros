@@ -944,7 +944,7 @@ func reconcileGlobalClaudeMd(sourceDir, targetDir string) (skipReason string, er
 		return claudeMdSkipNoPython, fmt.Errorf("python3 not found — dest left untouched (no fallback copy)")
 	}
 
-	// Stash the managed source for verify-install / auto-verify-install (non-fatal).
+	// Stash the managed source for verify-install (non-fatal).
 	tmplDir := filepath.Join(targetDir, "templates")
 	if mkErr := os.MkdirAll(tmplDir, 0o755); mkErr == nil {
 		if cpErr := copyFile(src, filepath.Join(tmplDir, "global-CLAUDE.md")); cpErr != nil {

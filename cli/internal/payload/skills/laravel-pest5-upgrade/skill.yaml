@@ -2,11 +2,11 @@ category: tools
 icon: gauge
 metadata:
   en:
-    name: pest5-upgrade
+    name: laravel-pest5-upgrade
     description: Upgrade a PHP/Laravel repo from Pest 4 to Pest 5 and enable Test Impact Analysis locally.
   br:
-    name: pest5-upgrade
+    name: laravel-pest5-upgrade
     description: Atualiza um repositório PHP/Laravel do Pest 4 para o Pest 5 e liga a Análise de Impacto de Testes localmente.
   es:
-    name: pest5-upgrade
+    name: laravel-pest5-upgrade
     description: Actualiza un repositorio PHP/Laravel de Pest 4 a Pest 5 y activa el Análisis de Impacto de Pruebas localmente.

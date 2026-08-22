@@ -1,5 +1,5 @@
 // Package doctor implements the health-check verbs ported from
-// scripts/verify.sh and skills/auto-verify-install/scripts/auto-verify.sh.
+// skills/verify-install/scripts/verify.sh.
 // Each check returns a CheckResult; the DoctorRunner aggregates results and
 // applies the requested mode (quick, deep, install-missing, fix, json).
 package doctor
