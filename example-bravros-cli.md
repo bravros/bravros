@@ -255,6 +255,22 @@ bravros police standdown off
 bravros police standdown status        # JSON
 ```
 
+**Rule 52 — the content-loss floor.** Before the merge gate even runs, `police pretooluse` blocks
+destructive git/rm over a dirty target: `git checkout`/`restore`/`reset --hard`/`clean -f` over
+paths carrying uncommitted or untracked content, `git clean -x`/`-X` and `git stash drop`/`clear`
+always, and recursive `rm` inside the repo over modified or untracked content. A clean target
+passes silently — this is a target-state check, not a command-shape blocklist. Sanctioned path is
+`bravros discard <paths>` (tracked modifications) / `bravros clean-untracked <paths>` (untracked
+files), no token needed. The only escape hatch is a destructive token minted outside Claude Code:
+
+```
+bravros destructive unlock --reason "..."
+```
+
+**This survives `standdown on`** — rule 52 is the one police check stand-down cannot suppress, and
+`police unlock` does not satisfy it either. Full contract:
+[`docs/cli/police.md`](docs/cli/police.md#rule-52--the-content-loss-safety-floor).
+
 **What a skill must know before it shells out to git or gh.**
 
 `police pretooluse` is wired into the host `settings.json` at matcher `.*` by `deploy`/`setup`/`config`,
