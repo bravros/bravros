@@ -111,15 +111,15 @@ func TestRoomFile_FormatIsReadableByShell(t *testing.T) {
 	// announce.sh does `tr -d '[:space:]' < .echo-room`, so a bare device name plus a
 	// trailing newline is the whole contract.
 	t.Setenv("HOME", t.TempDir())
-	if err := ha.SetRoom("banheiro"); err != nil {
+	if err := ha.SetRoom("bedroom"); err != nil {
 		t.Fatalf("SetRoom: %v", err)
 	}
 	b, err := os.ReadFile(ha.RoomFile())
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
-	if string(b) != "banheiro\n" {
-		t.Errorf("room file = %q, want %q", string(b), "banheiro\n")
+	if string(b) != "bedroom\n" {
+		t.Errorf("room file = %q, want %q", string(b), "bedroom\n")
 	}
 }
 

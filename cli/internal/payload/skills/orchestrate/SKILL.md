@@ -1,23 +1,55 @@
 ---
 name: orchestrate
-description: Orchestrate implementation from a .planning dossier folder — subagents write the code, the session reads, dispatches by model tier, verifies diffs, and commits per phase. Use on /orchestrate [folder] or "implement from this .planning folder".
+description: Plan and run implementation from a .planning findings dossier — you derive units, waves and model tiers for maximum parallelism, subagents write the code, you verify diffs and commit. Use on /orchestrate [folder].
 core: true
 ---
 
-# Orchestrate — implement from a dossier folder
+# Orchestrate — plan the execution, then run it
 
 > **CRITICAL RULE**: Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
-You are the ORCHESTRATOR. Subagents write the product code; you read, decompose, dispatch, verify diffs, and keep the task list as the single source of truth. Never write product code yourself.
+You are the ORCHESTRATOR. Subagents write the product code; you read, plan, dispatch, verify diffs,
+and keep the task list as the single source of truth. Never write product code yourself.
+
+**The dossier documents findings. The execution plan is yours** — `/recon` deliberately does not
+write phases, ordering or tiers, because those are decided better with the whole picture in view.
 
 ## Core Rules & Workflow
 
-1. **Absorb Dossier**: Resolve folder in `./.planning/` or workspace. Read all files & JSONL events. Verify load-bearing premises against live tree.
-2. **Phase Planning**: Partition by file ownership & dependency. Map `[H]/[S]/[O]` phase markers directly to model tiers (`opus` implementers, `sonnet` test authors, `haiku` verifiers). Track via tasks.
-3. **Worktree Safety**: Run `pwd && git branch --show-current` to ensure operations stay inside this worktree.
-4. **Dispatching**: Always set explicit `model:` parameter in worker dispatch. Use graphify before broad greps.
-5. **Per-Phase Execution**: Dispatch phase -> run targeted tests via haiku -> review diff -> commit (`bravros commit`) -> mark done.
-6. **Completion**: Run targeted CLI announcement when done:
+1. **Absorb the dossier.** Resolve the folder in `./.planning/` or the workspace one level up. Read
+   every file whatever its format, fold `events.jsonl` (dedupe by `id`, sort by `ts`; events outrank
+   filename suffixes). Verify load-bearing premises against the live tree — dossiers go stale, and a
+   wrong premise stops you before any dispatch.
+
+2. **Plan the execution — yours, never the dossier's.** From each issue file's `Implicates:` /
+   `Tests:` / `Depends on:` / `Kind:` / `Confidence:` header:
+   - cut **units of work** (one issue, or several merged when they share implicated files);
+   - build the dependency graph — declared `Depends on:` edges plus shared-file edges;
+   - cut **waves for maximum parallelism**: a wave is every unit with no shared implicated file and
+     all dependencies met. Read-only (`diagnosis-only`, `needs-fact`) and re-verify units go in wave A;
+   - decide the **hot-file strategy** explicitly when one file would serialize most units — one
+     owner-worker carrying several issues, or a split-first unit at `[O]`;
+   - schedule a **re-verify unit** ahead of any fix whose claim is tagged `READ` or `ASSUMED`;
+   - assign one tier marker per unit and write it all to `<dossier>/execution-plan.md` as
+     `### Phase N: Name [T]` blocks with `**Touches:**`, `**Context:**`, checkbox tasks and
+     `**Verify:**` — the grammar `phase-implementer` parses. Track units as tasks.
+
+   A dossier that already carries `### Phase` blocks is a **legacy shape**: reuse the task text,
+   re-derive grouping, order and tier yourself.
+
+3. **Worktree safety**: `pwd && git branch --show-current` before the first edit; on mismatch, stop.
+
+4. **Dispatching**: name every agent, set `model:` explicitly on every dispatch (the marker IS the
+   model — omitting it silently inherits your session model). Spawn a whole wave in ONE message.
+   Never two writers on one file. graphify before broad greps.
+
+5. **Per-unit loop**: dispatch → haiku verifier runs ONLY targeted tests → review the diff yourself →
+   `bravros commit` → mark done. A correction goes to the SAME agent via SendMessage; resume beats
+   respawn.
+
+6. **Acceptance**: after the last wave, dispatch `acceptance-verifier` against the dossier's
+   `acceptance.md`. Write the verdict table and the wave plan into `<dossier>/orchestration-log.md`,
+   append a `planned` and a `completed` event, then announce:
    ```bash
-   bravros ha say --force "Plano {NUM} orquestrado, todas as fases concluídas. Ramo <fragmento>, projeto <repo>." studio >/dev/null 2>&1 || true
+   bash ~/.agent_config/scripts/announce.sh --force "Plano <NUM> orquestrado, todas as fases concluídas. Ramo <fragmento>, projeto <repo>." studio || true
    ```

@@ -1,22 +1,78 @@
 package ha
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
-// DeviceMap maps friendly names to HA notify service paths.
-var DeviceMap = map[string]string{
-	"studio":   "notify/alexa_media_echo_studio",
-	"sala":     "notify/alexa_media_echo_dot_sala",
-	"suite":    "notify/alexa_media_echo_show_suite",
-	"banheiro": "notify/alexa_media_echo_banheiro_suite",
-	"gourmet":  "notify/alexa_media_echo_area_gourmet",
-	"todos":    "notify/alexa_media_todo_lugar",
+// DevicesFile is the path of the operator's local room→Echo mapping.
+//
+// This file is deliberately NOT part of the repo. `bravros/bravros` is a PUBLIC mirror of
+// this tree, so a hardcoded map here publishes the operator's home layout — which room has
+// which Echo, and the entity IDs of their lights. Keeping it on disk means one binary serves
+// everyone and no personal topology ever ships.
+//
+// Shape (see templates/ha-devices.example.json):
+//
+//	{"devices": {"kitchen": "echo_kitchen"}, "studio_lights": ["light.office_ceiling"]}
+//
+// The values are HA **entity slugs**, not notify-service names — see ResolveDevice.
+func DevicesFile() string {
+	if p := os.Getenv("BRAVROS_HA_DEVICES"); p != "" {
+		return p
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".claude", "ha-devices.json")
+}
+
+type devicesConfig struct {
+	Devices      map[string]string `json:"devices"`
+	StudioLights []string          `json:"studio_lights"`
+}
+
+var (
+	devicesOnce sync.Once
+	devicesCfg  devicesConfig
+)
+
+// loadDevices reads DevicesFile once. A missing or malformed file is not an error: the
+// caller falls back to treating the room name as its own slug, which keeps `bravros ha say`
+// usable on a fresh machine that has no mapping yet.
+func loadDevices() devicesConfig {
+	devicesOnce.Do(func() {
+		path := DevicesFile()
+		if path == "" {
+			return
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return
+		}
+		_ = json.Unmarshal(b, &devicesCfg)
+	})
+	return devicesCfg
+}
+
+// resetDevicesCache clears the memoised config so a test can point BRAVROS_HA_DEVICES at a
+// fresh fixture. Not exported: production code loads the map exactly once per process.
+func resetDevicesCache() {
+	devicesOnce = sync.Once{}
+	devicesCfg = devicesConfig{}
+}
+
+// DeviceMap returns the room→entity-slug mapping from the operator's local config.
+// Empty when no config file exists.
+func DeviceMap() map[string]string {
+	return loadDevices().Devices
 }
 
 // ColorMap maps color names to RGB arrays.
@@ -28,19 +84,35 @@ var ColorMap = map[string][3]int{
 	"white":  {255, 255, 255},
 }
 
-// StudioLights are the entity IDs for studio light group.
-var StudioLights = []string{
-	"light.teto_do_estudio",
-	"light.luz_teto_estudio_armario",
-	"light.luz_teto_estudio",
+// StudioLights returns the entity IDs of the studio light group, from local config.
+// Empty when unconfigured — `bravros ha lights` then reports nothing rather than acting on
+// entity IDs that do not exist on this operator's HA.
+func StudioLights() []string {
+	return loadDevices().StudioLights
 }
 
-// ResolveDevice returns the HA service path for a device name.
+// ResolveDevice returns the HA service path used to speak to a device.
+//
+// It is always the GENERIC `notify/alexa_media` service, with the destination carried in the
+// payload's `target` (see DeviceTarget). The per-device `notify/alexa_media_<name>` services
+// are NOT used, because Alexa Media Player derives those names from the device name in the
+// Alexa account: renaming an Echo in the Alexa app deletes its notify service on the next
+// integration reload, and every announcement to it goes silent with no error at the call
+// site. Entity IDs are registry-stable and survive renames, so targeting one cannot break
+// that way. (Observed 2026-09-02: renaming "Echo Studio" to "Estúdio Echo Dot" left
+// the device's old notify service alive only until the next reload.)
 func ResolveDevice(name string) string {
-	if svc, ok := DeviceMap[name]; ok {
-		return svc
+	return "notify/alexa_media"
+}
+
+// DeviceTarget returns the stable media_player entity ID for a device name — the rename-proof
+// destination passed as `target` in the notify payload.
+func DeviceTarget(name string) string {
+	slug := DeviceSlug(name)
+	if slug == "" {
+		return ""
 	}
-	return "notify/alexa_media_" + name
+	return "media_player." + slug
 }
 
 // DeviceSlug returns the HA entity slug for a device name — the middle part shared by that
@@ -48,11 +120,10 @@ func ResolveDevice(name string) string {
 // from DeviceMap so the two can never drift apart. Mirrored by device_slug() in
 // scripts/announce.sh, which needs the same mapping without invoking the binary.
 func DeviceSlug(name string) string {
-	svc, ok := DeviceMap[name]
-	if !ok {
-		return name
+	if slug, ok := DeviceMap()[name]; ok && slug != "" {
+		return slug
 	}
-	return strings.TrimPrefix(svc, "notify/alexa_media_")
+	return name
 }
 
 // RoomFile is the path of the current-room override consumed by both `bravros ha room` and

@@ -15,7 +15,7 @@ unfamiliar folder.
 - No argument → list candidate dossier folders in `./.planning/` (and the workspace
   `.planning/` one level up, if this is a workspace child repo), skipping ones already
   marked done (`-complete` suffix or a `SHIPPED.md` inside), then ask which one via
-  ask_question.
+  `ask_question`.
 
 Read **every file in the folder, whatever its format** — `.md`, `.jsonl`, `.sql`, `.txt`,
 anything — before dispatching. The folder will not always be organized: there may be no
@@ -25,23 +25,55 @@ contains a JSONL event log, **fold state from the events** (dedupe by `id`, sort
 ignore unknown kinds) — events outrank filename suffixes and frontmatter when they
 disagree.
 
-## Step 1 — Determine the phases
+## Step 1 — Plan the execution (this is your job, not the dossier's)
 
-Always produce an explicit phase plan before any dispatch, whatever shape the folder took:
+`/recon` documents findings and deliberately writes **no** phases, ordering, `Touches:` or tier
+markers. You derive all of it, with the whole picture in view. Produce an explicit plan before any
+dispatch.
 
-- Usually the dossier has NO plan — derive the phases yourself from the findings/gap
-  table: partition by file ownership and dependency, order so nothing blocks on unfinished
-  work, and assign each phase a model tier.
-- If the dossier does carry explicit phases (checkboxes, `[H]/[S]/[O]` markers), adopt
-  them as written, in the dossier's declared order.
-- Either way, track the phases as native tasks (TaskCreate) — the task list is the single
-  source of truth for progress from here on.
+### The inputs recon owes you
 
-Then validate before implementing. Dossiers go stale fast — counts, line numbers, and
-"missing" features often predate a hotfix that landed after the dossier was written.
-**Check the load-bearing premises against the live code; if one is wrong, stop and tell
-the operator before writing anything.** A "what already shipped" table means exactly that:
-verify each line, re-implement none of it.
+Each issue file opens with a fixed header:
+
+```
+Kind:        defect | change | diagnosis-only | needs-fact
+Confidence:  CERTIFIED | OBSERVED | READ | ASSUMED | SUPERSEDED → <pointer>
+Implicates:  <files the fix will likely touch — an ESTIMATE, not a lock>
+Tests:       <existing test files covering the area>
+Depends on:  <D-n decisions, I-nn issues, or a fact the operator/production owes>
+Falsifier:   <what observation would prove the analysis wrong>
+```
+
+`Implicates:` is an estimate with a read-from-code basis. **You may widen or narrow it** — what you
+grant a worker in `Touches:` is the real lock, and `phase-implementer` HALTs on any diff outside it.
+
+### The algorithm
+
+1. **Units.** One issue, or several merged when they share implicated files. A "verify + fix" pair is
+   always two units — a worker cannot honestly verify its own fix.
+2. **Graph.** Edges from declared `Depends on:` **plus** shared-file edges (two units implicating one
+   file cannot run together).
+3. **Waves.** A wave is the maximal set of units with no shared implicated file and every dependency
+   met. Read-only units (`diagnosis-only`, `needs-fact`) and re-verify units go in wave A — they
+   unblock everything and touch nothing.
+4. **Re-verify.** Any fix resting on a claim tagged `READ` or `ASSUMED` gets a read-only unit ahead
+   of it that settles the claim (the issue's `Falsifier:` tells you what to check). `CERTIFIED` and
+   `OBSERVED` dispatch directly. This replaces the recon-authored "Phase 0".
+5. **Hot files.** When one file is implicated by most units, a naive graph serializes everything.
+   Decide explicitly and record why: one owner-worker carrying several issues through the file, or a
+   split-first unit at `[O]` that makes later waves parallel. Do not default to the long serial chain.
+6. **Tier per unit**, by size and kind — `[H]` mechanical (CRUD, config, renames, styling, docs),
+   `[S]` real reasoning (logic, integrations, complex tests), `[O]` architecture or cross-system.
+7. **Write `<dossier>/execution-plan.md`** — `### Phase N: Name [T]` blocks, each with
+   `**Touches:**` (the real lock), `**Context:**` (files to read but not edit), checkbox tasks, and
+   `**Verify:**` built from the issue's `Tests:`. A `cli/` path in any `Touches:` → the acceptance
+   criterion demands a freshly built scratch binary running the affected verb with output pasted.
+8. **Track units as tasks.** The task list is the single source of truth for progress from here on.
+
+Then validate before implementing. Dossiers go stale fast — counts, line numbers and "missing"
+features often predate a hotfix that landed after the dossier was written. **Check the load-bearing
+premises against the live code; if one is wrong, stop and tell the operator before writing
+anything.** A "what already shipped" table means exactly that: verify each line, re-implement none.
 
 ## Worktree lock
 
@@ -54,21 +86,22 @@ or operator named, stop and report. Never touch the parent checkout or any sibli
 graphify before grep — "how does X work / what touches Y / who calls Z" goes to the graphify
 MCP first; grep only for exact strings. Subagents follow the same rule.
 
-Model tiering (dossier phase markers `[H]/[S]/[O]` map directly):
+Model tiering. **The marker IS the model** — you assign the marker per unit in Step 1, then set
+`model:` from it on dispatch. Selection criteria:
 
-| Tier | Work |
+| Marker → model | The unit is… |
 |---|---|
-| **opus** | ALL code-writing implementers |
-| **sonnet** | test authoring, bounded mechanical edits |
-| **haiku** | test runs, lint, greps, verification sweeps |
-| **you** | orchestration, diff review, integration decisions |
+| `[H]` → **haiku** | mechanical: CRUD, config, renames, styling, docs, greps, verification sweeps |
+| `[S]` → **sonnet** | real reasoning: logic, integrations, non-trivial tests |
+| `[O]` → **opus** | architecture or cross-system: new seams, refactors that move contracts |
+| — → **you** | orchestration, diff review, integration decisions. Never product code. |
 
-**The marker IS the model — set `model:` explicitly on EVERY `invoke_subagent()` call**
-(`model: "opus"` for an `[O]` phase, `"sonnet"` for `[S]`, `"haiku"` for `[H]`). Omitting
-`model:` does not pick a sensible tier — it inherits the orchestrator's own session model,
-so every worker silently runs on Fable regardless of the markers you just assigned. This
-also overrides any agent-type default (`phase-implementer` etc. carry no tier of their
-own). Only the orchestrator itself runs on the session model.
+Targeted test runs after a unit always go to a **haiku** verifier regardless of the unit's own tier.
+
+**Set `model:` explicitly on EVERY `Agent` dispatch.** Omitting it does not pick a sensible tier —
+it inherits the orchestrator's own session model, so every worker silently runs on your model
+regardless of the markers you just assigned. This also overrides any agent-type default
+(`phase-implementer` etc. carry no tier of their own). Only the orchestrator runs on the session model.
 
 Every dispatch prompt carries, verbatim in spirit:
 
@@ -82,9 +115,10 @@ Every dispatch prompt carries, verbatim in spirit:
   the file";
 - "graphify before broad greps".
 
-Name every agent (`name:` is its address). Independent phases spawn in ONE message so they
-run concurrently; dependent phases in sequence. Never two writers on the same files —
-partition by ownership.
+Name every agent (`name:` is its address). **A wave is the unit of concurrency**: spawn every unit
+in a wave in ONE message so they run in parallel, and start the next wave only when the current
+one's units are verified and committed — or, for rolling waves, as soon as a unit's dependants are
+all satisfied. Never two writers on the same files: partition by ownership.
 
 ## Per-phase loop
 
@@ -95,6 +129,25 @@ partition by ownership.
 3. Review the diff yourself before accepting. Wrong → SendMessage the SAME agent a
    correction; resume beats respawn because the agent still holds its context.
 4. Commit per phase via `bravros commit`, mark the task done.
+
+## Acceptance — the final stage
+
+After the last wave, dispatch the **`acceptance-verifier`** agent against the dossier's
+`acceptance.md`. It builds the real artifact, runs the real entry point, and greps for missed
+consumers; it never edits files. Give it the criteria verbatim — it must judge OBSERVED behaviour,
+not read your commits and agree with them.
+
+## What you write back into the dossier
+
+Recon owns the findings files; you own these, and never edit its numbered siblings:
+
+- **`execution-plan.md`** — the phase blocks you derived (`### Phase N: Name [T]`, `**Touches:**`,
+  `**Context:**`, tasks, `**Verify:**`).
+- **`orchestration-log.md`** — branch and base, the wave plan and why you cut it that way (especially
+  the hot-file decision), a phase status table with commits, the acceptance verdict, and any input
+  still owed by the operator.
+- **`runs/<unit>-findings.md`** — output of read-only units.
+- Events: append `planned` when the execution plan is written, `completed` when acceptance passes.
 
 ## Watchdog & hygiene
 
@@ -109,7 +162,7 @@ partition by ownership.
 
 When the next step forks across two+ viable approaches: write findings + your
 recommendation, fire the Alexa ping, then run `/interview-me` to lock the branches. A single
-self-contained binary is an ask_question, not an interview.
+self-contained binary is an `ask_question`, not an interview.
 
 ## Done
 
@@ -119,18 +172,9 @@ command for a separate tab, and anything deliberately skipped. Then announce:
 
 <!-- announce-template: "Plano {NUM} orquestrado, todas as fases concluídas." -->
 ```bash
-bravros ha say --force "Plano {NUM} orquestrado, todas as fases concluídas. Ramo <fragmento>, projeto <repo>." studio >/dev/null 2>&1 || true
+bash ~/.agent_config/scripts/announce.sh --force "Plano <NUM> orquestrado, todas as fases concluídas. Ramo <fragmento>, projeto <repo>." studio || true
 ```
 
-Direct CLI call, not the `announce.sh` wrapper. Both reach the same Echo and both honor
-the same kill-switch: `~/.agent_config/.mute` — defined by `ha.MuteFile()` in
-`cli/internal/ha/devices.go`, asserted in `cli/cmd/ha_test.go`. (Write it with the neutral
-prefix, never `~/.bravros/.mute`: that spelling is outside the `hostPathRules` allowlist in
-`cli/internal/deploy/hostpaths.go`, so it deploys verbatim and names a file that does not
-exist.) The wrapper costs ~0.4s more for a home/away gateway probe, and when away from home
-it falls back to local macOS `say`; on the studio host that branch never fires, so the bare
-CLI is the cheaper equivalent there. It is NOT equivalent on a roaming MacBook — prefer the
-wrapper if the announcement must be heard off the home network. (The wrapper does not
-hydrate `HASS_TOKEN` from 1Password when it is already set, which `~/.zshenv` does from the
-keychain, so that is not part of the cost.) Redirect stdout: the CLI prints
-`Sent to studio: …`; the wrapper silences that itself.
+Always the wrapper, never bare `bravros ha say` — the wrapper adds the roaming local-`say` fallback
+and home/away detection the CLI lacks, and silences its own stdout. Both honour the same kill-switch,
+`~/.agent_config/.mute`. One sentence, Brazilian Portuguese, ~20 words, ending with its origin.

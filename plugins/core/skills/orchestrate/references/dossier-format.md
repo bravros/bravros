@@ -44,22 +44,16 @@ Rules for reading one:
 - A `SHIPPED.md` in the folder, or a terminal event (`completed`/`merged`), marks the
   dossier done — equivalent to the legacy `-complete` suffix.
 
-## The type declaration — plan vs recon
+## The type declaration
 
-Near the top, a blockquote declares what the folder IS:
+Near the top, a blockquote declares what the folder IS. Current dossiers say:
 
-> **Type:** consolidated execution scope for **one** Fable5 session.
+> **Type:** findings dossier — reviewed, ready for `/orchestrate` to plan.
 
-vs.
-
-> **Type:** findings / recon dossier for a follow-up implementation session. **Not** an SDLC plan.
-
-This distinction changes your job:
-
-- **Execution scope** → phases exist; validate premises, then run them.
-- **Findings/recon dossier** → no plan exists yet; YOU derive the phases from the gap table
-  and findings, track them as native tasks, and confirm the derived plan with the operator
-  before dispatching if any premise looks shaky.
+**Every dossier is a findings dossier now.** `/recon` documents; you plan. If you meet an older
+folder declaring itself an "execution scope" with `### Phase` blocks, that is a **legacy shape**:
+reuse its task text, but re-derive grouping, order and tier yourself — its ordering was written
+without the whole picture and is usually the slowest safe schedule.
 
 ## Supersession banners — check before anything else
 
@@ -88,20 +82,29 @@ numbers back into the README before touching code. If the dossier has no Phase 0
 equivalent yourself: verify every load-bearing count and "missing" claim against the live
 tree before implementing.
 
-## Authoring a dossier (for the documenting session, not the implementing one)
+## Authoring a dossier
 
-When you are the session PRODUCING a dossier for a later orchestrator:
+Not your job — [`recon`](../../recon/references/dossier-template.md) owns the folder contract, and it
+is the single source of truth for what a dossier contains. You write only `execution-plan.md`,
+`orchestration-log.md` and `runs/`; never edit recon's numbered siblings.
 
-- One folder per scope, `P-NNNN-short-slug/`, README as the entry point and the whole brief.
-- Open with the type declaration (execution scope vs findings dossier), date, and scope
-  (which repos, and why it lives where it lives — workspace `.planning/` for cross-repo).
-- State what is canonical and NOT changing (contracts, wire versions) up front.
-- Put forensics and raw evidence in sibling files; the README links them with a read order.
-- Include the shipped-delta table if anything landed since investigation started.
-- Gap table with one row per remaining gap: what, repo, source, why it still matters.
-- Name the traps explicitly ("read before writing Phase N") — a trap you discovered and
-  didn't write down WILL be re-triggered by the implementer.
-- Phases carry `[H]/[S]/[O]` markers and checkbox tasks; Phase 0 is the re-verify pass.
-- Mark decided questions as closed so the next session doesn't relitigate them.
-- When a dossier is superseded, add the banner + pointer at the top and keep the file as
-  evidence; append `-complete` to the folder/file name only when the work actually shipped.
+## The current folder shape, for reference
+
+```
+.planning/P-NNNN-<slug>/
+├── README.md              # summary + issue index + read order (short by contract)
+├── 01-evidence.md         # what each artefact in evidence/ SHOWS
+├── evidence/              # arrival-numbered, gaps legal, never renumbered
+├── 1N-<issue>.md          # one per issue — header block is your input contract
+├── decisions.md           # D1..Dn, append-only, supersession by banner
+├── traps.md               # keyed by issue id and file
+├── acceptance.md          # observable criteria — what acceptance-verifier judges
+├── log.md                 # dated wave log
+├── execution-plan.md      # YOURS
+├── orchestration-log.md   # YOURS
+└── runs/                  # YOURS — read-only unit outputs
+```
+
+Read the issue header blocks first: `Kind:`, `Confidence:`, `Implicates:`, `Tests:`, `Depends on:`,
+`Falsifier:`. Those five fields are what you plan from. `Confidence: READ` or `ASSUMED` means
+schedule a re-verify unit before the fix — the `Falsifier:` line tells you what to check.

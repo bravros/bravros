@@ -989,24 +989,56 @@ Field syntax, rate limits, secret-reference spec: `references/op-cli-reference.m
 ---
 
 ## Skill: bravros-orchestrate
-Orchestrate implementation from a .planning dossier folder — subagents write the code, the session reads, dispatches by model tier, verifies diffs, and commits per phase. Use on /orchestrate [folder] or "implement from this .planning folder".
+Plan and run implementation from a .planning findings dossier — you derive units, waves and model tiers for maximum parallelism, subagents write the code, you verify diffs and commit. Use on /orchestrate [folder].
 
-# Orchestrate — implement from a dossier folder
+# Orchestrate — plan the execution, then run it
 
 > **CRITICAL RULE**: Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
-You are the ORCHESTRATOR. Subagents write the product code; you read, decompose, dispatch, verify diffs, and keep the task list as the single source of truth. Never write product code yourself.
+You are the ORCHESTRATOR. Subagents write the product code; you read, plan, dispatch, verify diffs,
+and keep the task list as the single source of truth. Never write product code yourself.
+
+**The dossier documents findings. The execution plan is yours** — `/recon` deliberately does not
+write phases, ordering or tiers, because those are decided better with the whole picture in view.
 
 ## Core Rules & Workflow
 
-1. **Absorb Dossier**: Resolve folder in `./.workflow/` or workspace. Read all files & JSONL events. Verify load-bearing premises against live tree.
-2. **Phase Planning**: Partition by file ownership & dependency. Map `[H]/[S]/[O]` phase markers directly to model tiers (`opus` implementers, `sonnet` test authors, `haiku` verifiers). Track via tasks.
-3. **Worktree Safety**: Run `pwd && git branch --show-current` to ensure operations stay inside this worktree.
-4. **Dispatching**: Always set explicit `model:` parameter in worker dispatch. Use graphify before broad greps.
-5. **Per-Phase Execution**: Dispatch phase -> run targeted tests via haiku -> review diff -> commit (`bravros commit`) -> mark done.
-6. **Completion**: Run targeted CLI announcement when done:
+1. **Absorb the dossier.** Resolve the folder in `./.workflow/` or the workspace one level up. Read
+   every file whatever its format, fold `events.jsonl` (dedupe by `id`, sort by `ts`; events outrank
+   filename suffixes). Verify load-bearing premises against the live tree — dossiers go stale, and a
+   wrong premise stops you before any dispatch.
+
+2. **Plan the execution — yours, never the dossier's.** From each issue file's `Implicates:` /
+   `Tests:` / `Depends on:` / `Kind:` / `Confidence:` header:
+   - cut **units of work** (one issue, or several merged when they share implicated files);
+   - build the dependency graph — declared `Depends on:` edges plus shared-file edges;
+   - cut **waves for maximum parallelism**: a wave is every unit with no shared implicated file and
+     all dependencies met. Read-only (`diagnosis-only`, `needs-fact`) and re-verify units go in wave A;
+   - decide the **hot-file strategy** explicitly when one file would serialize most units — one
+     owner-worker carrying several issues, or a split-first unit at `[O]`;
+   - schedule a **re-verify unit** ahead of any fix whose claim is tagged `READ` or `ASSUMED`;
+   - assign one tier marker per unit and write it all to `<dossier>/execution-plan.md` as
+     `### Phase N: Name [T]` blocks with `**Touches:**`, `**Context:**`, checkbox tasks and
+     `**Verify:**` — the grammar `phase-implementer` parses. Track units as tasks.
+
+   A dossier that already carries `### Phase` blocks is a **legacy shape**: reuse the task text,
+   re-derive grouping, order and tier yourself.
+
+3. **Worktree safety**: `pwd && git branch --show-current` before the first edit; on mismatch, stop.
+
+4. **Dispatching**: name every agent, set `model:` explicitly on every dispatch (the marker IS the
+   model — omitting it silently inherits your session model). Spawn a whole wave in ONE message.
+   Never two writers on one file. graphify before broad greps.
+
+5. **Per-unit loop**: dispatch → haiku verifier runs ONLY targeted tests → review the diff yourself →
+   `bravros commit` → mark done. A correction goes to the SAME agent via SendMessage; resume beats
+   respawn.
+
+6. **Acceptance**: after the last wave, dispatch `acceptance-verifier` against the dossier's
+   `acceptance.md`. Write the verdict table and the wave plan into `<dossier>/orchestration-log.md`,
+   append a `planned` and a `completed` event, then announce:
    ```bash
-   bravros ha say --force "Plano {NUM} orquestrado, todas as fases concluídas. Ramo <fragmento>, projeto <repo>." studio >/dev/null 2>&1 || true
+   bash ~/.agent_config/scripts/announce.sh --force "Plano <NUM> orquestrado, todas as fases concluídas. Ramo <fragmento>, projeto <repo>." studio || true
    ```
 
 ---
@@ -1192,42 +1224,102 @@ Quick task execution without a full plan — just do it and commit.
 ---
 
 ## Skill: bravros-recon
-Turn a bug report or a feature request into ONE reviewed .planning dossier folder ready for /orchestrate. Use on `/recon <problem or feature>`, `/recon --worktree`, or `/recon B-NNNN` to promote a backlog item.
+Investigate a bug report or feature request and document it as ONE multi-file .planning dossier for /orchestrate to plan from. Use on `/recon <problem or feature>`, `/recon --worktree`, or `/recon B-NNNN`.
 
 # recon
 
-Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
+Read [briefing.md](references/briefing.md) for identity reservation, flags and worktree detail.
+Folder contract: [dossier-template.md](references/dossier-template.md) — read it before writing.
 
-INTENT: take whatever the operator has — a symptom, a screenshot, a stack trace, or a feature idea — and produce ONE folder `.workflow/P-NNNN-<slug>/` that `/orchestrate` executes with zero translation.
+INTENT: take whatever the operator has — a symptom, a screenshot, a stack trace, a feature idea —
+and produce ONE folder `.workflow/P-NNNN-<slug>/` that documents **what is wrong, what is wanted,
+and what is true**, in enough detail that `/orchestrate` can plan from it without re-investigating
+anything.
+
+> **You do not plan the execution.** No phases, no `Touches:`, no `Verify:`, no tier markers, no
+> ordering. Sequencing, grouping, parallelism and model tier are `/orchestrate`'s decisions and it
+> makes them better with the whole picture in front of it. Your job is findings; its job is a plan.
 
 ## 1 — Classify, then reserve
 
-Decide **defect** (something behaves wrong) or **change** (something new). State which and why in one line; ask only when genuinely unclear. Then `PLAN_ID=$(bravros nextid reserve plan --slug "$SLUG")`.
+Decide **defect** (something behaves wrong) or **change** (something new). State which and why in one
+line; ask only when genuinely unclear. Then `PLAN_ID=$(bravros nextid reserve plan --slug "$SLUG")`.
 
-Attachments — screenshots, logs, exports — are evidence, not decoration. Record each path in the dossier and describe what it shows. **Never assume the content of something you could not open**; say so instead.
+Attachments — screenshots, logs, exports, recordings — are evidence, not decoration. Copy each into
+`evidence/`, numbered in arrival order, and record in `01-evidence.md` **what it shows**, not what you
+conclude. **Never assume the content of something you could not open**; say so, and say what you would
+need instead.
 
 ## 2 — Gather ground truth before writing a line
 
-- **graphify first when the project has it** (`.graphify` or `graphify-out/graph.json`): `graphify query "<question>"`, then open the file it names. The graph is a map, not the territory — code wins, and a stale label reads exactly like a fresh one.
-- **Defect** → hand the hunt to `/scout`: it certifies a root cause with runtime proof, never edits code. Fold its `diagnosis.md` into this dossier as `01-diagnosis.md`, and carry the certified cause into **Traps** and **Closed decisions**. `UNCERTIFIED` is a valid outcome — then the dossier plans the next investigation, not a fix.
-- **Change** → ask only where readings genuinely diverge; a deep multi-round fork goes to `/interview-me`. Search `.workflow/` for prior art before writing a near-duplicate.
+- **graphify first when the project has it** (`.graphify` or `graphify-out/graph.json`):
+  `graphify query "<question>"`, then open the file it names. The graph is a map, not the territory —
+  code wins, and a stale label reads exactly like a fresh one.
+- **Defect** → hand the hunt to `/scout`: it certifies a root cause with runtime proof, never edits
+  code. Fold its `diagnosis.md` in as `02-diagnosis.md`. `UNCERTIFIED` is a valid outcome — then the
+  dossier documents the next investigation, not a fix.
+- **Change** → ask only where readings genuinely diverge; a deep multi-round fork goes to
+  `/interview-me`. Search `.workflow/` for prior art before writing a near-duplicate.
+- Findings arrive in waves. Append; never rewrite history. A corrected claim gets a
+  `SUPERSEDED →` pointer and keeps its original text — the negative finding is usually worth not
+  rediscovering.
 
-## 3 — Write the dossier, then review it inline
+## 3 — Write the folder
 
-`README.md` per [`dossier-template.md`](references/dossier-template.md): brief, what is canonical and NOT changing, closed decisions, traps, phases, `## Acceptance`. Then review your own output:
+One file per issue, `README.md` as a **short summary and index** — never the detail store. Full
+shape in [dossier-template.md](references/dossier-template.md). Every issue file opens with the
+fixed header block; those fields ARE the handoff to `/orchestrate`:
 
-- Every path named exists. No phase depends on a later phase's output. Two phases touching one file are ordered, not parallel. A "verify + fix" phase splits into verify-only then fix.
-- One tier marker per phase heading — `### Phase N: Name [S]`. **Marker IS the model** (`[H]` mechanical, `[S]` reasoning, `[O]` architecture).
+```
+Confidence:  CERTIFIED | OBSERVED | READ | ASSUMED | SUPERSEDED → <pointer>
+Implicates:  <files the fix will likely touch — an estimate, not a lock>
+Tests:       <existing test files covering the area>
+Depends on:  <D-n decisions, I-nn issues, or a fact the operator/production owes>
+Falsifier:   <one sentence: what observation would prove this analysis wrong>
+```
+
+`Implicates:` is the one field `/orchestrate` cannot derive cheaply — without it, it must re-read
+every issue body to find the file map, which is the re-investigation this split exists to avoid.
+
+**Confidence is mandatory on every issue and every load-bearing claim.** Same vocabulary as `/scout`:
+code reading produces hypotheses, only runtime observation produces proof.
+
+| Tag | Means | Must cite |
+|---|---|---|
+| `OBSERVED` | seen at runtime — live browser, production log, live DB query, executed command | the artefact, or the pasted command + output |
+| `READ` | traced in source, not executed | `file:line` |
+| `CERTIFIED` | `READ` and `OBSERVED` agree | both |
+| `ASSUMED` | neither — states what would settle it | the settling command or question |
+| `SUPERSEDED → <ptr>` | kept for history, no longer load-bearing | the pointer |
+
+Never dress an `ASSUMED` claim as `CERTIFIED`. "Correct by construction" is a hypothesis until
+something ran.
+
+## 4 — Review your own output
+
+- Every path named exists. Every sibling file appears in the README's read order.
+- Every issue carries a `Falsifier:`. A claim you cannot imagine disproving is one you have not
+  tested.
 - A wrong load-bearing premise → **STOP** and tell the operator. Never paper over it.
-- A `cli/` path in any `Touches:` → `## Acceptance` demands a freshly built scratch binary running the affected verb with output pasted.
+- A decision inherits the confidence of what it rests on. A `LOCKED` decision resting on `READ` gets
+  a fresh-eyes pass before you call it settled — self-review does not catch a wrong premise.
+- Traps are keyed to an **issue id or a file**, never a phase number — there are no phases, and
+  numbering you invent would be re-derived away.
+- Acceptance criteria are **observable behaviour**, not "tests pass", grouped by issue.
 
-## 4 — Record, commit, hand off
+## 5 — Record, commit, hand off
 
-Append `created` and `reviewed` events to `.workflow/events.jsonl`, then `bravros commit "📋 plan: add P-NNNN <slug>" .workflow/`. Give the operator exactly one next step: `/orchestrate .workflow/P-NNNN-<slug>/`.
+Append `created` and `reviewed` events to `.workflow/events.jsonl` (`by: "agent:recon"`), then
+`bravros commit "📋 plan: add P-NNNN <slug>" .workflow/`. Give the operator exactly one next step:
+`/orchestrate .workflow/P-NNNN-<slug>/`.
+
+Announce via `~/.agent_config/scripts/announce.sh --force "<PT-BR, ~20 words, ends with origin>" studio || true`.
 
 ## Flags
 
-- `--auto`: skip all prompts (used by `/auto-pr`). `--worktree`: work inside an isolated worktree via [`worktree-extension.md`](references/worktree-extension.md). `/recon B-NNNN`: read the backlog item as context and link it in the brief.
+- `--auto`: skip all prompts (used by `/auto-pr`) — print `STATUS: dossier-ready. NEXT: orchestrate`.
+- `--worktree`: work inside an isolated worktree via [`worktree-extension.md`](references/worktree-extension.md).
+- `/recon B-NNNN`: read the backlog item as context, link it, and append a `promoted` event.
 
 ---
 

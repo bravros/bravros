@@ -11,38 +11,88 @@ import (
 )
 
 // --- Device mapping tests ---
+//
+// These deliberately drive a TEMP config fixture rather than asserting the operator's real
+// rooms. The room→Echo map is personal topology and lives in ~/.claude/ha-devices.json, which
+// never ships — see DevicesFile. A test that hardcoded it would both re-leak it into the
+// public mirror and fail on any machine without that file (CI included).
 
-func TestResolveDevice_KnownDevices(t *testing.T) {
-	cases := map[string]string{
-		"studio":   "notify/alexa_media_echo_studio",
-		"sala":     "notify/alexa_media_echo_dot_sala",
-		"suite":    "notify/alexa_media_echo_show_suite",
-		"banheiro": "notify/alexa_media_echo_banheiro_suite",
-		"gourmet":  "notify/alexa_media_echo_area_gourmet",
-		"todos":    "notify/alexa_media_todo_lugar",
+// withDevices points DevicesFile at a temp fixture for the duration of one test.
+func withDevices(t *testing.T, body string) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "ha-devices.json")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
 	}
-	for name, want := range cases {
-		t.Run(name, func(t *testing.T) {
-			got := ResolveDevice(name)
-			if got != want {
-				t.Errorf("ResolveDevice(%q) = %q, want %q", name, got, want)
-			}
-		})
+	t.Setenv("BRAVROS_HA_DEVICES", path)
+	resetDevicesCache()
+	t.Cleanup(resetDevicesCache)
+}
+
+const testDevices = `{"devices":{"kitchen":"echo_kitchen","bedroom":"echo_bedroom"},
+	"studio_lights":["light.office_ceiling","light.office_cabinet"]}`
+
+// ResolveDevice is now device-independent: delivery is targeted via the payload, so every
+// room resolves to the one generic service. This is what makes an Alexa rename harmless.
+func TestResolveDevice_AlwaysGenericService(t *testing.T) {
+	withDevices(t, testDevices)
+	for _, name := range []string{"kitchen", "bedroom", "garage", ""} {
+		if got := ResolveDevice(name); got != "notify/alexa_media" {
+			t.Errorf("ResolveDevice(%q) = %q, want %q", name, got, "notify/alexa_media")
+		}
 	}
 }
 
-func TestResolveDevice_UnknownFallback(t *testing.T) {
-	got := ResolveDevice("escritorio")
-	want := "notify/alexa_media_escritorio"
-	if got != want {
-		t.Errorf("ResolveDevice(unknown) = %q, want %q", got, want)
+func TestDeviceTarget_UsesStableEntityID(t *testing.T) {
+	withDevices(t, testDevices)
+	if got, want := DeviceTarget("kitchen"), "media_player.echo_kitchen"; got != want {
+		t.Errorf("DeviceTarget(kitchen) = %q, want %q", got, want)
+	}
+}
+
+// An unmapped room is not an error — it is treated as its own slug, so a fresh machine with
+// no config can still address an Echo by its entity slug.
+func TestDeviceTarget_UnknownFallsBackToName(t *testing.T) {
+	withDevices(t, testDevices)
+	if got, want := DeviceTarget("garage"), "media_player.garage"; got != want {
+		t.Errorf("DeviceTarget(unknown) = %q, want %q", got, want)
+	}
+}
+
+func TestDeviceMap_EmptyWithoutConfig(t *testing.T) {
+	t.Setenv("BRAVROS_HA_DEVICES", filepath.Join(t.TempDir(), "absent.json"))
+	resetDevicesCache()
+	t.Cleanup(resetDevicesCache)
+	if got := DeviceMap(); len(got) != 0 {
+		t.Errorf("DeviceMap() with no config = %v, want empty", got)
+	}
+	if got := StudioLights(); len(got) != 0 {
+		t.Errorf("StudioLights() with no config = %v, want empty", got)
+	}
+}
+
+// A corrupt config must not panic or wedge the CLI — it degrades to the empty map.
+func TestDeviceMap_MalformedConfigIsNotFatal(t *testing.T) {
+	withDevices(t, "{not json")
+	if got := DeviceMap(); len(got) != 0 {
+		t.Errorf("DeviceMap() with malformed config = %v, want empty", got)
+	}
+}
+
+func TestDeviceSlug_FromConfig(t *testing.T) {
+	withDevices(t, testDevices)
+	if got, want := DeviceSlug("bedroom"), "echo_bedroom"; got != want {
+		t.Errorf("DeviceSlug(bedroom) = %q, want %q", got, want)
+	}
+	if got, want := DeviceSlug("garage"), "garage"; got != want {
+		t.Errorf("DeviceSlug(unknown) = %q, want %q", got, want)
 	}
 }
 
 // --- BuildTTSPayload tests ---
 
 func TestBuildTTSPayload_DefaultIsAnnounce(t *testing.T) {
-	got := BuildTTSPayload("Plano 150 finalizado", false)
+	got := BuildTTSPayload("Plano 150 finalizado", false, "")
 	want := `{"message":"Plano 150 finalizado","data":{"type":"announce"}}`
 	if got != want {
 		t.Errorf("BuildTTSPayload default = %q, want %q", got, want)
@@ -50,7 +100,7 @@ func TestBuildTTSPayload_DefaultIsAnnounce(t *testing.T) {
 }
 
 func TestBuildTTSPayload_TTSFlagSwitchesToTTS(t *testing.T) {
-	got := BuildTTSPayload("silent prefix", true)
+	got := BuildTTSPayload("silent prefix", true, "")
 	want := `{"message":"silent prefix","data":{"type":"tts"}}`
 	if got != want {
 		t.Errorf("BuildTTSPayload useTTS=true = %q, want %q", got, want)
@@ -59,19 +109,18 @@ func TestBuildTTSPayload_TTSFlagSwitchesToTTS(t *testing.T) {
 
 func TestBuildTTSPayload_EscapesQuotesAndAccents(t *testing.T) {
 	// Real-world message: PT-BR with accents + an embedded quote
-	got := BuildTTSPayload(`próximas "instruções"`, false)
+	got := BuildTTSPayload(`próximas "instruções"`, false, "")
 	want := `{"message":"próximas \"instruções\"","data":{"type":"announce"}}`
 	if got != want {
 		t.Errorf("BuildTTSPayload escape = %q, want %q", got, want)
 	}
 }
 
-func TestDeviceMap_AllEntriesPresent(t *testing.T) {
-	expected := []string{"studio", "sala", "suite", "banheiro", "gourmet", "todos"}
-	for _, name := range expected {
-		if _, ok := DeviceMap[name]; !ok {
-			t.Errorf("DeviceMap missing key %q", name)
-		}
+func TestBuildTTSPayload_IncludesTarget(t *testing.T) {
+	got := BuildTTSPayload("oi", false, "media_player.echo_kitchen")
+	want := `{"message":"oi","target":"media_player.echo_kitchen","data":{"type":"announce"}}`
+	if got != want {
+		t.Errorf("BuildTTSPayload target = %q, want %q", got, want)
 	}
 }
 
@@ -96,14 +145,13 @@ func TestColorMap_KnownColors(t *testing.T) {
 	}
 }
 
-func TestStudioLights_HasEntries(t *testing.T) {
-	if len(StudioLights) == 0 {
-		t.Fatal("StudioLights is empty")
+func TestStudioLights_FromConfig(t *testing.T) {
+	withDevices(t, testDevices)
+	lights := StudioLights()
+	if len(lights) == 0 {
+		t.Fatal("StudioLights() is empty with a populated config")
 	}
-	for _, id := range StudioLights {
-		if id == "" {
-			t.Error("StudioLights contains empty entity ID")
-		}
+	for _, id := range lights {
 		if len(id) < 6 || id[:6] != "light." {
 			t.Errorf("StudioLights entry %q does not start with 'light.'", id)
 		}
@@ -359,13 +407,10 @@ func TestDeviceSlug_KnownDevices(t *testing.T) {
 	// The slug is the shared middle of every entity a device owns —
 	// media_player.<slug>, switch.<slug>_do_not_disturb_switch — so the DND
 	// clear in `ha say` targets the wrong entity if this drifts.
+	withDevices(t, testDevices)
 	cases := map[string]string{
-		"studio":   "echo_studio",
-		"sala":     "echo_dot_sala",
-		"suite":    "echo_show_suite",
-		"banheiro": "echo_banheiro_suite",
-		"gourmet":  "echo_area_gourmet",
-		"todos":    "todo_lugar",
+		"kitchen": "echo_kitchen",
+		"bedroom": "echo_bedroom",
 	}
 	for name, want := range cases {
 		if got := DeviceSlug(name); got != want {
@@ -375,8 +420,9 @@ func TestDeviceSlug_KnownDevices(t *testing.T) {
 }
 
 func TestDeviceSlug_UnknownPassesThrough(t *testing.T) {
-	if got := DeviceSlug("escritorio"); got != "escritorio" {
-		t.Errorf("DeviceSlug(unknown) = %q, want %q", got, "escritorio")
+	withDevices(t, testDevices)
+	if got := DeviceSlug("garage"); got != "garage" {
+		t.Errorf("DeviceSlug(unknown) = %q, want %q", got, "garage")
 	}
 }
 
@@ -495,11 +541,11 @@ func TestRoom_TrailingNewlineIsTrimmed(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(RoomFile(), []byte("  banheiro \n\n"), 0o644); err != nil {
+	if err := os.WriteFile(RoomFile(), []byte("  bedroom \n\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := CurrentRoom(); got != "banheiro" {
-		t.Errorf("CurrentRoom() = %q, want %q", got, "banheiro")
+	if got := CurrentRoom(); got != "bedroom" {
+		t.Errorf("CurrentRoom() = %q, want %q", got, "bedroom")
 	}
 }
 
@@ -513,7 +559,7 @@ func TestCallService_NonSuccessStatusIsAnError(t *testing.T) {
 			w.Write([]byte(`{"message":"nope"}`))
 		}))
 		c := newTestClient(srv.URL)
-		_, err := c.CallService("notify/alexa_media_echo_studio", `{"message":"hi"}`)
+		_, err := c.CallService("notify/alexa_media", `{"message":"hi"}`)
 		if err == nil {
 			t.Errorf("CallService with HTTP %d returned nil error, want an error", code)
 		}

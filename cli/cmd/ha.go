@@ -106,7 +106,7 @@ func sendHASay(msg, dev string, force, tts bool, out io.Writer) error {
 	}
 
 	svc := ha.ResolveDevice(dev)
-	data := ha.BuildTTSPayload(msg, tts)
+	data := ha.BuildTTSPayload(msg, tts, ha.DeviceTarget(dev))
 	if _, err := client.CallService(svc, data); err != nil {
 		return fmt.Errorf("delivery to %s failed: %w", dev, err)
 	}
@@ -129,7 +129,7 @@ var haLightsCmd = &cobra.Command{
 			action = args[0]
 		}
 
-		lightsJSON, _ := json.Marshal(ha.StudioLights)
+		lightsJSON, _ := json.Marshal(ha.StudioLights())
 
 		switch action {
 		case "on":
@@ -321,7 +321,7 @@ var haRoomClear bool
 
 var haRoomCmd = &cobra.Command{
 	Use:   "room [device]",
-	Short: "Set which Echo announcements target (studio|sala|suite|banheiro|gourmet|todos)",
+	Short: "Set which Echo announcements target (rooms come from ~/.claude/ha-devices.json)",
 	Long: `Set the room every announcement targets.
 
 Skill call sites hardcode "studio"; this override redirects them to wherever you actually
@@ -348,10 +348,15 @@ State is ~/.claude/.echo-room, also read directly by scripts/announce.sh.`,
 			return
 		}
 		name := args[0]
-		if _, known := ha.DeviceMap[name]; !known {
+		devices := ha.DeviceMap()
+		if len(devices) == 0 {
+			fmt.Fprintf(os.Stderr, "❌ no device map configured — create %s (see templates/ha-devices.example.json)\n", ha.DevicesFile())
+			os.Exit(1)
+		}
+		if _, known := devices[name]; !known {
 			fmt.Fprintf(os.Stderr, "❌ unknown device %q — known: ", name)
-			names := make([]string, 0, len(ha.DeviceMap))
-			for k := range ha.DeviceMap {
+			names := make([]string, 0, len(devices))
+			for k := range devices {
 				names = append(names, k)
 			}
 			sort.Strings(names)

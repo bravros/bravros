@@ -33,16 +33,22 @@ func NewClient() (*Client, error) {
 	}, nil
 }
 
-// BuildTTSPayload builds the JSON payload for notify/alexa_media_* TTS calls.
+// BuildTTSPayload builds the JSON payload for a notify/alexa_media TTS call.
+// A non-empty target (a media_player entity ID) is what makes delivery rename-proof.
 // useTTS=false → "announce" mode (Alexa chime + speech, default UX safeguard).
 // useTTS=true  → "tts" mode (silent prefix, no chime). Message is JSON-escaped.
-func BuildTTSPayload(message string, useTTS bool) string {
+func BuildTTSPayload(message string, useTTS bool, target string) string {
 	msgType := "announce"
 	if useTTS {
 		msgType = "tts"
 	}
 	escaped, _ := json.Marshal(message)
-	return fmt.Sprintf(`{"message":%s,"data":{"type":"%s"}}`, string(escaped), msgType)
+	if target == "" {
+		return fmt.Sprintf(`{"message":%s,"data":{"type":"%s"}}`, string(escaped), msgType)
+	}
+	escapedTarget, _ := json.Marshal(target)
+	return fmt.Sprintf(`{"message":%s,"target":%s,"data":{"type":"%s"}}`,
+		string(escaped), string(escapedTarget), msgType)
 }
 
 // CallService calls a HA service with JSON data.

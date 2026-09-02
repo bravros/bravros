@@ -1,0 +1,14 @@
+{
+  "_comment": "Copy to ~/.claude/ha-devices.json and fill in your own rooms. This file maps a spoken room name to the HA entity SLUG of the Echo in it — 'kitchen' -> media_player.echo_kitchen. Values are entity slugs, never notify-service names: Alexa Media Player derives notify.alexa_media_<name> from the device name in your Alexa account, so renaming an Echo in the Alexa app silently deletes its notify service, while entity IDs survive renames. Override the path with BRAVROS_HA_DEVICES.",
+
+  "devices": {
+    "office": "echo_office",
+    "kitchen": "echo_kitchen",
+    "bedroom": "echo_bedroom",
+    "everywhere": "everywhere"
+  },
+
+  "studio_lights": [
+    "light.office_ceiling"
+  ]
+}
