@@ -265,9 +265,32 @@ elif [ "$IN_LINKED_WORKTREE" = "1" ]; then
   echo "ℹ️  linked worktree: staying on $FEATURE_BRANCH — $BASE_BRANCH is updated on origin only"
   echo "ℹ️  sync a primary checkout when convenient; /worktree destroy this one when done"
 else
-  git checkout "$BASE_BRANCH" && git fetch origin "$BASE_BRANCH" && git reset --hard "origin/$BASE_BRANCH"
-  git branch -d "$FEATURE_BRANCH" 2>/dev/null \
-    || echo "ℹ️  kept local $FEATURE_BRANCH (held by a worktree, unmerged, or already gone)"
+  # `reset --hard` destroys tracked modifications. Never discard work git has never seen.
+  if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+    echo "⛔ uncommitted changes — skipped 'git reset --hard origin/$BASE_BRANCH'"
+    echo "ℹ️  commit or stash, then: git checkout $BASE_BRANCH && git pull --ff-only"
+  else
+    git checkout "$BASE_BRANCH" && git fetch origin "$BASE_BRANCH" && git reset --hard "origin/$BASE_BRANCH"
+  fi
+
+  # On a homolog→main finish, Step 1 set BASE_BRANCH=main and FEATURE_BRANCH IS "homolog".
+  # homolog is fully merged by now, so `git branch -d` does not fail safely — it SUCCEEDS
+  # and silently deletes the permanent local staging branch, and the `||` note never fires.
+  # This is the LOCAL half of the bug that deleted the REMOTE homolog in PRs #289/#290.
+  # Same guard as Step 4's --delete-branch gate — keep the ARRAY, unquoted-string
+  # iteration does not word-split under zsh, which is how #289/#290 happened.
+  PERMANENT_BRANCHES=(main homolog staging develop)
+  PERMANENT_HIT=""
+  for pb in "${PERMANENT_BRANCHES[@]}"; do
+    [ "$FEATURE_BRANCH" = "$pb" ] && { PERMANENT_HIT=1; break; }
+  done
+
+  if [ -n "$PERMANENT_HIT" ]; then
+    echo "⛔ skipped 'git branch -d $FEATURE_BRANCH' — permanent branch"
+  else
+    git branch -d "$FEATURE_BRANCH" 2>/dev/null \
+      || echo "ℹ️  kept local $FEATURE_BRANCH (checked out here, held by a worktree, unmerged, or already gone)"
+  fi
 fi
 ```
 
