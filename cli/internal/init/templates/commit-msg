@@ -113,8 +113,15 @@ AI_PATTERNS=(
     "Generated with Cursor"
     "Generated with Copilot"
     "via Claude Code"
-    "via Cursor"
+    # NOTE: a bare "via Cursor" was removed here — case-insensitive, it blocked ordinary
+    # commits like "paginate via cursor" / "via cursor position". Attribution to Cursor is
+    # covered by Co-Authored-By, "Generated with Cursor", and "Made with Cursor" below.
+    # Cursor also appends "Made with [Cursor](https://cursor.com)" to PR bodies — git
+    # hooks never see those; bravros police inspects `gh pr create` / `gh pr edit`.
     "Made with.*[Cc]opilot"
+    "Made with[[:space:]]+\\[?[Cc]ursor"
+    "Made with[[:space:]]+\\[?[Cc]laude"
+    "Made with[[:space:]]+\\[?[Cc]hat[Gg][Pp][Tt]"
     "Powered by.*[Aa][Ii]"
     # Common robot/AI footer patterns
     "^🤖 Generated"
@@ -134,6 +141,39 @@ for pattern in "${AI_PATTERNS[@]}"; do
         exit 1
     fi
 done
+
+#
+# 1b. Attribution verb x AI name, in any shape
+#
+# The literal-trailer list above matches only `Co-Authored-By:`. Every loosened
+# variant slipped through — all 12 of these passed a live test (2026-08-21):
+#   "Co-authored with Claude"   "Co-authored by Claude"   "Coauthored-by: Claude"
+#   "Co-Authored-By Claude"     "Co_authored_by: Claude"  "Assisted by Claude"
+#   "Assisted-By: Claude"       "Written by Claude"       "Authored by Claude Code"
+#   "With help from ChatGPT"    "Pair-programmed with Copilot"
+#   "Signed-off-by: Claude <noreply@anthropic.com>"
+#
+# Enumerating trailers does not scale. Match ANY attribution verb followed within
+# 40 chars by ANY AI name instead — one rule, no cross-product. Deliberately
+# strict: the standard is "no AI attribution, in any wording".
+#
+# Note the order dependency: "ai-powered" reads name-then-verb and does NOT match,
+# while "powered by AI" does. Validated against 200 real commits: 0 false positives.
+#
+AI_ATTRIB='(co[-_ ]?authored?|assisted|generated|created|written|authored|made|powered|pair[-_ ]?programmed|reviewed|prompted)[-_ ]?(by|with|from)|with help from|signed[-_ ]?off[-_ ]?by|co[-_ ]?authors?[-_ ]?[:=]'
+AI_NAMES='claude|chat ?gpt|gpt-?[0-9.]*|openai|anthropic|copilot|gemini|bard|codeium|windsurf|cursor|devin|aider|cline|roo[-_ ]?code|cody|tabby|amazon q|code ?whisperer|deep ?seek|grok|mistral|llama|phind|bolt\.new|v0\.dev|augment|continue\.dev|jarvis|sourcegraph|codex|junie|factory-?droid|\bdroid\b|openhands|all-hands|google-labs-jules|ai assistant|assistant ai|artificial intelligence|language model|\bllm\b|\bai\b'
+
+if echo "$COMMIT_MSG_CLEAN" | grep -qiE "(${AI_ATTRIB})[[:space:]:<@_-]{0,4}.{0,40}(${AI_NAMES})"; then
+    MATCHED_LINE=$(echo "$COMMIT_MSG_CLEAN" | grep -iE "(${AI_ATTRIB})[[:space:]:<@_-]{0,4}.{0,40}(${AI_NAMES})" | head -n 1)
+    echo "" >&2
+    echo -e "${RED}ERROR: Commit rejected — AI attribution detected!${NC}" >&2
+    echo "" >&2
+    echo -e "  Matched line: ${YELLOW}${MATCHED_LINE}${NC}" >&2
+    echo "" >&2
+    echo "No AI co-author or attribution allowed, in any wording. Remove the line and try again." >&2
+    echo "" >&2
+    exit 1
+fi
 
 #
 # 2. Validate commit message format
@@ -200,17 +240,23 @@ show_format_help() {
     echo "" >&2
     echo -e "${YELLOW}Required format:${NC} <emoji> <type>[(scope)][!]: <description>" >&2
     echo "" >&2
-    echo "Valid types & emojis (from templates/commit-types.txt):" >&2
     if [ -n "$_CANONICAL_FILE" ]; then
+        echo "Valid types & emojis (from templates/commit-types.txt):" >&2
         while IFS='|' read -r slug emoji desc; do
             [[ "$slug" =~ ^[[:space:]]*# ]] && continue
             [[ -z "${slug// }" ]] && continue
             printf "  %s %-12s %s\n" "${emoji// /}" "${slug// /}:" "${desc// /}" >&2
         done < "$_CANONICAL_FILE"
     else
-        echo "  ✨ feat:      New features" >&2
-        echo "  🐛 fix:       Bug fixes" >&2
-        echo "  ... (run: cut -d'|' -f1,2 templates/commit-types.txt | grep -v '^#')" >&2
+        echo "Valid types & emojis:" >&2
+        # Consumer repos have no templates/commit-types.txt — print the real list
+        # rather than a command that resolves to nothing (PR #1972 review).
+        echo "  ✨ feat       🐛 fix        📚 docs       💄 style" >&2
+        echo "  ♻️ refactor   ⚡ perf       🧪 test       🔧 build" >&2
+        echo "  🧹 chore      📋 plan       🔒 security   🗃️ migration" >&2
+        echo "  📦 deps       🚀 deploy     🤖 ci         🔥 remove" >&2
+        echo "  🩹 hotfix     🔀 merge      🔍 debug      🔙 revert" >&2
+        echo "  🌐 i18n" >&2
     fi
     echo "" >&2
     echo -e "${GREEN}Examples:${NC}" >&2

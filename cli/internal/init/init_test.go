@@ -1,6 +1,7 @@
 package projectinit
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -361,5 +362,39 @@ func TestInitWritesNothingOutsideRepo(t *testing.T) {
 			names = append(names, e.Name())
 		}
 		t.Errorf("init wrote outside the repo — HOME contains %v", names)
+	}
+}
+
+// TestEmbeddedCommitMsgMatchesCanonical guards the copy `bravros init` ships.
+//
+// cli/internal/init/templates/ is embedded (init.go's `//go:embed templates`)
+// and is what init writes into a new project's .bravros/hooks/. It is a SECOND
+// copy of the canonical hook, kept in sync by nothing — `go generate` syncs
+// cli/internal/payload/, not this directory, and no test compared them.
+//
+// It drifted 44 lines behind, shipping every newly-initialized project a hook
+// with no AI-attribution block 1b at all: the generic attribution-verb x AI-name
+// rule was simply absent, so `Assisted by Claude` and friends were accepted.
+// Anyone grepping for "init/templates" finds nothing, because the embed
+// directive is relative — which is how the staleness survived review.
+func TestEmbeddedCommitMsgMatchesCanonical(t *testing.T) {
+	t.Parallel()
+
+	shipped, err := hookTemplates.ReadFile("templates/commit-msg")
+	if err != nil {
+		t.Fatalf("read embedded commit-msg: %v", err)
+	}
+	canonical, err := os.ReadFile(filepath.Join("..", "..", "..", "templates", ".githooks", "commit-msg"))
+	if err != nil {
+		t.Fatalf("read canonical templates/.githooks/commit-msg: %v", err)
+	}
+
+	if !bytes.Equal(shipped, canonical) {
+		t.Errorf("cli/internal/init/templates/commit-msg has drifted from "+
+			"templates/.githooks/commit-msg (%d vs %d bytes).\n"+
+			"`bravros init` embeds this directory, so drift ships a weaker hook to every new "+
+			"project. Fix with:\n"+
+			"  cp templates/.githooks/commit-msg cli/internal/init/templates/commit-msg",
+			len(shipped), len(canonical))
 	}
 }

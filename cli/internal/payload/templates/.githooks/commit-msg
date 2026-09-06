@@ -115,8 +115,13 @@ AI_PATTERNS=(
     "via Claude Code"
     # NOTE: a bare "via Cursor" was removed here — case-insensitive, it blocked ordinary
     # commits like "paginate via cursor" / "via cursor position". Attribution to Cursor is
-    # already covered by the Co-Authored-By and "Generated with Cursor" entries.
+    # covered by Co-Authored-By, "Generated with Cursor", and "Made with Cursor" below.
+    # Cursor also appends "Made with [Cursor](https://cursor.com)" to PR bodies — git
+    # hooks never see those; bravros police inspects `gh pr create` / `gh pr edit`.
     "Made with.*[Cc]opilot"
+    "Made with[[:space:]]+\\[?[Cc]ursor"
+    "Made with[[:space:]]+\\[?[Cc]laude"
+    "Made with[[:space:]]+\\[?[Cc]hat[Gg][Pp][Tt]"
     "Powered by.*[Aa][Ii]"
     # Common robot/AI footer patterns
     "^🤖 Generated"
@@ -156,7 +161,7 @@ done
 # while "powered by AI" does. Validated against 200 real commits: 0 false positives.
 #
 AI_ATTRIB='(co[-_ ]?authored?|assisted|generated|created|written|authored|made|powered|pair[-_ ]?programmed|reviewed|prompted)[-_ ]?(by|with|from)|with help from|signed[-_ ]?off[-_ ]?by|co[-_ ]?authors?[-_ ]?[:=]'
-AI_NAMES='claude|chat ?gpt|gpt-?[0-9.]*|openai|anthropic|copilot|gemini|bard|codeium|windsurf|cursor|devin|aider|cline|roo[-_ ]?code|cody|tabby|amazon q|code ?whisperer|deep ?seek|grok|mistral|llama|phind|bolt\.new|v0\.dev|augment|continue\.dev|jarvis|sourcegraph|codex|junie|ai assistant|assistant ai|artificial intelligence|language model|\bllm\b|\bai\b'
+AI_NAMES='claude|chat ?gpt|gpt-?[0-9.]*|openai|anthropic|copilot|gemini|bard|codeium|windsurf|cursor|devin|aider|cline|roo[-_ ]?code|cody|tabby|amazon q|code ?whisperer|deep ?seek|grok|mistral|llama|phind|bolt\.new|v0\.dev|augment|continue\.dev|jarvis|sourcegraph|codex|junie|factory-?droid|\bdroid\b|openhands|all-hands|google-labs-jules|ai assistant|assistant ai|artificial intelligence|language model|\bllm\b|\bai\b'
 
 if echo "$COMMIT_MSG_CLEAN" | grep -qiE "(${AI_ATTRIB})[[:space:]:<@_-]{0,4}.{0,40}(${AI_NAMES})"; then
     MATCHED_LINE=$(echo "$COMMIT_MSG_CLEAN" | grep -iE "(${AI_ATTRIB})[[:space:]:<@_-]{0,4}.{0,40}(${AI_NAMES})" | head -n 1)

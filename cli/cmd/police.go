@@ -67,7 +67,11 @@ var policePreToolUseCmd = &cobra.Command{
 			return nil
 		}
 		// ───── SAFETY FLOOR (always-on; runs even under stand-down) ─────
-		//   Members: rule 52 — irreversible content loss.
+		//   Members: rule 52 — irreversible content loss;
+		//            checkAiSignature — AI attribution on commits and PR bodies.
+		//   The floor is "never suppressible", not "content loss" alone: the
+		//   zero-AI-attribution rule is absolute, so it may not sit below the
+		//   stand-down divider.
 		//   Nothing in this section may call isStandDownActive().
 		if v := rule52Check(command); v != nil {
 			if !rule52ConsumeToken() {
@@ -83,6 +87,20 @@ var policePreToolUseCmd = &cobra.Command{
 				enc, _ := json.Marshal(out)
 				fmt.Fprintln(cmd.OutOrStdout(), string(enc))
 			}
+			return nil
+		}
+		if msg := checkAiSignature(command); msg != "" {
+			out := struct {
+				Stdout string `json:"stdout"`
+				Stderr string `json:"stderr"`
+				Exit   int    `json:"exitCode"`
+			}{
+				Stdout: "",
+				Stderr: msg,
+				Exit:   2,
+			}
+			enc, _ := json.Marshal(out)
+			fmt.Fprintln(cmd.OutOrStdout(), string(enc))
 			return nil
 		}
 		// ───── STAND-DOWN-SUPPRESSIBLE RULES ─────
