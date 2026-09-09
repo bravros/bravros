@@ -150,8 +150,11 @@ var deployCmd = &cobra.Command{
 	Use:   "deploy",
 	Short: "Deploy the toolkit runtime into the host config dir",
 	Long: `Copy skills, hooks, templates, config/settings.json, config/statusline.sh,
-and CLAUDE.md from the source repo to ~/.claude/.
-Skips mcp.json (machine-specific) and scripts/ (empty).
+the announce wrappers (scripts/announce.sh, scripts/mute-announce.sh) and
+CLAUDE.md from the source repo to ~/.claude/.
+Skips mcp.json (machine-specific). scripts/ is copied file by file, never as a
+whole tree — repo-only tooling such as scripts/planning-events/ stays out, and
+scripts/reconcile-global-claude.py is read in place rather than copied.
 
 Behavior:
   - Broken-symlink resilience: before copying, any broken symlink found under

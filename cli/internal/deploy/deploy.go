@@ -184,6 +184,21 @@ var fileMappings = []struct {
 }{
 	{"config/settings.json", "settings.json"},
 	{"config/statusline.sh", "statusline.sh"},
+	// The announce wrappers the skills shell out to as
+	// ~/.claude/scripts/announce.sh. They are mapped FILE BY FILE, not as a
+	// {"scripts", "scripts"} dirMapping, because repo-root scripts/ also holds
+	// repo-only tooling (scripts/planning-events/) that has no business in an
+	// operator's agent config dir. B-0031: before this, dirMappings had no
+	// scripts entry and fileMappings named none of them, so `bravros deploy`
+	// and `selfupdate` shipped these in the payload and then never wrote them
+	// to disk — every `… || true` call site failed silently.
+	//
+	// scripts/reconcile-global-claude.py is deliberately NOT here: deploy reads
+	// it in place from SourceDir (see reconcileGlobalClaudeMd) and never copies
+	// it to the target. The drift guard in cli/internal/payload
+	// (TestPayloadScriptsAreDeployable) pins that distinction.
+	{"scripts/announce.sh", "scripts/announce.sh"},
+	{"scripts/mute-announce.sh", "scripts/mute-announce.sh"},
 	// NOTE: root CLAUDE.md is deliberately NOT here. It is the repo's project doc,
 	// not the deployed global. Whole-file copying it to ~/.claude/CLAUDE.md clobbers
 	// the user's personal content. The managed global (home/CLAUDE.md) is reconciled
@@ -559,7 +574,7 @@ func Deploy(opts DeployOpts) (*DeployResult, error) {
 	// catches entries in the runtime that were never managed by the manifest
 	// (e.g. manually placed skill dirs, nonRuntime dirs like "shared").
 	if !opts.NoPrune {
-		orphans, err := detectOrphans(opts.SourceDir, opts.TargetDir, opts.PreserveSkills, resolvePruneSubtrees(opts.PruneSubtrees))
+		orphans, err := detectOrphans(opts.SourceDir, opts.TargetDir, opts.PreserveSkills, resolvePruneSubtrees(opts.PruneSubtrees), manifest.Skills)
 		if err != nil {
 			return nil, fmt.Errorf("detect orphans: %w", err)
 		}
@@ -1071,7 +1086,21 @@ func mergeMaps(dst, src map[string]interface{}) {
 // intersection with pruneSubtrees is always applied.
 //
 // Returns paths sorted ascending; nil when no orphans found.
-func detectOrphans(srcDir, targetDir string, preserveSkills, subtrees []string) ([]string, error) {
+// managedSkills is the set of skill names bravros's own deploy manifest records
+// as deployed BY bravros. Only those may be proposed as skill orphans. A skill
+// directory bravros never put there belongs to something else — a project
+// checkout, an MCP package that ships its own skills (@plaud-ai/mcp), a
+// hand-written skill, another toolkit — and deleting it is destroying a user's
+// property to tidy our own tree.
+//
+// This inverts the previous default. PreserveSkills (P-0124 / B-0237) was an
+// opt-in allowlist: every foreign skill had to be named in advance or it was
+// pruned, so the first deploy after installing one silently deleted it. Nine
+// skills were destroyed that way — seven from @plaud-ai/mcp, one project skill,
+// one stale payload copy — with no .trash/ preservation and no prompt.
+// Ownership is now required to prune; PreserveSkills is kept as a
+// belt-and-braces override for anything the manifest wrongly claims.
+func detectOrphans(srcDir, targetDir string, preserveSkills, subtrees []string, managedSkills map[string]string) ([]string, error) {
 	// Build a fast-lookup set for the preserve list.
 	preserveSet := make(map[string]struct{}, len(preserveSkills))
 	for _, name := range preserveSkills {
@@ -1135,6 +1164,13 @@ func detectOrphans(srcDir, targetDir string, preserveSkills, subtrees []string) 
 			// always be pruned regardless of the preserve list (they are build
 			// artifacts, not user skills).
 			if sub == "skills" {
+				// Residual, deliberately kept: this branch runs BEFORE the
+				// ownership gate below, so a foreign skill named literally
+				// "shared" or "_shared" is still pruned without an ownership
+				// check. Those two names are bravros build artifacts, never
+				// runtime skills, and the unconditional sweep predates the gate.
+				// The collision needs someone to name their own skill exactly
+				// "shared" — narrow enough to accept, but not invisible.
 				if NonRuntimeSkillDir(e.Name()) {
 					if cand := filepath.Join(sub, e.Name()); !IsPluginManaged(cand) {
 						orphans = append(orphans, cand)
@@ -1143,6 +1179,12 @@ func detectOrphans(srcDir, targetDir string, preserveSkills, subtrees []string) 
 				}
 				if _, preserved := preserveSet[e.Name()]; preserved {
 					continue // not an orphan — user opted in to keep it
+				}
+				// Ownership gate: prune only what bravros deployed. An entry
+				// absent from the manifest was placed by someone else, so it is
+				// not ours to remove — see the note on managedSkills above.
+				if _, ours := managedSkills[e.Name()]; !ours {
+					continue
 				}
 			}
 			srcPath := filepath.Join(srcDir, sub, e.Name())

@@ -1188,12 +1188,20 @@ func TestSelfupdateFetchPathNeverPrunesHooksOrAgents(t *testing.T) {
 	}
 }
 
-// TestSelfupdateFetchPathPrunesSkillAbsentFromPayload is the other half of the
-// same change: the payload IS the complete deployable tree, so a skill sitting
-// at the target with no counterpart in it was deleted upstream and has to go.
-// Before P-0014 the clone lane did this; with that lane retired, the fetch path
-// owns it — without this, a removed skill would linger on every machine forever.
-func TestSelfupdateFetchPathPrunesSkillAbsentFromPayload(t *testing.T) {
+// TestSelfupdateFetchPathLeavesUnmanagedSkillsAlone pins the ownership gate on
+// the lane that matters most: `bravros update` runs unattended on every
+// machine, so a prune rule that is wrong here destroys data at scale.
+//
+// "Absent from the payload" is NOT the same signal as "deleted upstream". A
+// skill bravros never deployed — one shipped by an MCP package, checked out
+// with a project, or hand-written — is absent from every payload by
+// construction. Deleting those is how nine real skills were destroyed on the
+// operator's machine in one stray deploy.
+//
+// The genuine "removed upstream" case is still pruned, because bravros's deploy
+// manifest records what bravros itself installed: see
+// deploy.TestPruneOrphansDefault.
+func TestSelfupdateFetchPathLeavesUnmanagedSkillsAlone(t *testing.T) {
 	home, payloadDir := setupFetchPathTest(t)
 	isolatePreserveConfig(t, "")
 
@@ -1202,9 +1210,9 @@ func TestSelfupdateFetchPathPrunesSkillAbsentFromPayload(t *testing.T) {
 
 	runFetchPathDeploy(t, home, payloadDir, targetDir)
 
-	orphan := filepath.Join(targetDir, "skills", "handwritten")
-	if _, err := os.Stat(orphan); !os.IsNotExist(err) {
-		t.Errorf("skills/handwritten has no counterpart in the payload and must be pruned (stat err: %v)", err)
+	unmanaged := filepath.Join(targetDir, "skills", "handwritten")
+	if _, err := os.Stat(unmanaged); err != nil {
+		t.Errorf("skills/handwritten was never deployed by bravros and must survive a fetch-path deploy: %v", err)
 	}
 	// The payload's own skill still lands — pruning must not eat the deploy.
 	if _, err := os.Stat(filepath.Join(targetDir, "skills", "fakeskill", "SKILL.md")); err != nil {

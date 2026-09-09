@@ -187,3 +187,55 @@ func TestSelection_EnabledSkillsFeedsDeployOpts(t *testing.T) {
 		t.Errorf("DeployOpts.EnabledSkills = %d entries, want %d", len(opts.EnabledSkills), len(sel.Skills))
 	}
 }
+
+// TestPayloadScriptsAreDeployable is the drift guard for B-0031.
+//
+// The payload's scripts/ membership (gen.go's syncSingleFiles list) and the
+// deploy set (deploy's fileMappings) are deliberately DIFFERENT lists — they
+// answer different questions: "does this ship inside the binary" versus "does
+// this get written into ~/.claude". Sharing one list would be wrong. What must
+// not happen is silent drift in the direction that bites: a script added to the
+// payload, shipped in every release, and then never written to disk, so every
+// `bash ~/.claude/scripts/<x> … || true` call site fails silently forever.
+// That is precisely what happened to announce.sh and mute-announce.sh.
+//
+// So: every payload script is deployable, unless it is named here with a reason.
+func TestPayloadScriptsAreDeployable(t *testing.T) {
+	// Scripts the payload carries but deploy deliberately does NOT copy to the
+	// target. Adding an entry here is a deliberate act that needs a reason.
+	notDeployed := map[string]string{
+		"reconcile-global-claude.py": "read in place from SourceDir by deploy.reconcileGlobalClaudeMd; never copied to the target",
+	}
+
+	names, err := payload.ListTopLevel("scripts")
+	if err != nil {
+		t.Fatalf("list payload scripts: %v", err)
+	}
+	if len(names) == 0 {
+		t.Fatal("payload carries no scripts/ entries — either the embed broke or this guard is now vacuous")
+	}
+
+	sawDeployable := false
+	for _, name := range names {
+		rel := path.Join("scripts", name)
+		deployable := deploy.DeployableFile(rel)
+
+		if reason, excluded := notDeployed[name]; excluded {
+			if deployable {
+				t.Errorf("%s is listed as not-deployed (%s) but deploy.DeployableFile says otherwise — update one side or the other", rel, reason)
+			}
+			continue
+		}
+
+		if !deployable {
+			t.Errorf("payload ships %s but deploy will never write it to the target.\n"+
+				"Add {%q, %q} to fileMappings in cli/internal/deploy/deploy.go, or record it in this test's notDeployed map with a reason.", rel, rel, rel)
+			continue
+		}
+		sawDeployable = true
+	}
+
+	if !sawDeployable {
+		t.Error("no payload script is deployable — the guard proved nothing")
+	}
+}

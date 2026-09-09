@@ -253,9 +253,10 @@ func TestDeployPresentSourceSubtreeStillPrunes(t *testing.T) {
 	must(os.WriteFile(filepath.Join(src, "skills", "kept", "SKILL.md"), []byte("kept skill"), 0644))
 
 	target := t.TempDir()
+	// "gone" must be a skill bravros actually deployed, or the ownership gate in
+	// detectOrphans correctly refuses to touch it — see deployThenOrphan.
+	deployThenOrphan(t, src, target, "gone")
 	goneDir := filepath.Join(target, "skills", "gone")
-	must(os.MkdirAll(goneDir, 0755))
-	must(os.WriteFile(filepath.Join(goneDir, "SKILL.md"), []byte("old"), 0644))
 
 	result, err := Deploy(DeployOpts{SourceDir: src, TargetDir: target})
 	if err != nil {

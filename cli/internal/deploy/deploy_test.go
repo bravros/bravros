@@ -432,6 +432,35 @@ func TestPruneGithooksFileOrphansInsideDotDir(t *testing.T) {
 	}
 }
 
+// deployThenOrphan makes name a skill bravros GENUINELY owns and then orphans
+// it: the skill is added to source, deployed (so the deploy manifest records
+// it), and removed from source again. That is the real rename/removal flow.
+//
+// Hand-creating a directory straight into the target does NOT produce an
+// orphan any more — an entry bravros never deployed is someone else's skill
+// (an MCP package's, a project's, a hand-written one) and the ownership gate in
+// detectOrphans deliberately leaves it alone.
+func deployThenOrphan(t *testing.T, src, target, name string) {
+	t.Helper()
+	dir := filepath.Join(src, "skills", name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir src skills/%s: %v", name, err)
+	}
+	body := "---\nname: " + name + "\n---\nbody\n"
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), 0o644); err != nil {
+		t.Fatalf("write src skills/%s/SKILL.md: %v", name, err)
+	}
+	if _, err := Deploy(DeployOpts{SourceDir: src, TargetDir: target}); err != nil {
+		t.Fatalf("ownership deploy of %s: %v", name, err)
+	}
+	if _, err := os.Stat(filepath.Join(target, "skills", name)); err != nil {
+		t.Fatalf("%s did not deploy, so ownership was never established: %v", name, err)
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatalf("remove src skills/%s: %v", name, err)
+	}
+}
+
 // TestPruneOrphansDefault verifies that orphan skills (deployed but absent
 // from source) are removed by default and listed in result.Pruned. Covers
 // B-0193 acceptance: rename flow auto-prunes leftover dirs.
@@ -444,15 +473,10 @@ func TestPruneOrphansDefault(t *testing.T) {
 		t.Fatalf("initial deploy: %v", err)
 	}
 
-	// Simulate a rename: drop a stray skill directory at the destination
-	// that has no source counterpart.
+	// Simulate a rename the way it actually happens: the skill was deployed by
+	// bravros (so the manifest owns it) and then disappeared from source.
+	deployThenOrphan(t, src, target, "deprecated-skill")
 	orphanDir := filepath.Join(target, "skills", "deprecated-skill")
-	if err := os.MkdirAll(orphanDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(orphanDir, "SKILL.md"), []byte("old"), 0644); err != nil {
-		t.Fatal(err)
-	}
 
 	// Second deploy: prune (default) should remove the orphan.
 	result, err := Deploy(DeployOpts{SourceDir: src, TargetDir: target})
@@ -512,10 +536,8 @@ func TestDryRunListsOrphansWithoutPruning(t *testing.T) {
 		t.Fatalf("initial deploy: %v", err)
 	}
 
+	deployThenOrphan(t, src, target, "ghost")
 	orphanDir := filepath.Join(target, "skills", "ghost")
-	if err := os.MkdirAll(orphanDir, 0755); err != nil {
-		t.Fatal(err)
-	}
 
 	result, err := Deploy(DeployOpts{SourceDir: src, TargetDir: target, DryRun: true})
 	if err != nil {
@@ -716,8 +738,12 @@ func TestDetectOrphans_HonorsPreserveList(t *testing.T) {
 		t.Fatalf("write graphify SKILL.md: %v", err)
 	}
 
-	// With preserve list including "graphify" — graphify must NOT appear in orphans.
-	orphans, err := detectOrphans(src, dst, []string{"graphify"}, resolvePruneSubtrees(nil))
+	// ours claims bravros deployed graphify — the only way it can be an orphan.
+	ours := map[string]string{"plan": "sha-plan", "graphify": "sha-graphify"}
+
+	// With preserve list including "graphify" — graphify must NOT appear in
+	// orphans even though the manifest claims it.
+	orphans, err := detectOrphans(src, dst, []string{"graphify"}, resolvePruneSubtrees(nil), ours)
 	if err != nil {
 		t.Fatalf("detectOrphans: %v", err)
 	}
@@ -727,8 +753,8 @@ func TestDetectOrphans_HonorsPreserveList(t *testing.T) {
 		}
 	}
 
-	// Control: without preserve list, graphify MUST appear in orphans.
-	orphansNoPreserve, err := detectOrphans(src, dst, nil, resolvePruneSubtrees(nil))
+	// Control: bravros-deployed + not preserved + gone from source ⇒ orphan.
+	orphansNoPreserve, err := detectOrphans(src, dst, nil, resolvePruneSubtrees(nil), ours)
 	if err != nil {
 		t.Fatalf("detectOrphans (no preserve): %v", err)
 	}
@@ -740,7 +766,74 @@ func TestDetectOrphans_HonorsPreserveList(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("expected skills/graphify in orphans without preserve list; got: %v", orphansNoPreserve)
+		t.Errorf("expected skills/graphify in orphans when the manifest claims it; got: %v", orphansNoPreserve)
+	}
+}
+
+// TestDetectOrphans_NeverPrunesUnmanagedSkills is the ownership gate.
+//
+// A skill directory bravros did not deploy — an MCP package that ships its own
+// skills, a project checkout, a hand-written skill — must survive prune with no
+// preserve-list entry and no flag. The opt-in PreserveSkills allowlist was not
+// enough: it required naming every foreign skill in advance, so the first
+// deploy after installing one deleted it. That destroyed nine real skills on
+// the operator's machine (seven from @plaud-ai/mcp, one project skill, one
+// stale payload copy), hard-removed with no .trash/ preservation.
+func TestDetectOrphans_NeverPrunesUnmanagedSkills(t *testing.T) {
+	src := filepath.Join(t.TempDir(), "claude")
+	if err := os.MkdirAll(filepath.Join(src, "skills", "plan"), 0o755); err != nil {
+		t.Fatalf("mkdir src skills/plan: %v", err)
+	}
+
+	dst := t.TempDir()
+	for _, name := range []string{"plan", "plaud-read", "relatorio-paylog"} {
+		dir := filepath.Join(dst, "skills", name)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir dst skills/%s: %v", name, err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(name), 0o644); err != nil {
+			t.Fatalf("write %s SKILL.md: %v", name, err)
+		}
+	}
+
+	// The manifest records ONLY what bravros deployed. plaud-read and
+	// relatorio-paylog arrived from elsewhere, so they are absent from it.
+	ours := map[string]string{"plan": "sha-plan"}
+
+	orphans, err := detectOrphans(src, dst, nil, resolvePruneSubtrees(nil), ours)
+	if err != nil {
+		t.Fatalf("detectOrphans: %v", err)
+	}
+	for _, o := range orphans {
+		if o == "skills/plaud-read" || o == "skills/relatorio-paylog" {
+			t.Errorf("proposed pruning a skill bravros never deployed (%s); orphans=%v", o, orphans)
+		}
+	}
+}
+
+// TestDetectOrphans_EmptyManifestPrunesNoSkills covers the migration case: a
+// target deployed before the manifest existed, or a hand-assembled ~/.claude.
+// With no ownership record, bravros owns nothing and must prune no skill —
+// failing safe rather than treating "unknown" as "delete".
+func TestDetectOrphans_EmptyManifestPrunesNoSkills(t *testing.T) {
+	src := filepath.Join(t.TempDir(), "claude")
+	if err := os.MkdirAll(filepath.Join(src, "skills", "plan"), 0o755); err != nil {
+		t.Fatalf("mkdir src skills/plan: %v", err)
+	}
+
+	dst := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dst, "skills", "legacy-skill"), 0o755); err != nil {
+		t.Fatalf("mkdir dst skills/legacy-skill: %v", err)
+	}
+
+	orphans, err := detectOrphans(src, dst, nil, resolvePruneSubtrees(nil), map[string]string{})
+	if err != nil {
+		t.Fatalf("detectOrphans: %v", err)
+	}
+	for _, o := range orphans {
+		if strings.HasPrefix(o, "skills/") {
+			t.Errorf("empty manifest must yield no skill orphans, got %q (all: %v)", o, orphans)
+		}
 	}
 }
 
@@ -953,8 +1046,12 @@ func TestPruneSubtreesScopedDeployKeepsHooksAndAgents(t *testing.T) {
 			t.Errorf("%s must survive a scoped payload deploy: %v", keep, err)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(target, "skills", "handwritten")); !os.IsNotExist(err) {
-		t.Errorf("skills/handwritten is absent from the payload and must be pruned (stat err: %v)", err)
+	// skills/handwritten was seeded straight into the runtime, never deployed by
+	// bravros, so it is the operator's own skill. Absence from the payload is
+	// not evidence it is stale — it is evidence it came from somewhere else.
+	// Pruning of skills bravros DOES own is covered by TestPruneOrphansDefault.
+	if _, err := os.Stat(filepath.Join(target, "skills", "handwritten")); err != nil {
+		t.Errorf("skills/handwritten was never deployed by bravros and must survive: %v", err)
 	}
 }
 
@@ -1024,9 +1121,13 @@ func TestPruneSubtreesScopedDeployHonorsPreserveSkills(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(target, "skills", "graphify", "SKILL.md")); err != nil {
 		t.Errorf("preserved skill must survive a scoped payload deploy: %v", err)
 	}
-	// The non-preserved orphan still goes — preserve is an allowlist, not an off switch.
-	if _, err := os.Stat(filepath.Join(target, "skills", "handwritten")); !os.IsNotExist(err) {
-		t.Errorf("non-preserved orphan should still be pruned (stat err: %v)", err)
+	// skills/handwritten carries no preserve entry, yet it survives too: bravros
+	// never deployed it. PreserveSkills is now a belt-and-braces override on top
+	// of the ownership gate rather than the only thing standing between a
+	// foreign skill and deletion. That preserve still beats a skill bravros DOES
+	// own is pinned by TestDetectOrphans_HonorsPreserveList.
+	if _, err := os.Stat(filepath.Join(target, "skills", "handwritten")); err != nil {
+		t.Errorf("unmanaged skill must survive even without a preserve entry: %v", err)
 	}
 }
 

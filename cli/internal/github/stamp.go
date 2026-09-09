@@ -187,6 +187,21 @@ func ResolvePlanID(repoRoot string) string {
 	return ""
 }
 
+// planFileNameRe matches a plan FILE name: P-0123-some-slug.md. Non-plan
+// markdown that happens to live in .planning/ — CONVENTIONS.md, notes, READMEs
+// — must never be read as a plan, because a documentation example containing a
+// frontmatter block would otherwise be parsed as a real plan id. That is not
+// hypothetical: .planning/CONVENTIONS.md documents the frontmatter schema with
+// a fenced `id: P-0123` sample, and every stamp this repo wrote carried
+// plan_id "P-0123" as a result.
+// The [A-Z]- prefix is OPTIONAL: internal/plan's numberedFileRe is the
+// codebase's convention for this and matches "both old-style (0067-foo.md) and
+// new-style (P-0067-foo.md / B-0067-foo.md)". Requiring the prefix would skip a
+// legacy single-file plan and silently fall through to the weaker slug matcher,
+// trading one wrong plan_id for another. What still must NOT match is a
+// documentation file with no number at all — CONVENTIONS.md, README.md, notes.md.
+var planFileNameRe = regexp.MustCompile(`^(?:[A-Z]-)?\d{4}-.+\.md$`)
+
 // planIDFromBranchFile finds the active plan file for the branch and reads
 // its `id:` frontmatter field.
 func planIDFromBranchFile(planningDir, branch string) string {
@@ -195,7 +210,7 @@ func planIDFromBranchFile(planningDir, branch string) string {
 		return ""
 	}
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+		if e.IsDir() || !planFileNameRe.MatchString(e.Name()) {
 			continue
 		}
 		path := filepath.Join(planningDir, e.Name())
@@ -229,9 +244,17 @@ func readFrontmatterID(path, branch string) string {
 	for _, raw := range lines {
 		line := strings.TrimSpace(raw)
 		if !inFM {
-			if line == "---" {
-				inFM = true
+			// YAML frontmatter opens the FILE. A "---" found after any other
+			// content is prose — a horizontal rule, or the fence of a
+			// documentation example — and parsing it as frontmatter is how
+			// CONVENTIONS.md's sample block leaked "P-0123" into every stamp.
+			if line == "" {
+				continue
 			}
+			if line != "---" {
+				return ""
+			}
+			inFM = true
 			continue
 		}
 		if line == "---" {

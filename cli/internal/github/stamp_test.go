@@ -368,3 +368,129 @@ func TestPlanIDFromBranchSlug_NoMatch(t *testing.T) {
 		t.Errorf("expected empty string for no match, got %q", got)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Non-plan markdown must never be read as a plan (B-0032 follow-up)
+// ---------------------------------------------------------------------------
+
+// conventionsShapedDoc reproduces the shape of .planning/CONVENTIONS.md: prose
+// first, then a FENCED yaml example that itself contains a frontmatter block.
+// The old readFrontmatterID scanned for the first "---" anywhere in the first
+// 4096 bytes, so it parsed the example and returned its placeholder id — which
+// is why every stamp this repo wrote recorded plan_id "P-0123".
+const conventionsShapedDoc = "# .planning conventions — events model\n" +
+	"\n" +
+	"A plan is born once and its frontmatter never mutates:\n" +
+	"\n" +
+	"```yaml\n" +
+	"---\n" +
+	"id: P-0123\n" +
+	"title: Short imperative title\n" +
+	"created: 2026-08-13\n" +
+	"---\n" +
+	"```\n"
+
+// TestReadFrontmatterID_IgnoresFencedExample pins the parse half of the fix:
+// frontmatter opens the FILE, so a "---" appearing after prose is not it.
+func TestReadFrontmatterID_IgnoresFencedExample(t *testing.T) {
+	dir := t.TempDir()
+	doc := filepath.Join(dir, "CONVENTIONS.md")
+	if err := os.WriteFile(doc, []byte(conventionsShapedDoc), 0o644); err != nil {
+		t.Fatalf("write doc: %v", err)
+	}
+
+	if got := readFrontmatterID(doc, "any/branch"); got != "" {
+		t.Errorf("readFrontmatterID read a fenced documentation example as frontmatter: got %q, want \"\"", got)
+	}
+}
+
+// TestReadFrontmatterID_LeadingBlankLinesStillParse guards the fix from being
+// too strict: blank lines before the opening "---" are not content.
+func TestReadFrontmatterID_LeadingBlankLinesStillParse(t *testing.T) {
+	dir := t.TempDir()
+	doc := filepath.Join(dir, "P-0300-leading-blanks.md")
+	if err := os.WriteFile(doc, []byte("\n\n---\nid: P-0300-leading-blanks\n---\n"), 0o644); err != nil {
+		t.Fatalf("write doc: %v", err)
+	}
+
+	if got := readFrontmatterID(doc, "any/branch"); got != "P-0300-leading-blanks" {
+		t.Errorf("expected P-0300-leading-blanks, got %q", got)
+	}
+}
+
+// TestPlanIDFromBranchFile_SkipsNonPlanMarkdown pins the selection half: a
+// .planning/ holding only non-plan markdown resolves to no plan at all, rather
+// than to whatever id that markdown happens to mention.
+func TestPlanIDFromBranchFile_SkipsNonPlanMarkdown(t *testing.T) {
+	planningDir := t.TempDir()
+	for name, body := range map[string]string{
+		"CONVENTIONS.md": conventionsShapedDoc,
+		"README.md":      "---\nid: P-0999-not-a-plan\n---\n",
+		"notes.md":       "---\nid: P-0998-also-not-a-plan\n---\n",
+	} {
+		if err := os.WriteFile(filepath.Join(planningDir, name), []byte(body), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+
+	if got := planIDFromBranchFile(planningDir, "feature/whatever"); got != "" {
+		t.Errorf("non-plan markdown resolved as a plan id: got %q, want \"\"", got)
+	}
+}
+
+// TestPlanIDFromBranchFile_StillFindsRealPlan proves the guards did not break
+// the feature: a real plan file beside the decoys still resolves.
+func TestPlanIDFromBranchFile_StillFindsRealPlan(t *testing.T) {
+	planningDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(planningDir, "CONVENTIONS.md"), []byte(conventionsShapedDoc), 0o644); err != nil {
+		t.Fatalf("write conventions: %v", err)
+	}
+	plan := "---\nid: P-0042-real-plan\nbranch: feature/real-plan\n---\n\n# Body\n"
+	if err := os.WriteFile(filepath.Join(planningDir, "P-0042-real-plan.md"), []byte(plan), 0o644); err != nil {
+		t.Fatalf("write plan: %v", err)
+	}
+
+	if got := planIDFromBranchFile(planningDir, "feature/real-plan"); got != "P-0042-real-plan" {
+		t.Errorf("expected P-0042-real-plan, got %q", got)
+	}
+}
+
+// TestPlanIDFromBranchFile_AcceptsLegacyNumericPlan covers the file shape the
+// first cut of planFileNameRe wrongly rejected: a legacy single-file plan with
+// no letter prefix (.planning/0042-real-plan.md). internal/plan's
+// numberedFileRe treats that as valid, so this resolver must too — otherwise a
+// repo still carrying one silently falls through to the weaker slug matcher.
+//
+// Note this shape was NOT broken by the original CONVENTIONS.md bug: ReadDir
+// sorts, and digits precede uppercase in ASCII, so "0042-…" was found first.
+// Fixing one wrong plan_id must not introduce another.
+func TestPlanIDFromBranchFile_AcceptsLegacyNumericPlan(t *testing.T) {
+	planningDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(planningDir, "CONVENTIONS.md"), []byte(conventionsShapedDoc), 0o644); err != nil {
+		t.Fatalf("write conventions: %v", err)
+	}
+	plan := "---\nid: 0042-real-plan\nbranch: feature/real-plan\n---\n\n# Body\n"
+	if err := os.WriteFile(filepath.Join(planningDir, "0042-real-plan.md"), []byte(plan), 0o644); err != nil {
+		t.Fatalf("write legacy plan: %v", err)
+	}
+
+	if got := planIDFromBranchFile(planningDir, "feature/real-plan"); got != "0042-real-plan" {
+		t.Errorf("legacy bare-numeric plan file was skipped: got %q, want %q", got, "0042-real-plan")
+	}
+}
+
+// TestPlanFileNameRe_RejectsDocumentation keeps the widened pattern honest: the
+// prefix became optional, but an unnumbered documentation file must still never
+// be read as a plan — that is the whole point of the original fix.
+func TestPlanFileNameRe_RejectsDocumentation(t *testing.T) {
+	for _, name := range []string{"CONVENTIONS.md", "README.md", "notes.md", "AGENTS.md", "conventions.md"} {
+		if planFileNameRe.MatchString(name) {
+			t.Errorf("%s must not be treated as a plan file", name)
+		}
+	}
+	for _, name := range []string{"0042-real-plan.md", "P-0042-real-plan.md", "B-0031-some-item.md"} {
+		if !planFileNameRe.MatchString(name) {
+			t.Errorf("%s is a valid plan/backlog file name and must match", name)
+		}
+	}
+}
