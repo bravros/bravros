@@ -200,10 +200,18 @@ var components = []Component{
 		targetRel:    []string{"home"},
 	},
 	{
-		ID:           "claude-reconcile-script",
+		// RENAMED from "claude-reconcile-script" (it now carries the
+		// announcement wrappers too). Safe without a migration precisely
+		// because it is Internal and Default false: setupResolveIDs drops
+		// prior-state ids ComponentByID no longer knows rather than failing,
+		// and setupPlanPrune only ever prunes skills — so the worst case for
+		// a machine that installed it via --all is that the subtree is not
+		// re-selected until the next --all run. Do NOT apply the same
+		// reasoning to a default-on component.
+		ID:           "claude-scripts",
 		Internal:     true,
-		Label:        "CLAUDE.md reconcile script (internal)",
-		Description:  "scripts/reconcile-global-claude.py — the deterministic marker-block reconciler deploy.reconcileGlobalClaudeMd falls back to when no source checkout is present. Not part of the setup wizard's default picks.",
+		Label:        "Claude helper scripts (internal)",
+		Description:  "scripts/ — the CLAUDE.md marker-block reconciler deploy.reconcileGlobalClaudeMd falls back to, plus announce.sh / mute-announce.sh, the announcement wrappers the skills shell out to. Not part of the setup wizard's default picks.",
 		Kind:         KindEmbeddedTree,
 		Default:      false,
 		embedSubtree: "scripts",

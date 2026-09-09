@@ -436,6 +436,11 @@ func setupStage(sel payload.Selection, c payload.Component, staging string) (str
 func setupBuildPlan(root, staging string, sels []payload.Selection, prev *setupState) (*setupPlan, error) {
 	plan := &setupPlan{Root: root, Selections: sels}
 
+	// Same decision deploy.Deploy makes once per run (deploy.go's
+	// rewriteHostPaths) — computed here so the plan-diff and the later apply
+	// step agree on whether this target gets host-path rewriting at all.
+	rewrite := deploy.IsClaudeTarget(root)
+
 	plan.PluginManaged = setupDetectPluginManaged(root)
 	allowPluginManaged := os.Getenv(setupAllowPluginManagedEnv) == "1"
 
@@ -474,7 +479,7 @@ func setupBuildPlan(root, staging string, sels []payload.Selection, prev *setupS
 				return nil, err
 			}
 			sub, _ := c.EmbedSubtree()
-			items, err := setupPlanTree(root, staged, sub, c.ID)
+			items, err := setupPlanTree(root, staged, sub, c.ID, rewrite)
 			if err != nil {
 				return nil, err
 			}
@@ -500,8 +505,9 @@ func setupBuildPlan(root, staging string, sels []payload.Selection, prev *setupS
 	return plan, nil
 }
 
-// setupPlanTree diffs one staged subtree against the target.
-func setupPlanTree(root, staged, sub, componentID string) ([]setupPlanItem, error) {
+// setupPlanTree diffs one staged subtree against the target. rewrite is
+// deploy.IsClaudeTarget(root), computed once by the caller.
+func setupPlanTree(root, staged, sub, componentID string, rewrite bool) ([]setupPlanItem, error) {
 	var items []setupPlanItem
 	err := filepath.WalkDir(staged, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -520,7 +526,7 @@ func setupPlanTree(root, staged, sub, componentID string) ([]setupPlanItem, erro
 		}
 		abs := filepath.Join(root, filepath.FromSlash(rel))
 
-		action, err := setupCompare(p, abs)
+		action, err := setupCompare(p, abs, rewrite)
 		if err != nil {
 			return err
 		}
@@ -539,10 +545,20 @@ func setupPlanTree(root, staged, sub, componentID string) ([]setupPlanItem, erro
 
 // setupCompare decides one file's fate: absent → create, identical →
 // unchanged, different → conflict (never an overwrite).
-func setupCompare(src, dst string) (setupAction, error) {
+//
+// rewrite mirrors deploy.copySkillDir's host-path rewrite: when the target is
+// a Claude config dir, the on-disk file was written with host-agnostic tokens
+// (~/.bravros/..., ~/.agent_config) already rewritten to ~/.claude/.... The
+// staged payload copy is still raw, so it must be rewritten here too before
+// comparing — otherwise every such file reads as "differs" against its own
+// unchanged self and spuriously conflicts on every refresh.
+func setupCompare(src, dst string, rewrite bool) (setupAction, error) {
 	want, err := os.ReadFile(src)
 	if err != nil {
 		return "", fmt.Errorf("read staged %s: %w", src, err)
+	}
+	if rewrite && deploy.IsTextFile(filepath.Base(src)) {
+		want = deploy.DesanitizeHostPaths(want)
 	}
 	have, err := os.ReadFile(dst)
 	switch {
@@ -714,6 +730,12 @@ type setupApplyResult struct {
 func setupApply(plan *setupPlan) (*setupApplyResult, error) {
 	res := &setupApplyResult{}
 
+	// Same decision setupBuildPlan made when it ran setupCompare — recomputed
+	// here (cheap: one filepath.Base + string compare) so a create OR a
+	// conflict writes the same rewritten content the plan diff compared
+	// against, never the raw staged tokens.
+	rewrite := deploy.IsClaudeTarget(plan.Root)
+
 	for _, it := range plan.Items {
 		switch it.Action {
 		case setupActionCreate, setupActionConflict:
@@ -724,7 +746,7 @@ func setupApply(plan *setupPlan) (*setupApplyResult, error) {
 				// itself is a regenerable artifact, so re-running replaces it.
 				target += ".new"
 			}
-			if err := setupCopyFile(it.Src, target); err != nil {
+			if err := setupCopyFile(it.Src, target, rewrite); err != nil {
 				return nil, err
 			}
 			if it.Action == setupActionCreate {
@@ -774,7 +796,14 @@ func setupApply(plan *setupPlan) (*setupApplyResult, error) {
 
 // setupCopyFile writes src to dst, preserving src's mode (payload.Extract has
 // already restored the executable bit from the payload manifest).
-func setupCopyFile(src, dst string) error {
+//
+// rewrite mirrors deploy.copySkillDir's behavior: on a Claude target, a text
+// file's host-agnostic toolkit tokens (~/.bravros/..., ~/.agent_config) are
+// rewritten to ~/.claude/... before the bytes are written — including into a
+// <name>.new file, which an operator will `mv` over the original and expect
+// to work. Text-file detection is keyed off src's name, not dst's: dst may
+// carry a trailing ".new" that would otherwise defeat the extension check.
+func setupCopyFile(src, dst string, rewrite bool) error {
 	info, err := os.Stat(src)
 	if err != nil {
 		return fmt.Errorf("stat %s: %w", src, err)
@@ -782,6 +811,9 @@ func setupCopyFile(src, dst string) error {
 	data, err := os.ReadFile(src)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", src, err)
+	}
+	if rewrite && deploy.IsTextFile(filepath.Base(src)) {
+		data = deploy.DesanitizeHostPaths(data)
 	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return fmt.Errorf("mkdir %s: %w", filepath.Dir(dst), err)

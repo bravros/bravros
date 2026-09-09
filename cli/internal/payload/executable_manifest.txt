@@ -1,3 +1,5 @@
+scripts/announce.sh
+scripts/mute-announce.sh
 scripts/reconcile-global-claude.py
 skills/graphify-status/scripts/emit-relabel-prompt.py
 skills/graphify-status/scripts/graphify-status.py

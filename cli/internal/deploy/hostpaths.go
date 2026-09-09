@@ -70,3 +70,23 @@ func desanitizeHostPaths(content []byte) []byte {
 	}
 	return content
 }
+
+// IsClaudeTarget is the exported form of isClaudeTarget, for callers outside
+// this package that need to decide whether host-path rewriting applies —
+// e.g. cmd/setup.go's planner-based apply path (`bravros setup` /
+// `bravros selfupdate`'s embedded-payload refresh), which writes files
+// through its own copy routine rather than deploy.Deploy's copySkillDir.
+func IsClaudeTarget(targetRoot string) bool {
+	return isClaudeTarget(targetRoot)
+}
+
+// IsTextFile is the exported form of isTextFile — see IsClaudeTarget.
+func IsTextFile(name string) bool {
+	return isTextFile(name)
+}
+
+// DesanitizeHostPaths is the exported form of desanitizeHostPaths — see
+// IsClaudeTarget.
+func DesanitizeHostPaths(content []byte) []byte {
+	return desanitizeHostPaths(content)
+}

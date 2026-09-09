@@ -203,6 +203,61 @@ func TestSetupNeverOverwritesADifferingFile(t *testing.T) {
 	}
 }
 
+// TestSetupConflictNewFileRewritesHostPaths reproduces the reported bug: a
+// deployed skill file whose content names the host-agnostic toolkit path
+// (~/.bravros/scripts/announce.sh) is correctly rewritten to ~/.claude/...
+// on first install, but a hand-edit that forces a conflict on the NEXT run
+// used to make the resulting <name>.new file — the one an operator adopts
+// with `mv x.new x` — carry the raw, unresolved token again. setupCompare
+// staged the raw payload and compared it byte-for-byte against the already-
+// rewritten target, so it read as "differs" and setupCopyFile wrote the raw
+// bytes straight through.
+func TestSetupConflictNewFileRewritesHostPaths(t *testing.T) {
+	root := setupTestRoot(t) // ends in ".claude" — see setupTestRoot
+	if out, err := runSetupForTest(t, setupFlags{all: true, yes: true}); err != nil {
+		t.Fatalf("first install: %v\n%s", err, out)
+	}
+
+	target := filepath.Join(root, "skills", "verify-install", "skill.yaml")
+	got, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read installed skill.yaml: %v", err)
+	}
+	if bytes.Contains(got, []byte("~/.bravros/scripts")) {
+		t.Fatalf("first install left a raw host-agnostic token in place:\n%s", got)
+	}
+	if !bytes.Contains(got, []byte("~/.claude/scripts/announce.sh")) {
+		t.Fatalf("first install did not rewrite the announce.sh path:\n%s", got)
+	}
+
+	// Hand-edit to force a conflict on the next run — the exact scenario a
+	// user-customized skill hits on every `bravros setup` / `bravros
+	// selfupdate` re-run.
+	mine := append([]byte("# my own edit, do not clobber\n"), got...)
+	if err := os.WriteFile(target, mine, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := runSetupForTest(t, setupFlags{all: true, yes: true})
+	if err != nil {
+		t.Fatalf("re-run: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "kept your") {
+		t.Fatalf("re-run did not report a conflict:\n%s", out)
+	}
+
+	newContent, err := os.ReadFile(target + ".new")
+	if err != nil {
+		t.Fatalf("expected %s.new to be written: %v", target, err)
+	}
+	if bytes.Contains(newContent, []byte("~/.bravros/scripts")) {
+		t.Errorf(".new file still carries the raw host-agnostic token:\n%s", newContent)
+	}
+	if !bytes.Contains(newContent, []byte("~/.claude/scripts/announce.sh")) {
+		t.Errorf(".new file does not carry the rewritten ~/.claude path:\n%s", newContent)
+	}
+}
+
 // TestSetupCoreScopeInstallsOnlyCoreSkills — the D11 default. Scope core must
 // be a strict subset of the payload, and must match payload.ResolveSkills.
 func TestSetupCoreScopeInstallsOnlyCoreSkills(t *testing.T) {

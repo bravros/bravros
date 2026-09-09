@@ -283,7 +283,7 @@ Worktrees each have their own CLAUDE.md — `/context` writes to `cwd/CLAUDE.md`
 ## Audible Completion Announces
 
 Skills that complete long-running operations fire a PT-BR audio announcement to Echo Studio
-via `bash ~/.config/bravros/scripts/announce.sh "<message>" studio >/dev/null 2>&1 || true`.
+via `bash ~/.bravros/scripts/announce.sh "<message>" studio >/dev/null 2>&1 || true`.
 `HASS_TOKEN` is exported from the macOS keychain in `~/.zshenv`, so the helper skips 1Password
 entirely; it silently no-ops when the Mac is locked or HA is unreachable.
 **Always redirect stdout** — the helper prints `Sent to studio: …`, which is noise in the transcript.

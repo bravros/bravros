@@ -117,8 +117,10 @@ func DeviceTarget(name string) string {
 
 // DeviceSlug returns the HA entity slug for a device name — the middle part shared by that
 // device's entities (media_player.<slug>, switch.<slug>_do_not_disturb_switch, …). Derived
-// from DeviceMap so the two can never drift apart. Mirrored by device_slug() in
-// scripts/announce.sh, which needs the same mapping without invoking the binary.
+// from DeviceMap so the two can never drift apart. scripts/announce.sh resolves slugs from
+// this SAME file (it parses devices.<name> out of DevicesFile's path itself rather than
+// invoking the binary), so there is one map per machine and no second copy to keep in sync —
+// the hardcoded case-map it used to carry is what B-0029 reported.
 func DeviceSlug(name string) string {
 	if slug, ok := DeviceMap()[name]; ok && slug != "" {
 		return slug

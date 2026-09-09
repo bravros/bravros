@@ -1,6 +1,6 @@
 // Package payload embeds the repo-root skills/, templates/ and home/ trees,
-// plus scripts/reconcile-global-claude.py, into the bravros binary via
-// go:embed.
+// plus the named files of repo-root scripts/ (the CLAUDE.md reconciler and the
+// announcement wrappers), into the bravros binary via go:embed.
 //
 // go:embed can only reference paths inside its own package directory — it
 // cannot cross the module boundary with "..". skills/, templates/, home/ and
@@ -15,8 +15,14 @@
 // deploy.reconcileGlobalClaudeMd (cli/internal/deploy/deploy.go) can fall
 // back to the compiled-in copy when the deploy SourceDir has no repo
 // checkout to read them from (P-0018 Phase 3) — see manifest.go's
-// "claude-home" / "claude-reconcile-script" components for the bijection
-// this requires against the embedded FS's top-level directories.
+// "claude-home" / "claude-scripts" components for the bijection this
+// requires against the embedded FS's top-level directories.
+//
+// scripts/announce.sh and scripts/mute-announce.sh ride the same subtree for a
+// different reason: the shipped skills call ~/.claude/scripts/announce.sh
+// directly, so a payload that carries the call sites but not the script is an
+// ownership hole by construction (B-0029). Both are executable in the source
+// and therefore appear in executable_manifest.txt.
 //
 // LOCKED DECISION: the synced mirror is COMMITTED, not gitignored. go:embed
 // is a compile-time error against a missing or empty directory, so a
@@ -42,11 +48,14 @@ import (
 //go:generate go run gen.go
 
 // FS is the embedded mirror of the repo-root skills/, templates/ and home/
-// trees, plus scripts/reconcile-global-claude.py. Regenerate it with
+// trees, plus the named repo-root scripts/ files. Regenerate it with
 // `cd cli && go generate ./internal/payload/...` whenever the repo-root
-// sources change.
+// sources change. Every path listed here must also be listed in gen.go's
+// syncSingleFiles call — go:embed fails the BUILD on a file the generator
+// does not produce.
 //
-//go:embed all:skills all:templates all:home scripts/reconcile-global-claude.py
+//go:embed all:skills all:templates all:home
+//go:embed scripts/reconcile-global-claude.py scripts/announce.sh scripts/mute-announce.sh
 var FS embed.FS
 
 // executableManifest is written by gen.go alongside the synced mirror: one

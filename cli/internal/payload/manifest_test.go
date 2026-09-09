@@ -81,7 +81,7 @@ func TestComponents_EmbeddedSubtreeBijection(t *testing.T) {
 }
 
 func TestComponents_IDsAndShape(t *testing.T) {
-	want := []string{"cli", "claude-skills", "claude-templates", "claude-settings", "claude-home", "claude-reconcile-script"}
+	want := []string{"cli", "claude-skills", "claude-templates", "claude-settings", "claude-home", "claude-scripts"}
 	var got []string
 	seen := map[string]bool{}
 	for _, c := range Components() {
@@ -154,12 +154,12 @@ func TestTargetPaths_ResolveUnderUserHomeDir(t *testing.T) {
 	}
 
 	wantRel := map[string]string{
-		"cli":                     "bin",
-		"claude-skills":           "skills",
-		"claude-templates":        "templates",
-		"claude-settings":         "settings.json",
-		"claude-home":             "home",
-		"claude-reconcile-script": "scripts",
+		"cli":              "bin",
+		"claude-skills":    "skills",
+		"claude-templates": "templates",
+		"claude-settings":  "settings.json",
+		"claude-home":      "home",
+		"claude-scripts":   "scripts",
 	}
 
 	fakeRoot := filepath.Join(t.TempDir(), ".claude")
@@ -310,10 +310,10 @@ func TestDefaultSelections(t *testing.T) {
 		t.Fatalf("DefaultSelections: %v", err)
 	}
 	// Derived from live component definitions, not a hardcoded count: not
-	// every component is Default||Required (claude-home and
-	// claude-reconcile-script exist only to satisfy the embedded-subtree
-	// bijection and deploy.reconcileGlobalClaudeMd's fallback — they are
-	// deliberately opt-in, never installed by a plain `bravros setup`).
+	// every component is Default||Required (claude-home and claude-scripts
+	// carry the embedded-subtree bijection, deploy.reconcileGlobalClaudeMd's
+	// fallback and the announcement wrappers — they are deliberately opt-in,
+	// never installed by a plain `bravros setup`).
 	wantDefault := 0
 	for _, c := range Components() {
 		if c.Default || c.Required {
@@ -372,9 +372,9 @@ func TestDefaultSelections(t *testing.T) {
 
 // TestInternalComponentsHiddenFromWizard pins the wizard contract for Internal
 // components (P-0018 hotfix): the embedded-fallback plumbing (claude-home,
-// claude-reconcile-script) is marked Internal so setupRunWizard never offers
-// it, and no Internal component may be Default — an invisible pre-checked
-// component would install without ever being seen.
+// claude-scripts) is marked Internal so setupRunWizard never offers it, and no
+// Internal component may be Default — an invisible pre-checked component would
+// install without ever being seen.
 func TestInternalComponentsHiddenFromWizard(t *testing.T) {
 	internal := map[string]bool{}
 	for _, c := range Components() {
@@ -388,7 +388,7 @@ func TestInternalComponentsHiddenFromWizard(t *testing.T) {
 			}
 		}
 	}
-	for _, id := range []string{"claude-home", "claude-reconcile-script"} {
+	for _, id := range []string{"claude-home", "claude-scripts"} {
 		if !internal[id] {
 			t.Errorf("component %q must be marked Internal", id)
 		}

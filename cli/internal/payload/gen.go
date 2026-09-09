@@ -3,9 +3,9 @@
 // gen.go is the sync step behind `//go:generate go run gen.go` in embed.go.
 //
 // Repo-root skills/, templates/ and home/ are the source of truth for those
-// three whole subtrees; scripts/reconcile-global-claude.py is synced as a
-// single file (see syncSingleFile) rather than the whole repo-root scripts/
-// tree, which may hold entries unrelated to the payload. This script wipes
+// three whole subtrees; the payload's scripts/ entries are synced as NAMED
+// SINGLE FILES (see syncSingleFiles) rather than as the whole repo-root
+// scripts/ tree, which may hold entries unrelated to the payload. This script wipes
 // cli/internal/payload/{skills,templates,home,scripts} and re-copies them so
 // the embedded mirror stays byte-for-byte in sync on disk. It is deterministic
 // (files are visited and written in the sorted order fs.WalkDir already
@@ -89,12 +89,19 @@ func run() error {
 		fmt.Printf("gen: synced %s -> %s\n", src, dst)
 	}
 
-	// scripts/reconcile-global-claude.py is synced as a SINGLE FILE, not the
-	// whole repo-root scripts/ tree: repo-root scripts/ is free to grow
-	// entries with nothing to do with the payload, and the mirror + CI's
-	// exact-membership assertion (verify-manifest.yml) both expect only this
-	// one path under cli/internal/payload/scripts/.
-	if err := syncSingleFile(repoRoot, payloadDir, "scripts", "reconcile-global-claude.py", &executable); err != nil {
+	// The payload's scripts/ holds NAMED SINGLE FILES, not the whole repo-root
+	// scripts/ tree: repo-root scripts/ is free to grow entries with nothing to
+	// do with the payload (scripts/planning-events/ is one today), and the
+	// mirror + CI's exact-membership assertion (verify-manifest.yml) both
+	// expect exactly this list under cli/internal/payload/scripts/. Adding a
+	// file here means adding it to the //go:embed line in embed.go, to
+	// EXPECTED_ENTRIES in verify-manifest.yml, and to the public mirror's
+	// allowlist in publish-public.yml.
+	if err := syncSingleFiles(repoRoot, payloadDir, "scripts", []string{
+		"reconcile-global-claude.py",
+		"announce.sh",
+		"mute-announce.sh",
+	}, &executable); err != nil {
 		return err
 	}
 
@@ -128,25 +135,19 @@ func findRepoRoot(dir string) (string, error) {
 	}
 }
 
-// syncSingleFile wipes payloadDir/subdir and re-copies exactly
-// repoRoot/subdir/name into it, preserving the source's permission bits and
-// appending the embed.FS-relative path to *executable when the source file
-// is executable. Wiping the destination subdirectory first is what gives
-// this the same staleness-pruning guarantee copyTree provides for whole
-// subtrees: a file that used to be synced here and no longer exists in the
-// source cannot survive as a stale leftover.
-func syncSingleFile(repoRoot, payloadDir, subdir, name string, executable *[]string) error {
-	src := filepath.Join(repoRoot, subdir, name)
+// syncSingleFiles wipes payloadDir/subdir ONCE and then re-copies exactly
+// repoRoot/subdir/<name> for each name into it, preserving each source's
+// permission bits and appending the embed.FS-relative path to *executable for
+// every source file that is executable. Wiping the destination subdirectory
+// first is what gives this the same staleness-pruning guarantee copyTree
+// provides for whole subtrees: a file that used to be synced here and no
+// longer exists in the source cannot survive as a stale leftover.
+//
+// The wipe is deliberately hoisted out of the per-file loop — a per-file wipe
+// would delete the previous name's copy on the next iteration, leaving the
+// mirror with only the last file in the list.
+func syncSingleFiles(repoRoot, payloadDir, subdir string, names []string, executable *[]string) error {
 	dstDir := filepath.Join(payloadDir, subdir)
-	dst := filepath.Join(dstDir, name)
-
-	info, err := os.Stat(src)
-	if err != nil {
-		return fmt.Errorf("source file %q: %w", src, err)
-	}
-	if info.IsDir() {
-		return fmt.Errorf("source file %q is a directory, want a file", src)
-	}
 
 	if err := os.RemoveAll(dstDir); err != nil {
 		return fmt.Errorf("wipe %q: %w", dstDir, err)
@@ -155,19 +156,32 @@ func syncSingleFile(repoRoot, payloadDir, subdir, name string, executable *[]str
 		return fmt.Errorf("mkdir %q: %w", dstDir, err)
 	}
 
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return fmt.Errorf("read %q: %w", src, err)
-	}
-	if err := os.WriteFile(dst, data, info.Mode().Perm()); err != nil {
-		return fmt.Errorf("write %q: %w", dst, err)
-	}
+	for _, name := range names {
+		src := filepath.Join(repoRoot, subdir, name)
+		dst := filepath.Join(dstDir, name)
 
-	if info.Mode()&0o111 != 0 {
-		*executable = append(*executable, subdir+"/"+name)
-	}
+		info, err := os.Stat(src)
+		if err != nil {
+			return fmt.Errorf("source file %q: %w", src, err)
+		}
+		if info.IsDir() {
+			return fmt.Errorf("source file %q is a directory, want a file", src)
+		}
 
-	fmt.Printf("gen: synced %s -> %s\n", src, dst)
+		data, err := os.ReadFile(src)
+		if err != nil {
+			return fmt.Errorf("read %q: %w", src, err)
+		}
+		if err := os.WriteFile(dst, data, info.Mode().Perm()); err != nil {
+			return fmt.Errorf("write %q: %w", dst, err)
+		}
+
+		if info.Mode()&0o111 != 0 {
+			*executable = append(*executable, subdir+"/"+name)
+		}
+
+		fmt.Printf("gen: synced %s -> %s\n", src, dst)
+	}
 	return nil
 }
 
