@@ -29,6 +29,17 @@ type AuditConfig struct {
 	DisabledRules []string `json:"disabled_rules,omitempty" yaml:"disabled_rules,omitempty"`
 }
 
+// PoliceConfig holds per-repo configuration for the police merge gate.
+//
+// DirectMain is an EXPLICIT opt-out, never an inference: main/master stay
+// protected in every repo unless this key is present and true. Deriving the
+// answer from the absence of some other key (e.g. staging_branch) would mean a
+// missing, misnamed or malformed config silently drops the guard — the same
+// fail-open-by-omission class as the bug that made B-0036 exploitable.
+type PoliceConfig struct {
+	DirectMain bool `json:"direct_main,omitempty" yaml:"direct_main,omitempty"`
+}
+
 // BravrosConfig holds per-project configuration from .bravros/config.json
 type BravrosConfig struct {
 	Schema            string                 `json:"$schema,omitempty"`
@@ -45,6 +56,7 @@ type BravrosConfig struct {
 	PermanentBranches []string               `json:"permanent_branches,omitempty" yaml:"permanent_branches,omitempty"`
 	Skills            SkillsConfig           `json:"skills,omitempty" yaml:"skills,omitempty"`
 	Audit             *AuditConfig           `json:"audit,omitempty" yaml:"audit,omitempty"`
+	Police            *PoliceConfig          `json:"police,omitempty" yaml:"police,omitempty"`
 }
 
 // MergeStrategyConfig controls how PRs are merged at different base branches.
@@ -122,6 +134,11 @@ func (c *BravrosConfig) clone() *BravrosConfig {
 			ac.DisabledRules = append([]string(nil), c.Audit.DisabledRules...)
 		}
 		cp.Audit = &ac
+	}
+
+	if c.Police != nil {
+		pc := *c.Police
+		cp.Police = &pc
 	}
 
 	return &cp

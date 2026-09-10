@@ -12,13 +12,11 @@ import (
 
 // runPreToolUseComment drives policePreToolUseCmd with a `bash` payload
 // carrying command, and returns the parsed envelope printed to stdout. The
-// process itself always exits 0 — exitCode == 2 inside the envelope is what
-// actually blocks (see docs/cli/police.md), so tests assert on the envelope,
-// never on RunE's error return.
+// process exits successfully with a supported host denial, which the helper
+// validates before exposing the decision and reason to callers.
 func runPreToolUseComment(t *testing.T, command string) (envelope struct {
-	Stdout string `json:"stdout"`
-	Stderr string `json:"stderr"`
-	Exit   int    `json:"exitCode"`
+	Decision string
+	Reason   string
 }, raw string) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
@@ -38,9 +36,8 @@ func runPreToolUseComment(t *testing.T, command string) (envelope struct {
 
 	raw = out.String()
 	if raw != "" {
-		if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
-			t.Fatalf("failed to unmarshal envelope: %v, raw output: %q", err, raw)
-		}
+		envelope.Reason = assertPoliceDeny(t, out.Bytes())
+		envelope.Decision = "deny"
 	}
 	return
 }
@@ -104,23 +101,20 @@ func TestPoliceComment_ParaphrasedOpening_Blocks(t *testing.T) {
 	if raw == "" {
 		t.Fatal("expected paraphrased opening to be blocked, got no output")
 	}
-	// Assert on the raw stdout content directly — the process always exits
-	// rc=0, so exitCode:2 inside the printed JSON envelope is what actually
-	// blocks (see runPreToolUseComment's doc comment).
-	if !strings.Contains(raw, `"exitCode":2`) {
-		t.Errorf("expected exitCode 2 in stdout, got %q", raw)
+	if !strings.Contains(raw, `"permissionDecision":"deny"`) {
+		t.Errorf("expected host denial in stdout, got %q", raw)
 	}
 	if !strings.Contains(raw, commentOpening) {
 		t.Errorf("expected canonical template (with opening) in stdout for retry, got %q", raw)
 	}
-	if envelope.Exit != 2 {
-		t.Errorf("exitCode = %d; want 2", envelope.Exit)
+	if envelope.Decision != "deny" {
+		t.Errorf("decision = %q; want deny", envelope.Decision)
 	}
-	if !strings.Contains(envelope.Stderr, "Police Block") {
-		t.Errorf("expected Police Block in stderr, got %q", envelope.Stderr)
+	if !strings.Contains(envelope.Reason, "Police Block") {
+		t.Errorf("expected Police Block in stderr, got %q", envelope.Reason)
 	}
-	if !strings.Contains(envelope.Stderr, commentOpening) {
-		t.Errorf("expected canonical template (with opening) in stderr for retry, got %q", envelope.Stderr)
+	if !strings.Contains(envelope.Reason, commentOpening) {
+		t.Errorf("expected canonical template (with opening) in stderr for retry, got %q", envelope.Reason)
 	}
 }
 
@@ -130,11 +124,11 @@ func TestPoliceComment_MissingRequiredBlock_Blocks(t *testing.T) {
 	if raw == "" {
 		t.Fatal("expected missing required block to be blocked, got no output")
 	}
-	if envelope.Exit != 2 {
-		t.Errorf("exitCode = %d; want 2", envelope.Exit)
+	if envelope.Decision != "deny" {
+		t.Errorf("decision = %q; want deny", envelope.Decision)
 	}
-	if !strings.Contains(envelope.Stderr, commentRequiredBlock) {
-		t.Errorf("expected canonical template (with required block) in stderr for retry, got %q", envelope.Stderr)
+	if !strings.Contains(envelope.Reason, commentRequiredBlock) {
+		t.Errorf("expected canonical template (with required block) in stderr for retry, got %q", envelope.Reason)
 	}
 }
 
@@ -145,8 +139,8 @@ func TestPoliceComment_MangledRequiredBlock_Blocks(t *testing.T) {
 	if raw == "" {
 		t.Fatal("expected mangled required block to be blocked, got no output")
 	}
-	if envelope.Exit != 2 {
-		t.Errorf("exitCode = %d; want 2", envelope.Exit)
+	if envelope.Decision != "deny" {
+		t.Errorf("decision = %q; want deny", envelope.Decision)
 	}
 }
 
@@ -155,11 +149,11 @@ func TestPoliceComment_BodyFile_Blocks(t *testing.T) {
 	if raw == "" {
 		t.Fatal("expected --body-file invocation to be blocked, got no output")
 	}
-	if envelope.Exit != 2 {
-		t.Errorf("exitCode = %d; want 2", envelope.Exit)
+	if envelope.Decision != "deny" {
+		t.Errorf("decision = %q; want deny", envelope.Decision)
 	}
-	if !strings.Contains(envelope.Stderr, "use inline --body") && !strings.Contains(envelope.Stderr, "Use inline --body") {
-		t.Errorf("expected guidance to use inline --body, got %q", envelope.Stderr)
+	if !strings.Contains(envelope.Reason, "use inline --body") && !strings.Contains(envelope.Reason, "Use inline --body") {
+		t.Errorf("expected guidance to use inline --body, got %q", envelope.Reason)
 	}
 }
 
@@ -168,8 +162,8 @@ func TestPoliceComment_BodyFileStdin_Blocks(t *testing.T) {
 	if raw == "" {
 		t.Fatal("expected -F - (stdin body-file) invocation to be blocked, got no output")
 	}
-	if envelope.Exit != 2 {
-		t.Errorf("exitCode = %d; want 2", envelope.Exit)
+	if envelope.Decision != "deny" {
+		t.Errorf("decision = %q; want deny", envelope.Decision)
 	}
 }
 

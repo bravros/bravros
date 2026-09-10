@@ -74,11 +74,11 @@ func TestCheckAiSignatureReadsBodyFile(t *testing.T) {
 
 func TestPolicePreToolUseBlocksPRAttribution(t *testing.T) {
 	envelope, _ := runPreToolUseComment(t, `gh pr create --title "✨ feat: add fleet" --body "Made with Cursor"`)
-	if envelope.Exit != 2 {
-		t.Fatalf("exitCode = %d, want 2", envelope.Exit)
+	if envelope.Decision != "deny" {
+		t.Fatalf("decision = %q, want deny", envelope.Decision)
 	}
-	if !strings.Contains(envelope.Stderr, "AI signature") {
-		t.Fatalf("stderr should name the signature, got %q", envelope.Stderr)
+	if !strings.Contains(envelope.Reason, "AI signature") {
+		t.Fatalf("stderr should name the signature, got %q", envelope.Reason)
 	}
 }
 
@@ -220,7 +220,7 @@ func TestCheckAiSignatureAllowsCanonicalClaudeReviewComment(t *testing.T) {
 	}
 }
 
-// Backtick evasion: `Made with `Cursor`` renders as a footer but would reduce
+// Backtick evasion: `Made with `Cursor“ renders as a footer but would reduce
 // to "Made with " if inline spans were removed wholesale. Backtick CHARACTERS
 // are stripped, the text under them is not — otherwise one backtick pair
 // disables the whole gate. Fenced blocks stay exempt: that is the sanctioned

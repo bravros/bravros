@@ -287,9 +287,10 @@ so it inspects **every** Bash tool call. It gates `main` and `master` only:
 `/push`, `/hotfix`, `/finish`, `/batch-merge-prs` and `/auto-pr` therefore need no token for their
 normal homolog work. **Do not add one defensively.**
 
-**The block is an envelope, not an error.** A gated command yields JSON on stdout with `exitCode: 2`
-and a stderr message naming `bravros police unlock`; the verb itself returns `nil` on every path,
-including a malformed payload. Never branch on `$?` — read the envelope.
+**The block uses the host's PreToolUse contract.** A gated command yields JSON on stdout with
+`hookSpecificOutput.hookEventName: "PreToolUse"`, `permissionDecision: "deny"`, and a
+`permissionDecisionReason`. The process exits successfully so the host reads that JSON; an
+allowed command emits nothing. A custom stdout field named `exitCode` is not a denial.
 
 **A skill can never mint its own authority.** `police unlock` refuses outright when
 `CLAUDE_CODE_SESSION_ID` or `CLAUDE_SESSION_ID` is set:

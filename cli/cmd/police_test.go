@@ -48,52 +48,45 @@ func TestIsMainMerge(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := isMainMerge(tt.cmd); got != tt.expected {
-				t.Errorf("isMainMerge(%q) = %v; want %v", tt.cmd, got, tt.expected)
+			v, _ := evaluateMergeGate(tt.cmd)
+			if got := v != mergeAllowed; got != tt.expected {
+				t.Errorf("evaluateMergeGate(%q) = %v; want %v", tt.cmd, got, tt.expected)
 			}
 		})
 	}
 }
 
-// A bare `git push` carries no refspec, so the current branch decides. The
-// helper is exercised directly against a scratch repo rather than through
-// isMainMerge, which would read the branch of whatever repo the test runs in.
-func TestPushTargetsProtected_BareePushFollowsCurrentBranch(t *testing.T) {
-	repo := t.TempDir()
-	for _, args := range [][]string{
-		{"init", "-q", "-b", "main"},
-		{"commit", "-q", "--allow-empty", "-m", "seed"},
-	} {
-		c := exec.Command("git", args...)
-		c.Dir = repo
-		c.Env = append(os.Environ(),
-			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
-			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
-		if err := c.Run(); err != nil {
-			t.Fatalf("git %v: %v", args, err)
-		}
+// A bare `git push` carries no refspec, so nothing in the command line says
+// where it lands — only the repo does. The gate no longer answers that question
+// (git's pre-push hook does, from the real ref list); what it must still get
+// right is the classification, so a push that names no destination is never
+// mistaken for one that does.
+//
+// The end-to-end behaviour lives in TestBarePushDefersToThePrePushHook.
+func TestPushTargetsProtected_ClassifiesRefspecs(t *testing.T) {
+	cases := []struct {
+		name              string
+		fields            []string
+		protected, explic bool
+	}{
+		{"bare push names nothing", []string{"git", "push"}, false, false},
+		{"remote only names nothing", []string{"git", "push", "origin"}, false, false},
+		{"push option is not a refspec", []string{"git", "push", "-o", "ci.skip"}, false, false},
+		{"url alone names nothing", []string{"git", "push", "git@github.com:o/r.git"}, false, false},
+		{"protected refspec", []string{"git", "push", "origin", "main"}, true, true},
+		{"mapped refspec", []string{"git", "push", "origin", "HEAD:main"}, true, true},
+		{"forced refspec", []string{"git", "push", "origin", "+main:main"}, true, true},
+		{"fully qualified", []string{"git", "push", "origin", "refs/heads/main"}, true, true},
+		{"feature refspec", []string{"git", "push", "origin", "feature/x"}, false, true},
+		{"main-ish is not main", []string{"git", "push", "origin", "fix/maintain-cache"}, false, true},
 	}
-
-	restore, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chdir(restore) })
-
-	if err := os.Chdir(repo); err != nil {
-		t.Fatal(err)
-	}
-	if !pushTargetsProtected([]string{"git", "push"}) {
-		t.Error("bare push while on main should be protected")
-	}
-
-	c := exec.Command("git", "checkout", "-q", "-b", "homolog")
-	c.Dir = repo
-	if err := c.Run(); err != nil {
-		t.Fatalf("checkout: %v", err)
-	}
-	if pushTargetsProtected([]string{"git", "push"}) {
-		t.Error("bare push while on homolog must not be protected")
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			p, e := pushTargetsProtected(tt.fields)
+			if p != tt.protected || e != tt.explic {
+				t.Errorf("got (protected=%v, explicit=%v) want (%v, %v)", p, e, tt.protected, tt.explic)
+			}
+		})
 	}
 }
 
@@ -121,7 +114,7 @@ func TestCommandSegments(t *testing.T) {
 	if len(got) != 2 || got[1][0] != "git" {
 		t.Fatalf("commandSegments split = %v; want second segment to start at git", got)
 	}
-	if !isMainMerge("cd repo && git push origin main") {
+	if v, _ := evaluateMergeGate("cd repo && git push origin main"); v == mergeAllowed {
 		t.Error("a chained push to main must still be caught")
 	}
 }
@@ -264,29 +257,8 @@ func TestPolicePreToolUse_BlockedWithoutToken(t *testing.T) {
 		t.Fatalf("RunE: %v", err)
 	}
 
-	// The command always exits rc=0; the block is a JSON envelope printed to
-	// stdout carrying exitCode:2 — assert on that stdout content directly.
-	raw := out.String()
-	if !strings.Contains(raw, "Police Block") {
-		t.Errorf("expected Police Block in stdout, got %q", raw)
-	}
-	if !strings.Contains(raw, `"exitCode":2`) {
-		t.Errorf("expected exitCode 2 in stdout, got %q", raw)
-	}
-
-	var res struct {
-		Stdout string `json:"stdout"`
-		Stderr string `json:"stderr"`
-		Exit   int    `json:"exitCode"`
-	}
-	if err := json.Unmarshal(out.Bytes(), &res); err != nil {
-		t.Fatalf("failed to unmarshal block json: %v, raw output: %q", err, raw)
-	}
-	if res.Exit != 2 {
-		t.Errorf("exitCode = %d; want 2", res.Exit)
-	}
-	if !strings.Contains(res.Stderr, "Police Block") {
-		t.Errorf("expected Police Block in stderr, got %q", res.Stderr)
+	if reason := assertPoliceDeny(t, out.Bytes()); !strings.Contains(reason, "Police Block") {
+		t.Errorf("expected Police Block reason, got %q", reason)
 	}
 }
 
@@ -567,8 +539,8 @@ func TestPolicePreToolUse_LegacyCamelCasePayload_StillBlocked(t *testing.T) {
 	if !strings.Contains(raw, "Police Block") {
 		t.Errorf("legacy camelCase payload must still be blocked, got %q", raw)
 	}
-	if !strings.Contains(raw, `"exitCode":2`) {
-		t.Errorf("expected exitCode 2 for legacy camelCase payload, got %q", raw)
+	if !strings.Contains(raw, `"permissionDecision":"deny"`) {
+		t.Errorf("expected deny for legacy camelCase payload, got %q", raw)
 	}
 }
 
@@ -649,7 +621,7 @@ func rule52TestSetEnv(t *testing.T) string {
 
 // rule52TestInvoke feeds command through policePreToolUseCmd as a real
 // snake_case PreToolUse payload and reports whether it was blocked, along
-// with the JSON envelope's exitCode and stderr field.
+// with a synthetic blocked status and the host's denial reason.
 func rule52TestInvoke(t *testing.T, command string) (blocked bool, exitCode int, stderr string) {
 	t.Helper()
 	type toolInput struct {
@@ -675,14 +647,9 @@ func rule52TestInvoke(t *testing.T, command string) (blocked bool, exitCode int,
 	if out.Len() == 0 {
 		return false, 0, ""
 	}
-	var res struct {
-		Stderr string `json:"stderr"`
-		Exit   int    `json:"exitCode"`
-	}
-	if err := json.Unmarshal(out.Bytes(), &res); err != nil {
-		t.Fatalf("unmarshal block json for %q: %v, raw=%q", command, err, out.String())
-	}
-	return true, res.Exit, res.Stderr
+	// Keep the helper's historical status return for its existing callers;
+	// the wire contract is validated independently before translating it.
+	return true, 2, assertPoliceDeny(t, out.Bytes())
 }
 
 // rule52TestWriteDestructiveToken writes a token file in the shape
