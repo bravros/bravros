@@ -355,7 +355,7 @@ var codeRunners = map[string]bool{
 	"sh": true, "bash": true, "zsh": true, "dash": true, "ksh": true, "fish": true,
 	"node": true, "deno": true, "bun": true,
 	"perl": true, "ruby": true, "python": true, "python3": true, "php": true,
-	"osascript": true, "awk": true,
+	"osascript": true, "awk": true, "gawk": true, "mawk": true, "nawk": true,
 }
 
 // isCodePayloadFlag reports whether seg[i] introduces an executed payload.
@@ -1010,11 +1010,178 @@ func checkGateInputWrite(command string) string {
 	}
 	// An interpreter program — `python3 -c '…'`, `perl -e`, `node -e`, or a
 	// heredoc fed to `python3 -` — writes from inside a string this gate does
-	// not parse. A gate path anywhere on the same line is enough.
-	if interpreter && refKind != gateInputNone {
+	// not parse. A gate path on the same line plus any write-shaped word in
+	// the payload is enough. The word test is what lets a plain read through:
+	// `python3 -c "print(json.load(open('~/.claude/state/setup.json')))"` was
+	// blocked on v2.21.0's first day for naming the state dir at all, and an
+	// agent that cannot inspect setup.json cannot diagnose an install.
+	if interpreter && refKind != gateInputNone && !payloadIsReadOnly(command, segs) {
 		return gateInputBlockMessage(refKind, refPath)
 	}
 	return ""
+}
+
+// readFormRE recognises the read calls an interpreter payload may make on a
+// gate input. This is an ALLOWLIST: an interpreter that names a gate input
+// is denied unless its payload carries one of these and no write marker.
+// Four review rounds on PR 94 showed a denylist alone keeps leaking (cuddled
+// flags, appendFile, rmSync, cpSync…); an allowlist fails closed on the next
+// API nobody listed.
+var readFormRE = regexp.MustCompile(`(?i)(` +
+	`json\.load\(\s*open\(` + // python json.load(open(p))
+	`|open\(\s*['"][^'"]*['"]\s*\)` + // python open(p) — default mode is read
+	`|open\(\s*['"][^'"]*['"]\s*,\s*['"]rb?['"]\s*\)` + // open(p,'r') / 'rb'
+	`|readfilesync\(|readfile\(|promises\.readfile\(` + // node
+	`|file\.read\(|file\.readlines\(|io\.read\(|io\.readlines\(` + // ruby
+	`|file_get_contents\(|json_decode\(` + // php
+	`|read_text\(|read_bytes\(` + // python pathlib
+	`)`)
+
+// payloadIsReadOnly reports whether the interpreter payload on this line may
+// touch a gate input: no write marker anywhere in it, AND either a recognised
+// read form, or a stream filter (`perl -pe`/`-ne`, `awk`) that has no `-i`.
+// Anything else — a copy, a rename, an API this list never heard of — reads
+// as a write.
+func payloadIsReadOnly(command string, segs [][]string) bool {
+	if payloadHasWriteIntent(command, segs) {
+		return false
+	}
+	text := interpreterPayloadText(command, segs)
+	if readFormRE.MatchString(text) {
+		return true
+	}
+	for _, seg := range segs {
+		if !segmentRunsInterpreter(seg) {
+			continue
+		}
+		bare, prog := gateProgram(seg)
+		switch prog {
+		case "awk", "gawk", "mawk", "nawk", "sed":
+			return true // a positional-file stream filter; in-place flags were caught above
+		case "perl", "ruby":
+			for _, raw := range bare[1:] {
+				t := unquote(raw)
+				if strings.HasPrefix(t, "-") && !strings.HasPrefix(t, "--") && strings.ContainsAny(t[1:], "pn") {
+					return true // `-pe`/`-ne` stream filter without `-i` (checked above)
+				}
+			}
+		}
+	}
+	return false
+}
+
+// interpreterPayloadText joins every token after an interpreter program plus
+// any heredoc body, with the gate paths themselves removed.
+func interpreterPayloadText(command string, segs [][]string) string {
+	var text strings.Builder
+	var refs []string
+	for _, seg := range segs {
+		if segmentRunsInterpreter(seg) {
+			if bare, _ := gateProgram(seg); len(bare) > 1 {
+				for _, raw := range bare[1:] {
+					text.WriteString(unquote(raw))
+					text.WriteByte('\n')
+				}
+			}
+		}
+		for _, r := range gateRefsIn(seg) {
+			refs = append(refs, r.path, unquote(seg[r.index]))
+		}
+	}
+	if i := strings.Index(command, "<<"); i >= 0 {
+		text.WriteString(command[i:])
+	}
+	lower := strings.ToLower(text.String())
+	for _, r := range refs {
+		if r != "" {
+			lower = strings.ReplaceAll(lower, strings.ToLower(r), "")
+		}
+	}
+	return lower
+}
+
+// writeIntentMarkers are the substrings that mark an interpreter payload as
+// able to write: exact file-mode strings, the write/dump/remove family, and
+// the escape hatches (`system`, `subprocess`, `exec`) that can shell out to a
+// write this gate would otherwise catch. Matched case-insensitively against
+// the PAYLOAD only (the `-c`/`-e` string and any heredoc body), never the
+// whole command line — a temp path spelled `…WriteFloor…` must not count.
+var writeIntentMarkers = []string{
+	"'w'", `"w"`, "'a'", `"a"`, "'x'", `"x"`, "'w+'", `"w+"`, "'r+'", `"r+"`,
+	"'wb'", `"wb"`, "'ab'", `"ab"`, "'a+'", `"a+"`,
+	"'wx'", `"wx"`, "'ax'", `"ax"`, "'wx+'", `"wx+"`, "'ax+'", `"ax+"`, "'as'", `"as"`, "'as+'", `"as+"`,
+	"write", "append", "put_contents", "dump", "remove", "unlink", "rename", "replace",
+	"copyfile", "copy(", "move", "mkdir", "touch", "chmod", "chown", "truncate", "utime",
+	"rmtree", "symlink", "link(",
+	// Delete family (PR 94 review round 4): deleting .bravros/config.json
+	// drops `staging_lane: off` and widens the lane, exactly as shell `rm`
+	// of it is denied by segmentWritesGateInput.
+	"rmsync", "rm(", "rmdir", "delete(", "deletesync", "fileutils.rm", "unlinksync",
+	"system", "subprocess", "popen", "spawn", "exec", "child_process", "shell_exec", "passthru",
+	// A redirect spelled inside the payload — awk's `print "x" > "file"`,
+	// perl's `open(F, ">file")`: the quote right after the arrow is what
+	// separates it from a comparison.
+	`>"`, `>'`, `> "`, `> '`, ">>",
+}
+
+// modeArgRE captures the value of a flag/flags/mode argument up to the next
+// delimiter: `flag:'wx'`, `mode: "a"`, `flags => 65`, `{flag: fs.constants.O_CREAT}`.
+var modeArgRE = regexp.MustCompile(`(?i)\b(flag|flags|mode)\s*(?::|=>|=)\s*([^,}\)\n]*)`)
+
+// readModeValueRE is the only mode-argument values that open read-only: a
+// quoted r/rs/rb/rt (any quote style) or the literal 0 (O_RDONLY).
+var readModeValueRE = regexp.MustCompile(`^(['"](r|rs|rb|rt)['"]|0)$`)
+
+// payloadHasWriteIntent reports whether any write-shaped marker appears in
+// the code an interpreter on this line would run: every `-c`/`-e` payload
+// codePayloads surfaces, plus a heredoc body (everything after the first
+// `<<`). Reads (`json.load(open(p))`, `readFileSync`, `File.read`) carry
+// none of the markers; a read that also names `exec` or `system` counts as
+// a write, which errs on the closed side.
+func payloadHasWriteIntent(command string, segs [][]string) bool {
+	for _, seg := range segs {
+		// In-place editing is a write with no marker in the payload:
+		// `perl -pi -e 's/off/open/' file`, `ruby -i -pe …`. Any single-dash
+		// flag cluster carrying `i` on those programs counts.
+		switch _, prog := gateProgram(seg); prog {
+		case "perl", "ruby":
+			for _, raw := range seg[1:] {
+				t := unquote(raw)
+				if strings.HasPrefix(t, "-") && !strings.HasPrefix(t, "--") && strings.ContainsRune(t[1:], 'i') {
+					return true
+				}
+			}
+		case "awk", "gawk", "mawk", "nawk":
+			// gawk edits in place via `-i inplace` / `-iinplace` / `--include=inplace`
+			// / `--in-place` (PR 94 round 6). Any include/in-place flag counts.
+			for _, raw := range seg[1:] {
+				t := strings.ToLower(unquote(raw))
+				if strings.HasPrefix(t, "-i") || strings.HasPrefix(t, "--in") || strings.Contains(t, "inplace") {
+					return true
+				}
+			}
+		}
+	}
+	// The gate path itself is not intent: interpreterPayloadText strips it,
+	// so a home or temp dir spelled `…/WriteFloor…` cannot read as a write.
+	lower := interpreterPayloadText(command, segs)
+	// A write mode smuggled as an ARGUMENT to an allowlisted read call:
+	// node's `readFileSync(p, {flag:'wx'})` creates the file (PR 94 round 7),
+	// and so does `{flag:65}` or `{flag:fs.constants.O_CREAT}` (round 8). So
+	// the argument is an ALLOWLIST: every flag/flags/mode value on the line
+	// must be a quoted r/rs/rb/rt or a literal 0 (O_RDONLY); anything else —
+	// a number, a constant, a variable, another string — is a write.
+	for _, m := range modeArgRE.FindAllStringSubmatch(lower, -1) {
+		if !readModeValueRE.MatchString(strings.TrimSpace(m[2])) {
+			return true
+		}
+	}
+	for _, m := range writeIntentMarkers {
+		if strings.Contains(lower, m) {
+			return true
+		}
+	}
+	return false
 }
 
 // gateRef is one token of a segment that names a gate input.

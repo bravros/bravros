@@ -767,7 +767,57 @@ func TestGateInputWriteFloor(t *testing.T) {
 		{`sed -i.bak -e 's/off/open/' .bravros/config.json`, ".bravros/config.json", ""},
 		{`sed --in-place 's/off/open/' .bravros/config.json`, ".bravros/config.json", ""},
 		{`perl -i -pe 's/off/open/' .bravros/config.json`, ".bravros/config.json", ""},
-		{`perl -pe 's/off/open/' .bravros/config.json > /tmp/x`, ".bravros/config.json", ""},
+		{`perl -pi -e 's/off/open/' .bravros/config.json`, ".bravros/config.json", ""},
+		// Cuddled flag clusters and bare positional scripts (PR 94 review):
+		// no exact `-e`/`-c` flag, yet the payload can shell out.
+		{`perl -pe 'system("touch ~/.claude/state/police-token")' .bravros/config.json`, "~/.claude/state/police-token", ""},
+		{`ruby -ne 'system("touch ~/.claude/state/police-token")' .bravros/config.json`, "~/.claude/state/police-token", ""},
+		{`awk '{system("touch ~/.claude/state/police-token")}' .bravros/config.json`, "~/.claude/state/police-token", ""},
+		// The redirect inside the payload is the write shape here — the printed
+		// value carries no marker on purpose.
+		{`awk 'BEGIN{print "minted" > ".planning/.review-stamp-12.json"}'`, ".planning/.review-stamp-12.json", ""},
+		{`python3 -c "import os;os.system('rm .bravros/config.json')"`, ".bravros/config.json", ""},
+		// Append and put_contents families (PR 94 review round 3): a token
+		// file only has to EXIST with a fresh mtime to count as minted.
+		{`node -e "require('fs').promises.appendFile('~/.claude/state/police-token','minted')"`, "~/.claude/state/police-token", ""},
+		{`node -e "require('fs').appendFileSync('` + home + `/.claude/state/promote-token','{}')"`, home + "/.claude/state/promote-token", ""},
+		{`php -r "file_put_contents('.bravros/config.json', '{}');"`, ".bravros/config.json", ""},
+		{`php -r "file_put_contents('~/.claude/state/destructive-token', 'x');"`, "~/.claude/state/destructive-token", ""},
+		// Delete family (round 4): removing the config widens the lane.
+		{`node -e "require('fs').rmSync('.bravros/config.json')"`, ".bravros/config.json", ""},
+		{`node -e "require('fs').promises.rm('.bravros/config.json')"`, ".bravros/config.json", ""},
+		{`ruby -e "File.delete('.bravros/config.json')"`, ".bravros/config.json", ""},
+		{`ruby -e "require 'fileutils'; FileUtils.rm('.bravros/config.json')"`, ".bravros/config.json", ""},
+		{`python3 -c "import os;os.unlink('.bravros/config.json')"`, ".bravros/config.json", ""},
+		{`php -r "unlink('.bravros/config.json');"`, ".bravros/config.json", ""},
+		// Copy family (round 5) and the allowlist principle: an API nobody
+		// listed is a write.
+		{`node -e "require('fs').cpSync('/tmp/malicious.json','.bravros/config.json')"`, ".bravros/config.json", ""},
+		{`node -e "require('fs').promises.cp('/tmp/m.json','.bravros/config.json')"`, ".bravros/config.json", ""},
+		{`python3 -c "import shutil;shutil.copy2('/tmp/m.json','.bravros/config.json')"`, ".bravros/config.json", ""},
+		{`python3 -c "import shutil;shutil.copytree('/tmp/d','.bravros/config.json')"`, ".bravros/config.json", ""},
+		{`python3 -c "import pathlib;pathlib.Path('.bravros/config.json').something_new('{}')"`, ".bravros/config.json", ""},
+		{`node -e "require('fs').newApiNobodyListed('~/.claude/state/police-token')"`, "~/.claude/state/police-token", ""},
+		// awk in-place (round 6): gawk's inplace extension and the aliases.
+		{`awk -i inplace '{sub(/off/,"open")}1' .bravros/config.json`, ".bravros/config.json", ""},
+		{`awk -i inplace=.bak '{sub(/off/,"open")}1' .bravros/config.json`, ".bravros/config.json", ""},
+		{`gawk -i inplace '{print}' .bravros/config.json`, ".bravros/config.json", ""},
+		{`gawk --include=inplace '{print}' .bravros/config.json`, ".bravros/config.json", ""},
+		{`mawk '{system("touch ~/.claude/state/police-token")}' .bravros/config.json`, "~/.claude/state/police-token", ""},
+		// A write mode smuggled into an allowlisted read call (round 7).
+		{`node -e "require('fs').readFileSync('~/.claude/state/police-token',{flag:'wx'})"`, "~/.claude/state/police-token", ""},
+		{`node -e "require('fs').readFileSync('~/.claude/state/promote-token',{flag:'ax'})"`, "~/.claude/state/promote-token", ""},
+		{`node -e "require('fs').readFile('~/.claude/state/destructive-token',{flag:'wx'},()=>{})"`, "~/.claude/state/destructive-token", ""},
+		{`node -e "require('fs').promises.readFile('.planning/.review-stamp-12.json',{flag: \"ax\"})"`, ".planning/.review-stamp-12.json", ""},
+		{`node -e "require('fs').readFileSync('.bravros/config.json',{flag:'r+'})"`, ".bravros/config.json", ""},
+		{`python3 -c "open('.bravros/config.json','r+').read()"`, ".bravros/config.json", ""},
+		{`ruby -e "File.open('.bravros/config.json', mode: 'a').read"`, ".bravros/config.json", ""},
+		// Numeric and constant flag values (round 8): the argument is an allowlist.
+		{`node -e "require('fs').readFileSync('~/.claude/state/police-token',{flag:65})"`, "~/.claude/state/police-token", ""},
+		{`node -e "require('fs').readFileSync('~/.claude/state/promote-token',{flag:0x601})"`, "~/.claude/state/promote-token", ""},
+		{`node -e "const fs=require('fs');fs.readFileSync('~/.claude/state/destructive-token',{flag:fs.constants.O_CREAT})"`, "~/.claude/state/destructive-token", ""},
+		{`node -e "require('fs').promises.readFile('.bravros/config.json',{flag:fs.constants.O_CREAT|fs.constants.O_WRONLY})"`, ".bravros/config.json", ""},
+		{`node -e "const f='wx';require('fs').readFileSync('.bravros/config.json',{flag:f})"`, ".bravros/config.json", ""},
 		{`python3 -c "open('.bravros/config.json','w').write('{}')"`, ".bravros/config.json", ""},
 		{`python3 - <<'EOF'` + "\nopen('.bravros/config.json','w').write('{}')\nEOF", ".bravros/config.json", ""},
 		{`node -e "require('fs').writeFileSync('.bravros/config.json','{}')"`, ".bravros/config.json", ""},
@@ -798,6 +848,18 @@ func TestGateInputWriteFloor(t *testing.T) {
 	}
 
 	allowed := []string{
+		// Interpreter READS — blocked on v2.21.0's first day for merely naming
+		// the state dir; an agent must be able to inspect setup.json.
+		`python3 -c "import json;print(json.load(open('` + home + `/.claude/state/setup.json')).get('components'))"`,
+		`python3 -c "import json,sys;print(json.load(open('.bravros/config.json'))['staging_branch'])"`,
+		`node -e "console.log(require('fs').readFileSync('.planning/.review-stamp-12.json','utf8'))"`,
+		`ruby -e "puts File.read('.bravros/config.json')"`,
+		`perl -pe 's/off/open/' .bravros/config.json > /tmp/x`,
+		`gawk '{print $1}' .bravros/config.json`,
+		`node -e "console.log(require('fs').readFileSync('.bravros/config.json',{encoding:'utf8',flag:'r'}))"`,
+		`node -e "console.log(require('fs').readFileSync('.bravros/config.json',{flag:0}))"`,
+		`node -e "console.log(require('fs').readFileSync('.bravros/config.json',{flag:\"rs\"}))"`,
+		`python3 -c "import pathlib;print(pathlib.Path('.bravros/config.json').read_text())"`,
 		// Reads.
 		`cat ~/.claude/state/police-token`,
 		`cat ` + home + `/.claude/state/promote-token`,

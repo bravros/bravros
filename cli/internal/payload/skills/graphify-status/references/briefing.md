@@ -5,7 +5,7 @@ One table, every graphify project on the machine, answering a single question: *
 ## Run it
 
 ```bash
-uv run ~/.bravros/skills/graphify-status/scripts/graphify-status.py
+uv run ~/.agent_config/skills/graphify-status/scripts/graphify-status.py
 ```
 
 Print the table verbatim. Do not re-measure by hand or re-format it — the script is the source of truth and its numbers are computed from each `graph.json`.
@@ -77,12 +77,12 @@ Tune the cutoff with `--inline-threshold N` on `emit-relabel-prompt.py` if a pro
 
 ```bash
 # 1. detect + emit (automatic on any /graphify-status run)
-uv run ~/.bravros/skills/graphify-status/scripts/graphify-status.py
+uv run ~/.agent_config/skills/graphify-status/scripts/graphify-status.py
 
 # 2. paste the prompt into Antigravity; save its JSON reply to the path the prompt names
 
 # 3. merge back — additive, never destructive
-uv run ~/.bravros/skills/graphify-status/scripts/merge-missing-labels.py \
+uv run ~/.agent_config/skills/graphify-status/scripts/merge-missing-labels.py \
     <project> /tmp/graphify-label/<project>-labels-*.json [--dry-run] [--force]
 ```
 

@@ -15,7 +15,7 @@ One table, every graphify project on the machine, answering a single question: *
 Run the scanner:
 
 ```bash
-uv run ~/.bravros/skills/graphify-status/scripts/graphify-status.py
+uv run ~/.agent_config/skills/graphify-status/scripts/graphify-status.py
 ```
 
 Print the table verbatim. Do not re-measure by hand or re-format it — the script is the source of truth.

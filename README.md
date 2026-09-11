@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/catalog/logo.jpg" alt="Bravros" width="200" style="border-radius: 24px;" />
+  <img src="docs/catalog/logo.png" alt="Bravros" width="160" />
 </p>
 
 <h1 align="center">Bravros</h1>
