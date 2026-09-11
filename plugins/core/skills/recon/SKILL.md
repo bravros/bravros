@@ -23,6 +23,11 @@ anything.
 Decide **defect** (something behaves wrong) or **change** (something new). State which and why in one
 line; ask only when genuinely unclear. Then `PLAN_ID=$(bravros nextid reserve plan --slug "$SLUG")`.
 
+**Recon creates no branch and no worktree** unless invoked with `--worktree`. Other sessions may be
+running in this checkout (operator: "dont start implementing or create branch because we have other
+sessions running here"); the branch is `/orchestrate`'s to cut. Abort before the dossier folder exists
+→ `bravros nextid release "$PLAN_ID"`, so the id is not burned.
+
 Attachments — screenshots, logs, exports, recordings — are evidence, not decoration. Copy each into
 `evidence/`, numbered in arrival order, and record in `01-evidence.md` **what it shows**, not what you
 conclude. **Never assume the content of something you could not open**; say so, and say what you would
@@ -89,7 +94,8 @@ something ran.
 
 Append `created` and `reviewed` events to `.planning/events.jsonl` (`by: "agent:recon"`), then
 `bravros commit "📋 plan: add P-NNNN <slug>" .planning/`. Give the operator exactly one next step:
-`/orchestrate .planning/P-NNNN-<slug>/`.
+`/orchestrate .planning/P-NNNN-<slug>/`, and name the branch it will cut from the staging branch —
+`feature/p-NNNN-<slug>` for a change, `fix/p-NNNN-<slug>` for a defect. Print it; do not create it.
 
 Announce via `~/.agent_config/scripts/announce.sh --force "<PT-BR, ~20 words, ends with origin>" studio || true`.
 

@@ -15,12 +15,12 @@ Scout the codebase with graphify and grep, trace references to pinpoint the bug,
 ## Detailed Workflow Steps
 
 1. Materialize the engine: `mkdir -p .bravros/workflows && cp -f ~/.bravros/skills/scout/scripts/scout-investigate.js .bravros/workflows/scout-investigate.js`
-2. Reserve the dir (never hand-`mkdir` — reservation prevents ID collisions across worktrees):
+2. **Before reserving anything**, scan `.planning/scout/` and `.planning/` (plans, backlog, events) for a prior investigation of the same symptom — match by behavior, not id. On a hit, link it and continue there instead of opening a duplicate `S-NNNN`; ask only when it is unclear whether the prior finding still holds. Then reserve the dir (never hand-`mkdir` — reservation prevents ID collisions across worktrees):
    ```bash
    SLUG=$(echo "$ARGUMENTS" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/-\+/-/g' | cut -c1-40 | sed 's/-$//')
    SCOUT_DIR=$(bravros nextid reserve scout --slug "$SLUG"); SCOUT_ID=$(basename "$SCOUT_DIR" | grep -oE 'S-[0-9]+')
    ```
-   Scan `.planning/` (scout dirs, plans, backlog) for prior work on the same symptom — match by behavior, not id. On a hit, announce and ask: continue vs reference the prior finding.
+   **Laravel probe discipline:** if `php artisan --version` is broken at the repo root, STOP — that IS the incident. Do not keep probing tinker, routes or tests on top of a framework that does not boot; report the boot failure as the finding.
 3. Build a **lead list** (candidate files/symbols, tagged `graphify`/`grep`/`git`/`error`) from error text, stack frames, graphify, grep, git blame. Categorize the bug.
 4. Run the parallel-lens engine:
    ```javascript
@@ -29,7 +29,7 @@ Scout the codebase with graphify and grep, trace references to pinpoint the bug,
 5. Write `diagnosis.md` + `report.md` in `$SCOUT_DIR` (schemas: `references/report-template.md`). Then `bravros commit "🔍 scout: $SCOUT_ID investigation for $SLUG" <files>`.
 6. Announce, then route via `ask_question` (decision matrix + handoff payload + receiver contract: `references/investigation-guide.md`). Backlog route = write the `B-NNNN` file per `.planning/CONVENTIONS.md` (`bravros nextid` for the id, one `created` event appended to `.planning/events.jsonl`).
    ```bash
-   bravros ha say --force "Scout concluído, aguardando decisão sobre o próximo passo. Projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio >/dev/null 2>&1 || true
+   bash ~/.agent_config/scripts/announce.sh --force "Investigação concluída, aguardando decisão sobre o próximo passo. Ramo <fragmento>, projeto <repo>." studio || true
    ```
 
 Closing the investigation is an event: append a `completed` (or `cancelled`) event for `$SCOUT_ID` to `.planning/events.jsonl` per `.planning/CONVENTIONS.md`. All artifacts are durable and committed — no cleanup.

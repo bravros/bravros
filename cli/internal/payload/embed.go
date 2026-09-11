@@ -1,12 +1,12 @@
-// Package payload embeds the repo-root skills/, templates/ and home/ trees,
-// plus the named files of repo-root scripts/ (the CLAUDE.md reconciler and the
+// Package payload embeds the repo-root skills/, templates/, home/ and agents/
+// trees, plus the named files of repo-root scripts/ (the CLAUDE.md reconciler and the
 // announcement wrappers), into the bravros binary via go:embed.
 //
 // go:embed can only reference paths inside its own package directory — it
-// cannot cross the module boundary with "..". skills/, templates/, home/ and
-// scripts/ live at the repo root, one level above the cli/ Go module, so they
-// cannot be embedded directly. Instead, cli/internal/payload/{skills,
-// templates,home,scripts} are a generated MIRROR of the corresponding
+// cannot cross the module boundary with "..". skills/, templates/, home/,
+// agents/ and scripts/ live at the repo root, one level above the cli/ Go
+// module, so they cannot be embedded directly. Instead, cli/internal/payload/
+// {skills,templates,home,agents,scripts} are a generated MIRROR of the corresponding
 // repo-root paths, kept in sync by `go generate` (see gen.go) and enforced in
 // CI by .github/workflows/verify-manifest.yml (`git diff --exit-code` after
 // re-running the generator).
@@ -23,6 +23,14 @@
 // directly, so a payload that carries the call sites but not the script is an
 // ownership hole by construction (B-0029). Both are executable in the source
 // and therefore appear in executable_manifest.txt.
+//
+// agents/ holds the custom-subagent roster (flat *.md, Claude Code subagent
+// frontmatter). Five skills dispatch by subagent_type to these exact names
+// (scout, orchestrate, context, local-review, batch-merge-prs, after-merge —
+// see docs/SUBAGENTS.md), so the roster must travel with the skills: without
+// it a fresh install's /scout or /orchestrate dispatches to agents that do
+// not exist. manifest.go's "claude-agents" component extracts it to
+// ~/.claude/agents, the same subtree deploy.go already maps and prunes.
 //
 // LOCKED DECISION: the synced mirror is COMMITTED, not gitignored. go:embed
 // is a compile-time error against a missing or empty directory, so a
@@ -47,14 +55,14 @@ import (
 
 //go:generate go run gen.go
 
-// FS is the embedded mirror of the repo-root skills/, templates/ and home/
-// trees, plus the named repo-root scripts/ files. Regenerate it with
+// FS is the embedded mirror of the repo-root skills/, templates/, home/ and
+// agents/ trees, plus the named repo-root scripts/ files. Regenerate it with
 // `cd cli && go generate ./internal/payload/...` whenever the repo-root
 // sources change. Every path listed here must also be listed in gen.go's
 // syncSingleFiles call — go:embed fails the BUILD on a file the generator
 // does not produce.
 //
-//go:embed all:skills all:templates all:home
+//go:embed all:skills all:templates all:home all:agents
 //go:embed scripts/reconcile-global-claude.py scripts/announce.sh scripts/mute-announce.sh
 var FS embed.FS
 

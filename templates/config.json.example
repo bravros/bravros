@@ -1,0 +1,79 @@
+{
+  "_readme": [
+    "Example project configuration for bravros.",
+    "This file is generated once by `bravros init` at .bravros/config.json.",
+    "It is consumed by skills, audit rules, and CLI verbs to avoid re-detecting the stack.",
+    "The file is hand-editable, but `detected_at` is auto-managed by the CLI.",
+    "Copy this file to .bravros/config.json and delete the keys you don't need — JSON has no comments, so this _readme array (and each section's own _comment string) is the only place notes can live; neither is read by the CLI.",
+    "A legacy .bravros.yml or .sbravros.yml in the repo root is migrated to this file automatically by any `bravros` verb — never git mv a legacy file into this path yourself."
+  ],
+
+  "staging_branch": "homolog",
+  "_comment_staging_branch": "Default staging/development branch. Common values: homolog, staging, develop. Used by plan checks and branch workflows. Omit entirely (and set police.direct_main below) for a main-only repo.",
+
+  "language": "auto",
+  "_comment_language": "Project language preference for docs/CLI output. Supported: auto, en, pt-BR, es, fr, de, ja, zh-CN, etc.",
+
+  "monorepo": false,
+  "_comment_monorepo": "Whether this project has multiple stacks in different subdirectories. Set true when apps/web, apps/api, packages/lib each have a distinct stack — then use `stacks` below instead of `stack`.",
+
+  "stack": {
+    "_comment": "Single-stack projects (monorepo: false) define the root stack here. Example values — language: go|php|node|python|rust; framework: laravel|nextjs|express|django|none; test_runner: pest|jest|vitest|pytest|go test|none; project_type: api|fullstack|cli|library|middleware.",
+    "language": "",
+    "framework": "",
+    "test_runner": "",
+    "has_assets": false,
+    "language_version": "",
+    "project_type": "",
+    "node_package_manager": "",
+    "runtime": {}
+  },
+
+  "_comment_stacks": "Monorepo projects (monorepo: true) map each subdirectory to its own stack object (same shape as `stack` above) instead of using the root `stack` key, e.g. {\"apps/web\": {...}, \"apps/api\": {...}}.",
+
+  "git": {
+    "remote": "",
+    "has_ci": false,
+    "ci_workflow": ""
+  },
+
+  "env": {
+    "deployed": false,
+    "production": "",
+    "staging": "",
+    "local": ""
+  },
+
+  "_comment_permanent_branches": "Branches that should never be auto-deleted by /prune-merged. When omitted, defaults to [main, homolog, staging, develop].",
+  "permanent_branches": ["main", "homolog"],
+
+  "_comment_skills": "enabled: allowlist of skill directory names to deploy — when non-empty, `bravros deploy` only copies these plus any skill marked core:true in its SKILL.md; empty/absent deploys ALL skills. preserve: skill directories that must survive orphan pruning during deploy (for custom/third-party skills without core:true).",
+  "skills": {
+    "enabled": [],
+    "preserve": []
+  },
+
+  "_comment_merge_strategy": "How pull requests are merged at different bases. Omit the whole block to default to squash everywhere. default: fallback strategy (squash|merge|rebase); into_main: strategy when the PR targets main; by_base: per-base override map.",
+  "merge_strategy": {
+    "default": "squash",
+    "into_main": "merge",
+    "by_base": {
+      "main": "merge",
+      "homolog": "squash"
+    }
+  },
+
+  "_comment_features": "Feature flags for optional bravros behaviours. extra/extra_debounce are per-audit-rule overrides — see docs/AUDIT-RULES.md before enabling a dormant rule.",
+  "features": {
+    "review_stamp_gate": false,
+    "plan_check_v2": false,
+    "extra": {},
+    "extra_debounce": {}
+  },
+
+  "_comment_police": "police.direct_main is an EXPLICIT opt-out for repos with no staging branch — main/master stay protected unless this is present and true. Set it via `bravros police direct-main on` rather than hand-editing when possible.",
+  "police": {
+    "direct_main": false,
+    "staging_lane": "open"
+  }
+}

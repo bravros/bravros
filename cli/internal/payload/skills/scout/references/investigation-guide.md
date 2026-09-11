@@ -19,7 +19,7 @@ Graph present = `graphify-out/graph.json` or a `.graphify` file. Prefer the user
 | Certified, small, single-file fix | `/quick — fix now` |
 | Certified, simple, can wait | Add to backlog |
 | Certified, 3+ files OR architectural OR severity high+ | Escalate to `/recon` |
-| Certified, external dependency, blocking, production-critical | Backlog + GH issue (`gh issue create --title "🐛 fix: …" --body "$(cat $DEBUG_DIR/diagnosis.md)" --label bug`; record the issue # in the B-file's `github:` frontmatter) |
+| Certified, external dependency, blocking, production-critical | Backlog + GH issue (`gh issue create --title "🐛 fix: …" --body "$(cat $SCOUT_DIR/diagnosis.md)" --label bug`; record the issue # in the B-file's `github:` frontmatter) |
 | **`UNCERTIFIED`** (round cap hit) | Backlog for deeper investigation — surface `/quick` last or not at all |
 | Investigation is sufficient as the record | Leave as-is |
 
@@ -27,23 +27,23 @@ Graph present = `graphify-out/graph.json` or a `.graphify` file. Prefer the user
 
 ```
 ## Debug Handoff
-**Investigation:** $DEBUG_ID ($DEBUG_DIR)
-**Diagnosis file:** $DEBUG_DIR/diagnosis.md
+**Investigation:** $SCOUT_ID ($SCOUT_DIR)
+**Diagnosis file:** $SCOUT_DIR/diagnosis.md
 **Root cause:** {one-line summary}
 **Certification:** {one-line proof summary | UNCERTIFIED — N rounds, see report}
 **Affected files:** {list}
 **Fix direction:** {what needs to change — intent, not code}
 **Severity:** {critical/high/medium/low}
 **Branch strategy:** quick | plan | backlog-only
-**debug_commit:** $DEBUG_COMMIT
+**scout_commit:** $SCOUT_COMMIT
 ```
 
 ## Receiver contract
 
 The receiving path (backlog file, `/recon`, `/quick`) MUST:
 
-1. Record `debug: $DEBUG_ID` in its own frontmatter.
-2. Include `debug_commit: $DEBUG_COMMIT` in its commit message.
+1. Record `scout: $SCOUT_ID` in its own frontmatter.
+2. Include `scout_commit: $SCOUT_COMMIT` in its commit message.
 3. Once it has its own artifact ID, rewrite the report's `linked_to` from `pending-handoff` to the real ID — that completes the bidirectional link.
 
 Plan route: root cause → Goal, fix direction → Phases, blast radius → scope; pass the full diagnosis. Backlog route: write the `B-NNNN` file per `.planning/CONVENTIONS.md` (id via `bravros nextid`, one `created` event appended to `.planning/events.jsonl`) with root cause + file paths + proof transcript in the body.

@@ -57,5 +57,5 @@ re-trigger the review to force a marker.
   poll or inspect logs — a misfired workflow means the user reruns `/pr-review`.
 
 ```bash
-bravros ha say --force "Revisão $PR_NUMBER aguardando análise remota. Projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." >/dev/null 2>&1 || true
+bash ~/.agent_config/scripts/announce.sh --force "Revisão $PR_NUMBER aguardando análise remota. Ramo $(git branch --show-current), projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio || true
 ```

@@ -49,17 +49,44 @@ func TestGHFlagValuesAreNotOptions(t *testing.T) {
 }
 
 // A child process records PR lookup argv without making a forge request.
+//
+// The shim answers the gate's single `gh pr view --json …` call with a JSON
+// document assembled from POLICE_LOOKUP_* env vars. Only the base is required;
+// the rest default to a NON-lane shape (feature head, CLEAN, no review) so the
+// pre-lane tests keep exercising the token path. Lane tests set the others via
+// fakePRView / t.Setenv.
 func recordingPRLookup(t *testing.T, base string) string {
 	t.Helper()
 	bin := t.TempDir()
 	log := filepath.Join(bin, "args")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$POLICE_LOOKUP_LOG\"\nprintf '%s\\n' \"$POLICE_LOOKUP_BASE\"\n"
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$POLICE_LOOKUP_LOG\"\n" +
+		"printf '{\"number\":%s,\"baseRefName\":\"%s\",\"headRefName\":\"%s\",\"mergeStateStatus\":\"%s\",\"reviewDecision\":\"%s\",\"headRefOid\":\"%s\",\"isCrossRepository\":%s}\\n' " +
+		"\"${POLICE_LOOKUP_NUMBER:-0}\" \"$POLICE_LOOKUP_BASE\" \"${POLICE_LOOKUP_HEAD:-feature/test}\" \"${POLICE_LOOKUP_STATE:-CLEAN}\" " +
+		"\"${POLICE_LOOKUP_REVIEW:-}\" \"${POLICE_LOOKUP_OID:-0123456789abcdef0123456789abcdef01234567}\" \"${POLICE_LOOKUP_CROSS:-false}\"\n"
 	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("POLICE_LOOKUP_LOG", log)
 	t.Setenv("POLICE_LOOKUP_BASE", base)
+	for _, k := range []string{"POLICE_LOOKUP_NUMBER", "POLICE_LOOKUP_HEAD", "POLICE_LOOKUP_STATE", "POLICE_LOOKUP_REVIEW", "POLICE_LOOKUP_OID", "POLICE_LOOKUP_CROSS"} {
+		t.Setenv(k, "")
+	}
+	return log
+}
+
+// fakePRView is recordingPRLookup for lane tests: it fixes every field the
+// lane reads. Returns the argv log path.
+func fakePRView(t *testing.T, base, head, state, review, oid string, cross bool) string {
+	t.Helper()
+	log := recordingPRLookup(t, base)
+	t.Setenv("POLICE_LOOKUP_HEAD", head)
+	t.Setenv("POLICE_LOOKUP_STATE", state)
+	t.Setenv("POLICE_LOOKUP_REVIEW", review)
+	t.Setenv("POLICE_LOOKUP_OID", oid)
+	if cross {
+		t.Setenv("POLICE_LOOKUP_CROSS", "true")
+	}
 	return log
 }
 

@@ -19,7 +19,7 @@ Laravel repos additionally get a Herd URL, isolated `.env`, and optionally a clo
 
 ## Commands
 
-- **create** — `bash <skill>/scripts/create.sh [<app>] [<id>] [flags]`, stream stdout. On failure the script does NOT roll back — relay the error block and its resume hints.
+- **create** — `bash <skill>/scripts/create.sh [<app>] [<id>] [flags]`, stream stdout. On failure the script does NOT roll back — relay the error block and its resume hints. **Non-Laravel repos take the fast path automatically**: `create.sh` branches on `is_laravel` (`stack.framework` in `.bravros/config.json`, else an `artisan` file), and a Go/Node/Python repo gets a plain `git worktree add` off `origin/<base>` plus the runtime-dir clone — no Herd link, no `.env`, no DB, no `storage/`. Two or more at once ("create two worktrees and give me the paths") = two `create.sh` calls with distinct ids, paths reported together. `--branch=<name>` tracks `origin/<name>` when it already exists on the remote and otherwise cuts `<name>` from `origin/<base>` — that is how a branch pushed from another clone is picked up.
 - **destroy** — dry-run first (`--dry-run`, shows teardown scope + merge status vs origin/main AND base); confirm via ask_question unless the operator already authorized; then `--yes`. Pass `--merged-into=main` whenever teardown is conditioned on production ("destroy if it shipped"). **Relay refusals verbatim — never reflexively `--force`**: `plan-only` (code merged, planning delta dangling → land it from the parent, re-run) · `unmerged` (real code — offer a PR first) · `unknown` (offline — ask).
 - **list** — `list.sh [--app=<repo>]`, forward the table, no confirmation. `unmanaged` section = worktrees this skill didn't create (Claude Code's `EnterWorktree` → `.claude/worktrees/`); remove those with `bravros worktree cleanup <path> --force` — worktree teardown is owned by that verb, never raw `git worktree remove`.
 - **sync** — `sync.sh <name> [--onto=<ref>]`. Rebases (`--merge` to avoid rewriting history), refuses on a dirty tree, **never pushes** — prints the force-push command for the operator.
@@ -31,7 +31,7 @@ Laravel repos additionally get a Herd URL, isolated `.env`, and optionally a clo
 | Worktree dir | `<repo>-worktrees/<repo><id>/` (sibling of the repo) |
 | URL (Laravel + Herd) | `https://<repo><id>.test` |
 | Branch | plan frontmatter if `.planning/P-0<NNN>-*` exists, else `<repo><id>` off `origin/<base>` |
-| Base | `.worktree.yml:base` → `.bravros.yml:staging_branch` → homolog → main |
+| Base | `.worktree.yml:base` → `staging_branch` in `.bravros/config.json` (`bravros config get staging_branch`) → homolog → main |
 | `REDIS_PREFIX` / clone DB | `<repo><id>_` / `<repo>_wt<id>` |
 
 Per-project overrides (`.worktree.yml`) + behavior notes: `references/config.md`.

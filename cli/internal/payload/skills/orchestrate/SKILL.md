@@ -37,15 +37,31 @@ write phases, ordering or tiers, because those are decided better with the whole
    A dossier that already carries `### Phase` blocks is a **legacy shape**: reuse the task text,
    re-derive grouping, order and tier yourself.
 
-3. **Worktree safety**: `pwd && git branch --show-current` before the first edit; on mismatch, stop.
+3. **Branch gate — never orchestrate product code on the staging or main branch.** Before the first
+   edit: `pwd && git branch --show-current`; `STAGING=$(bravros config get staging_branch)`;
+   `[ "$(bravros config get police.direct_main 2>/dev/null)" = true ] && STAGING=main` (the config
+   default is `homolog`, and a direct-main repo has no such remote branch to fetch). If the branch
+   is `$STAGING` or `main`/`master` AND this checkout is not a linked worktree
+   (`git rev-parse --path-format=absolute --git-dir` equals
+   `git rev-parse --path-format=absolute --git-common-dir` — the relative forms disagree from any
+   subdirectory of the main checkout and read as "linked"), cut the branch first:
+   `git fetch origin "$STAGING" && git checkout -b feature/p-NNNN-<slug> "origin/$STAGING"`
+   (`fix/p-NNNN-<slug>` for a defect dossier; slug from the dossier folder). Already on a dedicated
+   branch or inside a worktree → stay there, never switch. Only `.planning/` bookkeeping (id
+   reservation, events, dossier edits) may be committed on the staging branch. Operator's rule,
+   verbatim: "on orchestrate, it should always if not in a dedicated worktree or branch create a new
+   branch before orchestrating never orchestrate directly in homolog".
 
-4. **Dispatching**: name every agent, set `model:` explicitly on every dispatch (the marker IS the
-   model — omitting it silently inherits your session model). Spawn a whole wave in ONE message.
-   Never two writers on one file. graphify before broad greps.
+4. **Dispatching**: name every agent; set `model:` explicitly on EVERY dispatch and make it match
+   the phase marker (`[H]`→haiku, `[S]`→sonnet, `[O]`→opus). Omitting it does not pick a tier — it
+   silently inherits your session model, so phases written `[S]`/`[H]` all run on the orchestrator's
+   model. Spawn a whole wave in ONE message. Never two writers on one file. graphify before broad greps.
 
 5. **Per-unit loop**: dispatch → haiku verifier runs ONLY targeted tests → review the diff yourself →
    `bravros commit` → mark done. A correction goes to the SAME agent via SendMessage; resume beats
-   respawn.
+   respawn. Watchdog: a worker silent >15 min or ~100k tokens → SendMessage for partials; nothing
+   useful by your next turn → TaskStop and work from the partials. "Never the full suite" is a
+   PHP/Pest rule (the operator's gate, separate tab); Go and other fast suites run without asking.
 
 6. **Acceptance**: after the last wave, dispatch `acceptance-verifier` against the dossier's
    `acceptance.md`. Write the verdict table and the wave plan into `<dossier>/orchestration-log.md`,

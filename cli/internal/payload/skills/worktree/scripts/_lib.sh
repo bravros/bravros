@@ -394,12 +394,36 @@ expand_tpl() {
 
 # ─── Framework detection ──────────────────────────────────────────────────────
 # Laravel unlocks the Herd / .env / Redis / DB half of the skill. Detected from
-# .bravros.yml (read-only) first, then from the filesystem.
-is_laravel() {
-    local kcfg="$TARGET_REPO/.bravros.yml"
-    if [[ -f "$kcfg" ]] && grep -qE '^[[:space:]]+framework:[[:space:]]*laravel' "$kcfg"; then
-        return 0
+# the project's stack cache — `stack.framework` in .bravros/config.json (read-
+# only) — first, then from the filesystem. Everything downstream (create.sh's
+# .env / Herd / DB / storage steps) branches on this one answer: a non-Laravel
+# repo gets a plain git worktree + runtime-dir clone and nothing else.
+#
+# `bravros config get` is the preferred reader and is tried first, but binaries
+# older than the generic config get (<= v2.20.x) reject the key, so python3
+# reads the JSON directly when the CLI declines. Never read the legacy
+# .bravros.yml here — the CLI auto-migrates it into config.json.
+stack_framework() {
+    local v=""
+    if command -v bravros >/dev/null 2>&1; then
+        v=$(cd "$TARGET_REPO" && bravros config get stack.framework 2>/dev/null) || v=""
     fi
+    if [[ -z "$v" && -f "$TARGET_REPO/.bravros/config.json" ]] && command -v python3 >/dev/null 2>&1; then
+        v=$(python3 - "$TARGET_REPO/.bravros/config.json" <<'PY' 2>/dev/null
+import json, sys
+try:
+    cfg = json.load(open(sys.argv[1]))
+    print((cfg.get("stack") or {}).get("framework") or "")
+except Exception:
+    pass
+PY
+        ) || v=""
+    fi
+    echo "$v"
+}
+
+is_laravel() {
+    [[ "$(stack_framework)" == "laravel" ]] && return 0
     [[ -f "$TARGET_REPO/artisan" ]]
 }
 
@@ -415,17 +439,40 @@ default_runtime_dirs() {
 }
 
 # ─── Base branch ──────────────────────────────────────────────────────────────
-# Precedence: .worktree.yml base → .bravros.yml staging_branch → homolog if it
-# exists → main → the repo's current HEAD.
+# Precedence: .worktree.yml base → staging_branch from .bravros/config.json (via
+# `bravros config get`, which also honours a not-yet-migrated legacy file) →
+# homolog if it exists → main → the repo's current HEAD.
+#
+# `bravros config get staging_branch` prints "homolog" even when no project
+# config exists, so its answer is only trusted when that branch is a real ref
+# (local or origin) — otherwise a config-less main-only repo would be told to
+# branch off a homolog that is not there.
+_ref_exists() {
+    git -C "$TARGET_REPO" show-ref --quiet "refs/heads/$1" \
+        || git -C "$TARGET_REPO" show-ref --quiet "refs/remotes/origin/$1"
+}
+
 resolve_base_branch() {
     local b
     b=$(cfg_scalar base)
     [[ -n "$b" ]] && { echo "$b"; return 0; }
 
-    local kcfg="$TARGET_REPO/.bravros.yml"
-    if [[ -f "$kcfg" ]]; then
-        b=$(awk '/^staging_branch:/ { sub(/^[^:]*:[[:space:]]*/, ""); gsub(/["'"'"']/, ""); print; exit }' "$kcfg")
-        [[ -n "$b" ]] && { echo "$b"; return 0; }
+    b=""
+    if command -v bravros >/dev/null 2>&1; then
+        b=$(cd "$TARGET_REPO" && bravros config get staging_branch 2>/dev/null) || b=""
+    elif [[ -f "$TARGET_REPO/.bravros/config.json" ]] && command -v python3 >/dev/null 2>&1; then
+        b=$(python3 - "$TARGET_REPO/.bravros/config.json" <<'PY' 2>/dev/null
+import json, sys
+try:
+    print(json.load(open(sys.argv[1])).get("staging_branch") or "")
+except Exception:
+    pass
+PY
+        ) || b=""
+    fi
+    if [[ -n "$b" ]]; then
+        _ref_exists "$b" && { echo "$b"; return 0; }
+        warn "staging_branch '$b' (project config or CLI default) is not a local or origin ref — falling back to homolog/main detection."
     fi
 
     for b in homolog main master; do

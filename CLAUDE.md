@@ -9,27 +9,29 @@ Fetch PR review comments, implement the fixes, and push.
 
 Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
-INTENT: read the latest review (GitHub bot + local), fix everything, push, stamp, route the next step.
+INTENT: read the latest review (GitHub bot + local), fix everything, push, stamp, route the next step. A round ends with a routing act, never with a report.
 
-PR number: `$ARGUMENTS` if numeric, else `PR=$(gh pr view --json number -q .number)`.
+PR number: `$ARGUMENTS` if numeric, else `PR=$(gh pr view --json number -q .number)`. Non-numeric `$ARGUMENTS` are instructions for this round ("skip the docs nit", "also fix X"), never a PR number.
 
 ## Quick Execution Summary
 
 1. **Fetch Review**: GitHub bot comment + local `.planning/pr-reviews/${PR}-*.md`.
-2. **Fix**: Apply all fixes (blockers → code issues → style → suggestions). Touch only files named in review.
+2. **Classify against HEAD, then fix**: check every finding against the current tree before editing — already satisfied → skip and say so. A **non-blocking finding that names a concrete code change is a fix, not informational** (operator rule: "always fix the nits on address pr"); "informational" is reserved for findings with no code to change. Apply blockers → code issues → style → suggestions. Touch only files named in the review.
 3. **Push, Verify, Stamp** — skip this whole step when no fixes were applied; HEAD has not moved, so there is nothing to ship and the stamp still keys to HEAD:
    - `/ship` with `🐛 fix: address PR #XX review feedback`
    - `gh pr checks "$PR" --watch --fail-fast > /tmp/bravros-checks-$PR.txt 2>&1` then `RC=$?` — **never pipe the gate**; `| tail` returns the pipe's status and a red build reads as success.
    - `bravros pr-review "$PR" --write-stamp` is commit-sha-keyed and safe to re-run every round: same HEAD → no-op, new HEAD → refreshes in place. No manual stamp deletion needed.
-4. **Route**:
-   - **🟢 No fixes**: ZERO code changes this round — every finding informational, out of scope, or already satisfied -> invoke `Skill({skill: "finish"})` immediately, **no args, no ask**. Say in one line that nothing was actionable, then hand off. Stop and report instead when the sentinel said `changes-requested`, or when something WAS actionable and you skipped it.
-   - **⚠️ Re-review**: if blockers fixed, logic changed, test behavior modified, or security files touched -> invoke `Skill({skill: "pr-review"})`.
-   - **✅ Optional**: fixes applied and all cosmetic (style/typos/comments/simple additions) -> ask single merge handoff for `/finish`.
+4. **Route** — the routing act is the LAST tool call of this same turn:
+   - **🟢 No fixes**: ZERO code changes this round — every finding informational (no code to change), out of scope, or already satisfied -> `Skill({skill: "finish"})` **in this same turn, no args, no ask**. At most one line ("nothing actionable") before it. A gate table, "ready for /finish", or "run /finish when you want" that ends the turn is a **failed round** — the operator then types `/finish` by hand. If the tool answers that `finish` is already loaded, execute the finish flow anyway.
+     Only four anomalies may interrupt the hand-off, each as ONE `ask_question` that names the anomaly (never "what's next?" / "how far should I take it?"): sentinel `changes-requested` · an actionable finding you skipped · PR base ≠ the repo's staging branch (unless `bravros config get police.direct_main` prints `true` — then `main` is the expected base) · PR stacked on / sharing a tree with another open PR or session. Anything else is 🟢.
+   - **⚠️ Re-review**: blockers fixed, logic changed, test behavior modified, or security files touched -> `Skill({skill: "pr-review"})`.
+   - **✅ Optional**: fixes applied and all cosmetic (style/typos/comments/simple additions/nits) -> ONE `ask_question` under a **`Main merge`** header, in `/finish` Step 7 vocabulary: *Yes — merge to homolog, then main* (`--merge-main`) · *Merge to homolog only* (`--no-main`) · *Re-review anyway* · *Not yet — accumulate*. Never the word "promote".
+   - **Third review round on the same PR**: say so and offer a fresh-context `/local-review --deep` instead of a fourth loop.
 
 Announce below only on ⚠️ / ✅. On 🟢 nothing was published and `/finish` fires its own — one announcement per event.
 
 ```bash
-bravros ha say --force "Correções da revisão $PR publicadas, próxima etapa pendente. Projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." >/dev/null 2>&1 || true
+bash ~/.agent_config/scripts/announce.sh --force "Correções da revisão $PR publicadas, próxima etapa pendente. Ramo <fragmento>, projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio || true
 ```
 
 ---
@@ -94,8 +96,8 @@ review thread in parallel, then render a local-only `after-merge.md`: Pre-deploy
 ## Flow
 
 1. **Resolve the PR set.** Range `$(git describe --tags --abbrev=0 origin/main)..origin/main`; no tags → `origin/homolog..origin/main` (avoids full history). Extract `#N` from merge commits; `--pr <N>` overrides. Empty set → exit cleanly, mentioning the last tag and the `--pr` escape hatch. List the PRs before pulling context.
-2. **Per-PR context, in parallel.** One Sonnet sub-agent per PR from the template in `references/extraction-prompts.md` — echo its JSON schema + one-shot example into each prompt; on validation failure, one retry with the validator error verbatim. Sources: `gh pr view <N> --json body,title,number,mergedAt`; plan file via `grep -r "#<N>" .planning/ --include="*.md"`; review thread via `gh pr view <N> --json reviews --jq '.reviews[].body'`.
-3. **Bucket** into the 5 sections. Blast radius per PR when the repo has a graph: get the PR impact through graphify — a community the PR touches that no reviewer mentioned is a monitoring item; the graph is a HINT, never a substitute for a documented rollback command. Detect the stack from `.bravros.yml`'s cached `stack:` block (fall back to project markers) and emit the matching deploy block from `references/checklist-template.md`.
+2. **Per-PR context, in parallel.** One Sonnet sub-agent per PR (`subagent_type: "pr-deploy-context-extractor"`, shipped in `agents/`) from the template in `references/extraction-prompts.md` — echo its JSON schema + one-shot example into each prompt; on validation failure, one retry with the validator error verbatim. Sources: `gh pr view <N> --json body,title,number,mergedAt`; plan file via `grep -r "#<N>" .planning/ --include="*.md"`; review thread via `gh pr view <N> --json reviews --jq '.reviews[].body'`.
+3. **Bucket** into the 5 sections. Blast radius per PR when the repo has a graph: get the PR impact through graphify — a community the PR touches that no reviewer mentioned is a monitoring item; the graph is a HINT, never a substitute for a documented rollback command. Detect the stack from `.bravros/config.json`'s cached `stack` object (fall back to project markers) and emit the matching deploy block from `references/checklist-template.md`.
 4. **Render** `references/checklist-template.md` as-is to `${OUTPUT_PATH:-./after-merge.md}`.
 5. **Verify the gitignore guard still holds**, then summarize: output path, per-bucket counts (highlight ⚠️ CANDIDATE items), next steps.
 
@@ -119,7 +121,7 @@ Read [briefing.md](references/briefing.md) on demand for detailed context and in
 
 1. **Only runs when explicitly typed `/auto-pr`.**
 2. **Zero user questions.** Compact and continue on context pressure.
-3. **NEVER merge to main.** `/promote` with out-of-band token is the only path.
+3. **NEVER merge to main.** `/promote` with out-of-band token is the only path — enforced, not promised: the `.auto-pr-lock` from step 4 also closes the `bravros police` staging lane, so the hook blocks any main merge from this run.
 4. **Lock before Stage 1:** `bravros autopr preflight --skill auto-pr`.
 5. **Review loop sentinel:** Uses `BRAVROS-VERDICT: approved` or `BRAVROS-VERDICT: changes-requested`.
 6. **Worktree isolation:** Refer to [worktree-mode.md](references/worktree-mode.md).
@@ -183,7 +185,7 @@ INTENT: take N open PRs from open → verified → merged on the staging branch 
 Autogenerated error-fix PRs (KPG-*/BetterStack): integration-branch flow, park rules, Linear sweep → `references/fleet-batch-verify.md`.
 
 ```bash
-bravros ha say --force "Mesclagem em lote concluída: <N> revisões publicadas em homologação. Ramo <fragmento>, projeto <repo>." studio >/dev/null 2>&1 || true
+bash ~/.agent_config/scripts/announce.sh --force "Mesclagem em lote concluída: <N> revisões publicadas em homologação. Ramo <fragmento>, projeto <repo>." studio || true
 ```
 
 ---
@@ -202,6 +204,7 @@ HARD CONSTRAINTS:
 - Name files explicitly — never blanket-stage. Never stage `.env`, `.env.*`, credentials, or API keys.
 - NEVER add AI signatures (`Co-Authored-By: Claude`, "Generated with…") — the hook rejects them.
 - Subject ≤ 50 chars (hard 72), present tense, lowercase, why over what; detail goes in the body.
+- No branch gate here — that lives in `/push` and `/ship`. Committing on `main` is normal in a direct-main repo — `bravros config get police.direct_main` prints `true` (`/git-this` personal repos); anything else (empty, an error, an older CLI reporting an unknown key) means PR-gated: branch first, then commit. `staging_branch` is never the discriminator — it never prints empty.
 
 REPO FACT — the only accepted `<emoji> <type>` pairs:
 ✨ feat · 🐛 fix · 📚 docs · 💄 style · ♻️ refactor · ⚡ perf · 🧪 test · 🔧 build · 🧹 chore ·
@@ -285,7 +288,9 @@ INTENT: land this feature — merge the PR into its base, record completion in `
 3. **CI Check**: `gh pr checks --watch --fail-fast` **redirected to a file**, then `RC=$?` — never piped. Then the readiness gate: merge only at `mergeStateStatus: CLEAN`.
 4. **Merge & Verify**: Execute merge gate and post-merge blob verification.
 5. **Sync & Clean**: Fast-forward local branches and sweep review stamps.
-6. **Main Route**: Route the homolog→main decision with operator confirmation — the main PR repeats step 3 in full. Ask it under a **`Main merge`** header with all three options, and **never use the word "promote" toward the operator here**: this path merges through its own PR gate and consumes no promote token, but the word sends them off to mint one (afterpay #395/#396 — minted mid-merge, expired unused). `/promote` belongs only in the *defer* option, where it is the real next path.
+6. **Main Route**: Route the homolog→main decision with operator confirmation — the main PR repeats step 3 in full. Ask it under a **`Main merge`** header with all three options, and **never use the word "promote" toward the operator here**: this path merges through its own PR gate and needs no token — the police **staging lane** lets a `CLEAN` homolog→main PR merge — but the word sends them off to mint one (afterpay #395/#396 — minted mid-merge, expired unused). `/promote` belongs only in the *defer* option, where it is the real next path. A `✋🏽 Police Block` names its reason: relay it in one line and follow the table in `references/flow.md` Step 7 (UNKNOWN → wait, then retry the same command) — never `gh api`/raw HTTP (B-0036), never `/promote`.
+7. **Merge hygiene**: the merge line carries the **literal** PR number (`gh pr merge 1234 --merge`) — the police hook reads raw command text, so a `$VAR` or backtick in the PR argument is unreadable → blocked; no `cd … &&` unless it targets the exact session cwd, never `| tail`; redirect to a file, capture `RC`, inspect. Lock-acquire / merge / `RC` / lock-release may share one Bash call.
+8. **Last line, always**: `main @ <sha>` or `homolog only — production pending` — the operator asks "merged to main?" after every run.
 
 Refer to [`references/flow.md`](references/flow.md) for full shell script flow details. Its bash
 is copy-paste code, not illustration: a shell-trap table, the stamp-freshness block, the CI and
@@ -311,14 +316,16 @@ direct-main policy for personal/scratch repos. Owner: `gh api user -q .login`.
 4. **Use the Write tool, not bash heredocs**, for templates — keeps generated files out of bash quoting.
 5. Each Bash call is a fresh shell — variables do NOT persist between steps; substitute literal values from earlier output.
 6. `git rev-parse` fails when the folder isn't a repo yet — that is the normal case; fall back to `basename "$PWD"`.
+7. **Direct-to-main unless `WANT_HOMOLOG`.** After `git init -b main`, run `bravros police direct-main on` (writes `.bravros/config.json` with `police.direct_main: true`) and include that file in the initial commit — skipped otherwise, the police hook blocks the first `git push -u origin main` (observed 2026-09-10 on a freshly scaffolded personal site repo). With `WANT_HOMOLOG` the file carries `{"staging_branch": "homolog"}` instead and the first push to `main` is the one and only direct push.
 
 ## Flow
 
 1. **Preflight**: `gh auth status`; owner; sanitize folder name to repo slug; check `gh repo view "$OWNER/$NAME"` collision.
-2. **Collision**: announce, propose 3 free alternatives, ask user via user prompt, loop max 3.
-3. **Create + wire**: `gh repo create "$OWNER/$NAME" --private`; `git init -b main`; `git remote add origin git@github.com:$OWNER/$NAME.git`.
-4. **Scaffold**: empty folder → `README.md` (`# {NAME}`) + `CLAUDE.md`; non-empty → `CLAUDE.md` only if missing.
-5. **Commit + push**: `bravros commit`, `git push -u origin main`, print repo URL summary.
+2. **One ask**: "Set up a `homolog` staging branch from day one?" (default **No** — most personal repos are main-only). Record `WANT_HOMOLOG`.
+3. **Collision**: announce, propose 3 free alternatives, ask user via user prompt, loop max 3.
+4. **Create + wire**: `gh repo create "$OWNER/$NAME" --private`; `git init -b main`; `git remote add origin git@github.com:$OWNER/$NAME.git`. Then, per constraint 7: no `WANT_HOMOLOG` → `bravros police direct-main on`; `WANT_HOMOLOG` → write `.bravros/config.json` with `{"staging_branch": "homolog"}` instead. Do NOT create `homolog` yet — there is no commit for it to point at, and `git push -u origin homolog` fails with `src refspec homolog does not match any`.
+5. **Scaffold**: empty folder → `README.md` (`# {NAME}`) + `CLAUDE.md`; non-empty → `CLAUDE.md` only if missing. The CLAUDE.md branch-policy paragraph switches on `WANT_HOMOLOG` (direct-main text vs `feature/* → homolog → main`). `.bravros/config.json` from step 4 is always included.
+6. **Commit + push**: `bravros commit` (stage `.bravros/config.json` alongside the scaffolded files), `git push -u origin main`. Then, only with `WANT_HOMOLOG`: `git branch homolog main && git push -u origin homolog` — stay on `main`. Print repo URL summary.
 
 ---
 
@@ -393,25 +400,30 @@ Emergency hotfix deploy — commit, push homolog, PR to main, merge now. Use on 
 
 Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
-INTENT: ship an urgent production fix now, bypassing the plan workflow. Flow: commit → push/merge into homolog → PR homolog→main → merge → sync back. `$ARGUMENTS` is the description — ask if empty.
+INTENT: ship an urgent production fix now, bypassing the plan workflow. Flow: confirm repo → commit → push/merge into homolog → PR homolog→main → wait for mergeability → merge → sync back → deploy status. `$ARGUMENTS` is the description — ask if empty.
 
 ## Hard constraints
 
 - **Running `/hotfix` IS the approval for merge-to-main** — the emergency-path exemption: no user question checkpoints between commit and merge.
+- **Never route a hotfix through `/pr` → `/pr-review` → `/finish`.** If a review is wanted it is not a hotfix — say so and stop instead of drifting into "how far should /finish take it?".
 - **The autopr lock is the one hard gate that remains.** Refuse if `bravros autopr status` reports lock present.
+- **The police staging lane — not a token — is what lets the merge through**: head `homolog`, `mergeStateStatus` `CLEAN`, no autonomous lock, plain `gh pr merge 1234 --merge` with the **literal** PR number (no `cd … &&`, no `-R`/URL) — the hook reads raw command text, so a `$VAR` in the PR argument is unreadable → blocked. A repo with `police.staging_lane: reviewed` needs `bravros police unlock` from a separate terminal — say so ONCE, do not loop.
 - **Merge-lock is intentionally skipped** — one emergency at a time.
 - **NEVER delete the homolog branch after merge. NEVER skip the PR** — main is protected.
 - If targeted tests fail, STOP and ask.
 
 ## Quick Flow Summary
 
+0. **Confirm repo identity** before anything: `git remote get-url origin` + `basename "$(git rev-parse --show-toplevel)"` — a hotfix in the wrong checkout is the worst possible mistake.
 1. Refuse on `main`/`master`. Strip issue ref for PR title / `Closes #42`.
 2. Format files → `bravros commit "🩹 hotfix: <description>" <changed files only>`.
-3. Push & merge to `homolog` → `gh pr create --base main --head homolog --title "🩹 hotfix: <description>"`.
-4. Check autopr gate → `gh pr merge "$PR_NUMBER" --merge` → verify state == `MERGED`.
-5. Sync `homolog` from `main` (`git checkout homolog && git pull && git fetch origin main && git merge ...`).
-6. Close plan if applicable (`.planning/events.jsonl`) → `bravros commit`.
-7. Announce via `bravros ha say --force ... studio`.
+3. Push & merge to `homolog` → `gh pr create --base main --head homolog --title "🩹 hotfix: <description>"` (body via `--body-file` written in a previous step).
+4. **Wait for mergeability**, or the first merge hits the `UNKNOWN` block: `until [ "$(gh pr view "$PR_NUMBER" --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ]; do sleep 2; done`.
+5. Check autopr gate → `gh pr merge 1234 --merge > /tmp/bravros-merge-1234.txt 2>&1` (substitute the literal number — a `$VAR` here is unreadable to the hook; no `cd … &&`, no `| tail`) → verify state == `MERGED`. A `✋🏽 Police Block` names its reason — relay it in one line; never `gh api`/raw HTTP, never `/promote`.
+6. Sync `homolog` from `main` (`git checkout homolog && git pull && git fetch origin main && git merge ...`).
+7. Close plan if applicable (`.planning/events.jsonl`) → `bravros commit`.
+8. **Deploy status line, explicit**: `merged main @ <sha> · deploy: <auto-triggered / manual / none> · built+restarted: <yes / no / n-a> · verified: <how / not yet>`. Compiled or infra targets (Go binaries, containers, homelab) must say whether a rebuild + restart on the server is still required.
+9. Announce via `bash ~/.agent_config/scripts/announce.sh --force "<PT-BR>" studio || true` (template in briefing).
 
 ---
 
@@ -592,7 +604,18 @@ Removing the composer dep means production needs a `composer install` on deploy.
 
 ```bash
 php artisan route:list --except-vendor >/dev/null; echo "boot rc=$?"   # boots without Horizon
+composer show aws/aws-sdk-php >/dev/null 2>&1; echo "aws-sdk rc=$?"    # required for the managed queue
 ```
+
+**`aws/aws-sdk-php` must be a composer dependency.** Laravel Cloud's managed queue is SQS
+underneath, and a deploy without this package fails with "Your application has a managed queue
+but is missing the [aws/aws-sdk-php] package." Add it (`composer require aws/aws-sdk-php`) before
+the first deploy that enables the managed queue, not after the failure.
+
+**Scale-to-zero / hibernation wake interval is a dashboard setting, not code.** The hourly (or
+other) wake cadence that keeps a hibernating environment checking in is configured in the Laravel
+Cloud dashboard for that environment — there is no config file, env var, or code path to search
+for it. Point the operator at the dashboard instead of hunting the repo.
 
 Post-deploy, confirm on a cacheable route: `cache-control: public, max-age=0, s-maxage=3600,
 must-revalidate`, no `set-cookie`, no `csrf-token` meta — and that a form route still posts
@@ -958,9 +981,9 @@ Store, read, inject, and rotate secrets via the 1Password CLI (op). Enforces op:
 
 Run `bash <skill-dir>/scripts/preflight.sh`: exit `0` (desktop or service-account mode) → proceed; exit `2` → offer `scripts/install-op.sh` (Linux path adds the signed repo + uses `sudo` — announce first), rerun; exit `1` → auth failed: fire the announce below, then `ask_question` for the mode and follow `references/auth-setup.md` — **auth happens in a separate terminal** (this session shares no TTY with the biometric prompt, and exports here don't persist). Never run `op item create`/`edit` before preflight returns 0 — failed writes leave half-created items and burn service-account rate limit.
 
-<!-- announce-template: "Autenticação do 1Password necessária. Aguardando escolha do modo de acesso. Projeto {PROJECT}." -->
+<!-- announce-template: "Autenticação do 1Password necessária. Aguardando escolha do modo de acesso. Ramo {BRANCH}, projeto {PROJECT}." -->
 ```bash
-bravros ha say --force "Autenticação do 1Password necessária. Aguardando escolha do modo de acesso. Projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio >/dev/null 2>&1 || true
+bash ~/.agent_config/scripts/announce.sh --force "Autenticação do 1Password necessária. Aguardando escolha do modo de acesso. Ramo $(git branch --show-current), projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio || true
 ```
 
 ## Naming & metadata — enforce before create (non-negotiable)
@@ -1024,15 +1047,31 @@ write phases, ordering or tiers, because those are decided better with the whole
    A dossier that already carries `### Phase` blocks is a **legacy shape**: reuse the task text,
    re-derive grouping, order and tier yourself.
 
-3. **Worktree safety**: `pwd && git branch --show-current` before the first edit; on mismatch, stop.
+3. **Branch gate — never orchestrate product code on the staging or main branch.** Before the first
+   edit: `pwd && git branch --show-current`; `STAGING=$(bravros config get staging_branch)`;
+   `[ "$(bravros config get police.direct_main 2>/dev/null)" = true ] && STAGING=main` (the config
+   default is `homolog`, and a direct-main repo has no such remote branch to fetch). If the branch
+   is `$STAGING` or `main`/`master` AND this checkout is not a linked worktree
+   (`git rev-parse --path-format=absolute --git-dir` equals
+   `git rev-parse --path-format=absolute --git-common-dir` — the relative forms disagree from any
+   subdirectory of the main checkout and read as "linked"), cut the branch first:
+   `git fetch origin "$STAGING" && git checkout -b feature/p-NNNN-<slug> "origin/$STAGING"`
+   (`fix/p-NNNN-<slug>` for a defect dossier; slug from the dossier folder). Already on a dedicated
+   branch or inside a worktree → stay there, never switch. Only `.planning/` bookkeeping (id
+   reservation, events, dossier edits) may be committed on the staging branch. Operator's rule,
+   verbatim: "on orchestrate, it should always if not in a dedicated worktree or branch create a new
+   branch before orchestrating never orchestrate directly in homolog".
 
-4. **Dispatching**: name every agent, set `model:` explicitly on every dispatch (the marker IS the
-   model — omitting it silently inherits your session model). Spawn a whole wave in ONE message.
-   Never two writers on one file. graphify before broad greps.
+4. **Dispatching**: name every agent; set `model:` explicitly on EVERY dispatch and make it match
+   the phase marker (`[H]`→haiku, `[S]`→sonnet, `[O]`→opus). Omitting it does not pick a tier — it
+   silently inherits your session model, so phases written `[S]`/`[H]` all run on the orchestrator's
+   model. Spawn a whole wave in ONE message. Never two writers on one file. graphify before broad greps.
 
 5. **Per-unit loop**: dispatch → haiku verifier runs ONLY targeted tests → review the diff yourself →
    `bravros commit` → mark done. A correction goes to the SAME agent via SendMessage; resume beats
-   respawn.
+   respawn. Watchdog: a worker silent >15 min or ~100k tokens → SendMessage for partials; nothing
+   useful by your next turn → TaskStop and work from the partials. "Never the full suite" is a
+   PHP/Pest rule (the operator's gate, separate tab); Go and other fast suites run without asking.
 
 6. **Acceptance**: after the last wave, dispatch `acceptance-verifier` against the dossier's
    `acceptance.md`. Write the verdict table and the wave plan into `<dossier>/orchestration-log.md`,
@@ -1056,7 +1095,7 @@ INTENT: ship everything (`/ship`), open the PR against the right base, hand off 
 HARD CONSTRAINTS:
 - PRs NEVER target `main` directly (`feature/* → homolog → main`).
 - Title: `<emoji> <type>: <description>`, **under 70 characters**.
-- NEVER add AI signatures to title or body.
+- NEVER add AI signatures to title or body — check `gh repo view --json isPrivate -q .isPrivate` and strip any harness-added attribution footer from the body file before creating; on a public repo (`false`) this is a leak, not a style nit.
 - **NEVER write a bare `#N` in the body except for an issue/PR you mean to link.** GitHub
   autolinks it and stamps a cross-reference onto that issue's timeline; a "finding #3" reference
   silently spams an unrelated old issue. Write `finding 3` or backtick it.
@@ -1070,8 +1109,9 @@ HARD CONSTRAINTS:
 BASE BRANCH:
 `homolog` if present (or `main` if current is `homolog` / missing `homolog`). Rebase if behind.
 
-CREATE:
-`gh pr create --base "$BASE" --title "<emoji> <type>: <title>" --body …` with Summary, Changes, Technical Notes, Test Plan, References.
+CREATE — two steps, two tool calls, in this order:
+1. **Write the body with the Write tool** to an absolute path — the scratchpad (`<scratchpad>/pr-body-<branch>.md`) by default; `<repo>/.planning/pr-body-<branch>.md` only when no scratchpad exists, deleted after the PR opens (`/recon` commits `.planning/` wholesale) — with Summary, Changes, Technical Notes, Test Plan, References. Then re-read it and strip any AI-attribution footer.
+2. `gh pr create --base "$BASE" --title "<emoji> <type>: <title>" --body-file <abs path>` as its own command. **Never** a heredoc, `cat > f && gh pr create`, or `cp … && gh pr create --body-file` in the same command: the police hook validates the body file **before** the command runs and blocks an unreadable one (3 blocks in a row on paylog, 2026-09-11 06:53).
 
 HANDOFF (mandatory final step — the routing IS the contract):
 - **Autonomous**: Output `STATUS: pr-created. PR: #<n>. NEXT: review`. The pipeline owns the
@@ -1152,10 +1192,11 @@ INTENT: Promote accumulated `homolog` work to production (`homolog → main`). C
    - Check authority token via `bravros promote status --field present`. If false, instruct operator to run `bravros promote unlock` in a non-Claude-Code terminal.
    - Run `git fetch origin main --quiet` and snapshot pre-merge main tip:
      `git update-ref refs/bravros/promote-base "$(git rev-parse origin/main)"`.
-2. **PR & Merge**:
-   - Create PR from `"$PROMOTE_BASE..homolog"`.
+2. **PR & Merge** — PR and CI first, token check last:
+   - Create PR from `"$PROMOTE_BASE..homolog"`; wait until `mergeStateStatus` is `CLEAN`.
+   - **TTL check right before the merge**: `bravros promote status --field ttl_remaining`. The token is 5-minute; PR creation + CI + a review has burnt it in 3 sessions. Expired → ask for ONE re-mint (`bravros promote unlock` in a separate terminal), wait, never loop.
    - Acquire merge lock: `bravros merge-lock acquire --timeout 60s --ttl 10m --meta reason=promote --meta pr="$PR_NUMBER"`.
-   - Merge PR: `gh pr merge "$PR_NUMBER" --merge` and verify `MERGED` state.
+   - Merge PR: `gh pr merge 1234 --merge > /tmp/bravros-merge-1234.txt 2>&1` — substitute the **literal** PR number (the police hook reads raw command text; a `$VAR` there is unreadable → blocked), no `cd … &&`, no `| tail` — then verify `MERGED` state. The `bravros police` hook honours the promote token — **no second token** (`police unlock`) is needed; a `✋🏽 Police Block` here names its reason (usually expired token or `UNKNOWN` mergeability) — relay it in one line, never `gh api`/raw HTTP.
 3. **Sync & Close-out**:
    - Execute close-out procedure detailed in [`references/close-out.md`](references/close-out.md).
    - Fast-forward `homolog` from `main`, push, release lock (`bravros merge-lock release`).
@@ -1177,7 +1218,7 @@ Safely delete branches already merged to the base branch. Dual-signal merge-trut
 - **Manual-only.** Nothing auto-triggers this skill — `/finish` and `/promote` never prune (P-0185). The ONLY entry point is a user typing `/prune-merged`, and Step 2 user review is mandatory before any `--apply`.
 - **Both local and remote refs deleted** on a successful prune.
 - **Worktree safety.** A branch checked out in any worktree is OFF-LIMITS — skipped in both dry-run and `--apply`, **even when already merged to main**, reported as `SKIPPED-WORKTREE (<path>)`. Prune never removes a worktree or deletes a worktree-backed branch; worktree teardown is owned solely by `bravros worktree cleanup <path>`. Details + rationale: `references/safety.md` Guard 5.
-- **Protected by design.** Hard blocklist: `main`, `homolog`, `master`, `staging`, `develop`, current HEAD, open-plan branches, GitHub branch-protection rules, `.bravros.yml:branch_prune.protected`.
+- **Protected by design.** Hard blocklist: `main`, `homolog`, `master`, `staging`, `develop`, current HEAD, open-plan branches, GitHub branch-protection rules, `.bravros/config.json` `permanent_branches`.
 - **Recoverable.** Pruned branches write 7-day tombstone refs (`feat/foo` → `refs/tombstones/feat-foo`, slashes become dashes) — rejected-PR branches included, same contract.
 - **Closed-PR branches are pruned by default, in the CLI.** A branch whose every PR is `CLOSED` (none open, none merged) is deliberately rejected work: the CLI reports it as `[CANDIDATE] … source=rejected` and `--apply` deletes it under the same Step 2 approval. `--exclude-rejected` holds them back for the rare run where you want that.
 
@@ -1198,7 +1239,8 @@ Push current branch to remote with branch safety checks.
 INTENT: push the current branch to origin. Push only — no committing, no PR creation.
 
 HARD CONSTRAINTS:
-- Never push `main`/`master` directly — refuse and point to a PR from homolog. `homolog` itself IS directly pushable (plan commits, hotfixes).
+- Never push `main`/`master` directly **in a PR-gated repo** — refuse and point to a PR from homolog. `homolog` itself IS directly pushable (plan commits, hotfixes).
+- **Direct-main repos are the exception, by design.** A repo whose `.bravros/config.json` declares `police.direct_main: true` (set by `bravros police direct-main on`, or scaffolded by `/git-this` for personal/scratch repos) has no staging branch and works on `main`; pushing `main` there is the normal flow. The gate is a pure binary: `bravros config get police.direct_main` prints `true` → direct-main, push allowed; anything else (empty, an error, an older CLI reporting an unknown key) → PR-gated, refuse. `staging_branch` is never the discriminator — `config get staging_branch` never prints empty.
 - No force push unless the operator explicitly asked for one.
 - Dirty working tree → stop and point to `/ship` or `/commit` first — committing is their job, not this skill's.
 
@@ -1216,8 +1258,11 @@ Quick task execution without a full plan — just do it and commit.
 
 ## Overview
 
-- **Auto-branch**: Hand off debug tasks automatically.
-- **Branch safety**: Ask before touching files on `main`/`master`.
+- **Auto-branch**: a `/scout` handoff (`debug: S-NNNN`) gets `fix/<slug>` off `origin/<staging>` automatically.
+- **Branch safety**: product code is never edited on the staging branch or `main`/`master` — cut
+  `fix/<slug>` from `origin/<staging>` first. A one-file trivial change is allowed on the staging
+  branch only when the operator asked for it to land there; never on `main`/`master` (direct-main
+  repos excepted).
 - **Implement & Verify**: Minimal targeted changes with quick verification.
 - **Commit & Next**: Use `/commit` and suggest next actions (`/pr`, done, etc.).
 
@@ -1244,6 +1289,11 @@ anything.
 
 Decide **defect** (something behaves wrong) or **change** (something new). State which and why in one
 line; ask only when genuinely unclear. Then `PLAN_ID=$(bravros nextid reserve plan --slug "$SLUG")`.
+
+**Recon creates no branch and no worktree** unless invoked with `--worktree`. Other sessions may be
+running in this checkout (operator: "dont start implementing or create branch because we have other
+sessions running here"); the branch is `/orchestrate`'s to cut. Abort before the dossier folder exists
+→ `bravros nextid release "$PLAN_ID"`, so the id is not burned.
 
 Attachments — screenshots, logs, exports, recordings — are evidence, not decoration. Copy each into
 `evidence/`, numbered in arrival order, and record in `01-evidence.md` **what it shows**, not what you
@@ -1311,7 +1361,8 @@ something ran.
 
 Append `created` and `reviewed` events to `.planning/events.jsonl` (`by: "agent:recon"`), then
 `bravros commit "📋 plan: add P-NNNN <slug>" .planning/`. Give the operator exactly one next step:
-`/orchestrate .planning/P-NNNN-<slug>/`.
+`/orchestrate .planning/P-NNNN-<slug>/`, and name the branch it will cut from the staging branch —
+`feature/p-NNNN-<slug>` for a change, `fix/p-NNNN-<slug>` for a defect. Print it; do not create it.
 
 Announce via `~/.agent_config/scripts/announce.sh --force "<PT-BR, ~20 words, ends with origin>" studio || true`.
 
@@ -1363,8 +1414,9 @@ Commit and push changes in one step with safety checks.
 INTENT: `/commit` then `/push`, with one branch gate first. Never creates a PR.
 
 HARD CONSTRAINTS:
-- Refuse on `main`/`master` — those branches move only via PR (`homolog → main`).
+- Refuse on `main`/`master` **in a PR-gated repo** — there those branches move only via PR (`homolog → main`).
   Every other branch, including `homolog`, is shippable directly.
+- **Direct-main repos ship on `main` by design.** `.bravros/config.json` with `police.direct_main: true` (`bravros police direct-main on`, or a `/git-this` personal repo) has no staging branch — commit and push `main` there without ceremony. The gate is a pure binary: `bravros config get police.direct_main` prints `true` → direct-main, ship allowed; anything else (empty, an error, an older CLI reporting an unknown key) → PR-gated, refuse and point to a PR. `staging_branch` is never the discriminator — `config get staging_branch` never prints empty.
 - `/commit`'s rules apply in full: emoji format, no secrets staged, no AI signatures.
 
 Run `/commit`, then `Skill({skill: "push"})` — `/push` is the canonical push primitive.
@@ -1374,7 +1426,7 @@ Report one line — `✅ <emoji> <type>: <subject> — pushed to origin/<branch>
 ---
 
 ## Skill: start
-EXPLICIT-INVOCATION ONLY — trigger only when the user types /start. Initializes a new project with stack-aware CLAUDE.md, .bravros.yml, .gitignore, and base structure. Do NOT trigger on natural-language phrases like init or setup without the slash.
+EXPLICIT-INVOCATION ONLY — trigger only when the user types /start. Initializes a new project with stack-aware CLAUDE.md, .bravros/config.json, .gitignore, and base structure. Do NOT trigger on natural-language phrases like init or setup without the slash.
 
 # /start — initialize or refresh project workflow files
 
@@ -1384,19 +1436,19 @@ overwrite. Update: NEVER touch an existing CLAUDE.md; refresh `claude.yml` only.
 
 ## Steps
 
-1. **Detect stack** from project markers (composer.json+laravel/framework → laravel; package.json "next" → nextjs; "react-native"/"expo" → expo; other package.json → nodejs; go.mod → go; requirements.txt/pyproject.toml → python; else generic). **Cache it in `.bravros.yml`** (`stack:` block) — that file is the project's stack cache; later sessions and skills read it instead of re-detecting.
+1. **Detect stack** from project markers (composer.json+laravel/framework → laravel; package.json "next" → nextjs; "react-native"/"expo" → expo; other package.json → nodejs; go.mod → go; requirements.txt/pyproject.toml → python; else generic). **Cache it in `.bravros/config.json`** (`stack` object) — that file is the project's stack cache; later sessions and skills read it instead of re-detecting.
 2. **CLAUDE.md** (Init only). Laravel fast path: `cp -n ~/.agent_config/templates/CLAUDE.md CLAUDE.md`, fill its placeholders — do not modify that template. Other stacks: generate from `references/claudemd-templates.md`. Never use the Laravel template as a base for non-Laravel projects.
 3. **sync-db.sh** (relational-DB projects only): `cp -n ~/.agent_config/templates/sync-db.sh` + `.db-sync.env.example`, `chmod +x`, `mkdir -p database/backups`. Non-Laravel: swap the post-restore command (Prisma → `npx prisma migrate deploy`, Drizzle → `npx drizzle-kit push`). Gitignore `.db-sync.env` and `database/backups/`.
 4. **Hooks + planning dir**: `git config core.hooksPath .githooks`; `mkdir -p .planning`. **Update mode — don't clobber graphify's hooks:** if the repo has `.graphify` or `graphify-out/graph.json`, the `post-{merge,commit,checkout}` slots are graphify refresh delegators — preserve them.
-5. **`.bravros.yml` staging branch.** Legacy `.bravros.yml` → `git mv` to `.bravros.yml`. If the file is missing, announce (below), then ask_question: "What is your staging/integration branch name?" (default `homolog`); write `staging_branch: <answer>` with the Write tool.
+5. **`.bravros/config.json` staging branch.** A legacy `.bravros.yml`/`.sbravros.yml` is migrated to `.bravros/config.json` automatically by any `bravros` verb — never `git mv` it. If `.bravros/config.json` has no `staging_branch`, announce (below), then ask_question: "What is your staging/integration branch name? (say none for a main-only repo)" (default `homolog`). A named branch → write `{"staging_branch": "<answer>"}` to `.bravros/config.json`. No staging branch → run `bravros police direct-main on` instead (writes `.bravros/config.json` with `police.direct_main: true` so `main` isn't gated) and do not set `staging_branch`.
 6. **Homolog branch before workflows.** If neither `refs/heads/homolog` nor `origin/homolog` exists: `git checkout -b homolog && git push -u origin homolog` (no origin is fine), then switch back.
 7. **GitHub Actions** (only for homolog→main repos): write `claude.yml` + `tests.yml` per `references/github-workflows.md` — its GitHub gotchas are hard-won, do not deviate. Starter-kit workflow cleanup: fresh-init repos (≤1 commit) remove other workflows automatically; brownfield repos require explicit ask_question approval — never delete silently.
 8. **graphify section**: if a graph exists and CLAUDE.md lacks a `## graphify` heading, append the section from `~/.agent_config/skills/graphify-this-project/references/claude-md-section.md`, filling real counts/labels — never ship placeholders.
 9. **Report** created/skipped files and next steps. Don't commit automatically — the user reviews first.
 
-<!-- announce-template: "Aguardando o nome do ramo de homologação para configurar o projeto. Projeto {PROJECT}." -->
+<!-- announce-template: "Aguardando o nome do ramo de homologação para configurar o projeto. Ramo {BRANCH}, projeto {PROJECT}." -->
 ```bash
-bash ~/.agent_config/scripts/announce.sh "Aguardando o nome do ramo de homologação para configurar o projeto. Projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio >/dev/null 2>&1 || true
+bash ~/.agent_config/scripts/announce.sh --force "Aguardando o nome do ramo de homologação para configurar o projeto. Ramo $(git branch --show-current), projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio || true
 ```
 
 Use $ARGUMENTS for any additional context.
@@ -1421,12 +1473,12 @@ Read [briefing.md](references/briefing.md) on demand for detailed context and in
 
 1. **Step 0 — Preflight + materialize:**
    ```bash
-   STAGING=$(grep -E '^staging_branch:' .bravros.yml 2>/dev/null | awk '{print $2}'); STAGING=${STAGING:-homolog}
+   STAGING=$(bravros config get staging_branch 2>/dev/null); STAGING=${STAGING:-homolog}
    mkdir -p .agent_config/workflows && cp -f ~/.agent_config/skills/triage-sweep/scripts/triage-sweep.js .agent_config/workflows/triage-sweep.js
    ```
 2. **Step 1 — Triage (parallel, read-only):** Run `triage-sweep` workflow across code, worktrees, open PRs, and `.planning/` plan folders.
 3. **Step 2 — Apply (SERIAL):** Append event to `.planning/events.jsonl` or run `gh issue close`.
-4. **Step 3 — Ledger + close out:** Write `.planning/sweep-ledger.md` and announce completion via `bravros ha say`.
+4. **Step 3 — Ledger + close out:** Write `.planning/sweep-ledger.md` and announce completion via `announce.sh`.
 
 ---
 
@@ -1505,11 +1557,11 @@ Laravel repos additionally get a Herd URL, isolated `.env`, and optionally a clo
 
 - **Derive the id yourself**: condense feature description to ≤12-char slug, report name, URL and **path**.
 - **Shared parent DB is default — never ask.** `--clone-db` only when explicitly asked or running migrations.
-- **Parent checkout is never switched.** `create` branches off `origin/<base>`.
+- **Parent checkout is never switched.** `create` branches off `origin/<base>` (`.worktree.yml:base` → `bravros config get staging_branch` → homolog → main).
 
 ## Commands
 
-- **create** — `bash <skill>/scripts/create.sh [<app>] [<id>] [flags]`, stream stdout.
+- **create** — `bash <skill>/scripts/create.sh [<app>] [<id>] [flags]`, stream stdout. Non-Laravel repo → plain `git worktree` + runtime-dir clone, no Herd/.env/DB (auto-detected from `stack.framework` in `.bravros/config.json`, else `artisan`). Several worktrees = several calls, report every path. `--branch=<name>` tracks `origin/<name>` when it exists remotely.
 - **destroy** — `--dry-run` first, confirm via `ask_question` unless authorized, then `--yes`. Relay refusals verbatim.
 - **list** — `list.sh [--app=<repo>]`. Clean unmanaged with `bravros worktree cleanup <path> --force`.
 - **sync** — `sync.sh <name> [--onto=<ref>]`. Rebases (`--merge`), never pushes.

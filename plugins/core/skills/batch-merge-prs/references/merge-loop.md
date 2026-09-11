@@ -30,7 +30,9 @@ autoload base paths, so edits silently bypass the running app.
 ## Per-merge closeout (order is a safety property)
 
 ```bash
-gh pr merge <n> "$MERGE_FLAG"      # server-side, staging base; no --delete-branch
+# Literal PR number AND literal flag (--merge by default) on this line — the police hook reads
+# raw command text, so a $VAR here is unreadable to it (indeterminate target → blocked).
+gh pr merge 1234 --merge           # server-side, staging base; no --delete-branch, no `cd … &&`, no `| tail`
 gh issue close <issue> --comment "Fixed in PR #<n> (merged to $STAGING)."
 # ^ GitHub keyword auto-close ("fixes #N") does NOT fire on a non-default base — close explicitly.
 git pull --ff-only origin "$STAGING"   # sync BEFORE any local completion commit, else the

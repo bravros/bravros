@@ -81,7 +81,7 @@ func TestComponents_EmbeddedSubtreeBijection(t *testing.T) {
 }
 
 func TestComponents_IDsAndShape(t *testing.T) {
-	want := []string{"cli", "claude-skills", "claude-templates", "claude-settings", "claude-home", "claude-scripts"}
+	want := []string{"cli", "claude-skills", "claude-templates", "claude-agents", "claude-settings", "claude-home", "claude-scripts"}
 	var got []string
 	seen := map[string]bool{}
 	for _, c := range Components() {
@@ -157,6 +157,7 @@ func TestTargetPaths_ResolveUnderUserHomeDir(t *testing.T) {
 		"cli":              "bin",
 		"claude-skills":    "skills",
 		"claude-templates": "templates",
+		"claude-agents":    "agents",
 		"claude-settings":  "settings.json",
 		"claude-home":      "home",
 		"claude-scripts":   "scripts",

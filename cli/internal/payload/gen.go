@@ -2,11 +2,11 @@
 
 // gen.go is the sync step behind `//go:generate go run gen.go` in embed.go.
 //
-// Repo-root skills/, templates/ and home/ are the source of truth for those
-// three whole subtrees; the payload's scripts/ entries are synced as NAMED
+// Repo-root skills/, templates/, home/ and agents/ are the source of truth for
+// those four whole subtrees; the payload's scripts/ entries are synced as NAMED
 // SINGLE FILES (see syncSingleFiles) rather than as the whole repo-root
 // scripts/ tree, which may hold entries unrelated to the payload. This script wipes
-// cli/internal/payload/{skills,templates,home,scripts} and re-copies them so
+// cli/internal/payload/{skills,templates,home,agents,scripts} and re-copies them so
 // the embedded mirror stays byte-for-byte in sync on disk. It is deterministic
 // (files are visited and written in the sorted order fs.WalkDir already
 // guarantees). It also writes executable_manifest.txt, listing every synced
@@ -68,7 +68,11 @@ func run() error {
 
 	var executable []string
 
-	for _, subtree := range []string{"skills", "templates", "home"} {
+	// agents/ is the custom-subagent roster (flat *.md). It ships with the
+	// skills because five skills dispatch by subagent_type to these names
+	// (docs/SUBAGENTS.md); a payload carrying the call sites but not the
+	// agents is the same ownership hole B-0029 closed for announce.sh.
+	for _, subtree := range []string{"skills", "templates", "home", "agents"} {
 		src := filepath.Join(repoRoot, subtree)
 		dst := filepath.Join(payloadDir, subtree)
 

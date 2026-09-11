@@ -16,6 +16,7 @@ to avoid them — **run them as written, do not "simplify"**.
 | `some-cmd \| tail -5; echo "rc=$?"` | `$?` is **tail's** status, not the command's. A failing CI gate reports `rc=0`. | Never pipe a gate. `some-cmd; RC=$?` then print/inspect separately. |
 | `sleep 25; check` | Bare foreground sleeps are blocked by the agent shell and the call errors out. | `until <check>; do sleep 5; done` |
 | `sed "s\|^\|$f \|"` over a multi-line var | `sed: unescaped newline inside substitute pattern`. | Iterate with `while IFS= read -r f`, emit with `printf`. |
+| `gh pr merge "$PR_NUMBER" …` | The police hook reads the **raw command text**, never the expanded one — a `$VAR` or backtick in the PR argument makes the target indeterminate → `✋🏽 Police Block`. | Put the **literal** PR number on the merge line: `gh pr merge 1234 --merge`. Each Bash call is a fresh shell anyway, so nothing is lost. `"$PR_NUMBER"` stays fine on non-gated commands (`gh pr view` / `gh pr checks`). |
 
 ## Step 1: Resolve PR, base branch, worktree state
 
@@ -206,12 +207,36 @@ Say out loud which condition suppressed the flag, so the leftover branch is not 
 Step 3b must have passed **and still hold** — re-read `mergeStateStatus` if anything pushed since,
 because the readiness fact expires the moment the branch or base moves:
 
+Resolve the strategy first and read it off the output — the merge line below takes literals:
+
 ```bash
-STRATEGY=$(awk -F': *' '/^merge_strategy:/{print $2}' .bravros.yml 2>/dev/null); STRATEGY=${STRATEGY:-merge}
-bravros merge-lock acquire --timeout 60s --ttl 10m --meta reason=finish --meta pr="$PR_NUMBER"
-gh pr merge "$PR_NUMBER" --"$STRATEGY" $DELETE_FLAG || { bravros merge-lock release; exit 1; }
-bravros merge-lock release
+STRATEGY=$(bravros config merge-strategy --base "$BASE_BRANCH" 2>/dev/null); STRATEGY=${STRATEGY:-merge}
+echo "pr=$PR_NUMBER strategy=--$STRATEGY delete_flag=${DELETE_FLAG:-none}"
 ```
+
+```bash
+bravros merge-lock acquire --timeout 60s --ttl 10m --meta reason=finish --meta pr=1234
+# Substitute the LITERAL PR number, strategy and delete flag on the merge line — a $VAR or
+# backtick there is unreadable to the police hook (it reads raw command text; indeterminate
+# target → blocked). Each Bash call is a fresh shell anyway. Append --delete-branch only when
+# the gate above set DELETE_FLAG.
+gh pr merge 1234 --merge > /tmp/bravros-merge-1234.txt 2>&1
+MERGE_RC=$?
+bravros merge-lock release
+cat /tmp/bravros-merge-1234.txt; echo "merge_rc=$MERGE_RC"
+[ "$MERGE_RC" = "0" ] || exit 1
+```
+
+`bravros config merge-strategy` reads `.bravros/config.json` (`merge_strategy.by_base[<base>]` →
+`into_main` → `default` → `merge`); the old `awk` over `.bravros.yml` read a legacy file and
+silently fell back to `merge` on every JSON-config repo. **Never pipe the merge through `| tail`** —
+the pipe's status replaces the merge's, so a refused merge reads as success; redirect to a file,
+capture `MERGE_RC`, inspect the file separately. The lock-acquire, merge, `MERGE_RC` capture and
+lock-release lines **may share one Bash call** (`MERGE_RC=$?` needs the same shell); the real
+constraints sit on the merge line itself: a **literal** PR number (never `"$PR_NUMBER"` — the
+police hook reads the raw text and cannot resolve a variable), no `cd … &&` prefix unless the `cd`
+targets the exact session cwd — the hook rejects any other relocation, and a compound command was
+the first block on paylog #2053 — and no `| tail`.
 
 On conflict: surface the conflicted files, release the lock, stop and ask. Test-only add/add
 conflicts under `tests/` may be auto-resolved with `--theirs`; application-code conflicts never are.
@@ -305,6 +330,28 @@ a human is present. A project `CLAUDE.md` that routes promotion through `/promot
 the standalone case; it does not make Step 7 a bypass, and Step 7 never needs a promote token.
 Say which path you are on, then take it — do not stop mid-merge to reconcile the two.
 
+**Why no token is needed here — the police staging lane.** The `bravros police` PreToolUse hook lets
+`gh pr merge 1234 --merge` (literal number) into `main` pass **without any token** when the PR's head is the repo's staging
+branch (`homolog`), `mergeStateStatus` is `CLEAN`, no `.planning/.auto-*-lock` exists, and the
+command is the plain form — no `-R`/URL/branch argument, no relocation (a leading `cd <session cwd>`
+is tolerated, anything else is not). Step 7 satisfies all of that by construction, so "no token
+needed" stays true.
+
+**If the merge returns `✋🏽 Police Block`, the block names the failed condition.** Relay that
+reason in ONE line and act on it — never improvise:
+
+| Block says | Do |
+|---|---|
+| mergeability `UNKNOWN` | wait `until [ "$(gh pr view "$MAIN_PR" --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ]; do sleep 5; done`, then re-run the **same** merge command |
+| autonomous lock present | an `/auto-pr` run holds the tree — stop and report; the operator clears it from a separate terminal |
+| head is not the staging branch | you are not on the Step 7 path — stop and report; never retarget the PR to fit the lane |
+| `staging_lane: reviewed` without approval/stamp | the repo requires a reviewed main PR — report it; the operator runs `bravros police unlock` in a separate terminal, then you retry the same command |
+
+Never fall back to `gh api` / raw HTTP merges (B-0036 — the hook classifies those as writes and the
+bypass is the incident), never re-enter through `/promote`, never open a second PR. If the operator
+pastes a **promote** token anyway, the hook honours it too — say so in one line and retry the same
+merge; do not send them to mint a different one.
+
 ⛔ **Never say "promote" to the operator in this step, and never imply a token is wanted.** The
 word is `/promote`'s trigger: an operator who reads it leaves for a second terminal, runs
 `bravros promote unlock`, and pastes back a token this path has no use for. Observed live on
@@ -316,7 +363,7 @@ green main PR to re-enter through `/promote`.
 
 ```bash
 # <!-- announce-template: "Mesclagem na produção aguarda sua decisão. Projeto {PROJECT}." -->
-bravros ha say --force "Mesclagem na produção aguarda sua decisão. Projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio >/dev/null 2>&1 || true
+bash ~/.agent_config/scripts/announce.sh --force "Mesclagem na produção aguarda sua decisão. Ramo <fragmento>, projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio || true
 ```
 
 First **report the main-merge scope** — this merge ships everything accumulated on homolog, not
@@ -339,7 +386,7 @@ is drift, not brevity:
 | Option label | Description must say |
 |---|---|
 | `Not yet — accumulate` | Stop here; homolog keeps the work. Merge later with `/promote`, which is the standalone path and **does** need a token minted in a separate terminal. |
-| `Yes — merge to main now` | Opens a PR from homolog → main and runs the full check + readiness gate again. **No promote token needed — this merges through the PR gate.** Name the commit count it ships. |
+| `Yes — merge to main now` | Opens a PR from homolog → main and runs the full check + readiness gate again. **No token needed — a CLEAN homolog→main PR merges through the police staging lane.** Name the commit count it ships. |
 | `Open the PR, I'll merge it myself` | Same PR, same gates, stops before the merge and hands you the URL. |
 
 Pick the recommendation from the repo's own convention (bundling several fixes before one
@@ -378,9 +425,21 @@ A newly created PR whose checks are still `queued` is the *expected* state here 
 never read "mergeable=MERGEABLE" as permission to skip the wait.
 
 ```bash
-bravros merge-lock acquire --timeout 60s --ttl 10m --meta reason=finish-main --meta pr="$MAIN_PR"
-gh pr merge "$MAIN_PR" --"$STRATEGY" || { bravros merge-lock release; exit 1; }   # never --delete-branch: homolog is permanent
+MAIN_STRATEGY=$(bravros config merge-strategy --base main 2>/dev/null); MAIN_STRATEGY=${MAIN_STRATEGY:-merge}
+echo "main_pr=$MAIN_PR strategy=--$MAIN_STRATEGY"
+```
+
+```bash
+bravros merge-lock acquire --timeout 60s --ttl 10m --meta reason=finish-main --meta pr=1234
+# Substitute the LITERAL main-PR number and strategy — a $VAR here is unreadable to the police
+# hook (raw command text; indeterminate target → blocked). These lines may share one Bash call;
+# the merge line itself takes no `cd … &&` prefix (except the exact session cwd) and no `| tail`.
+# Never --delete-branch: homolog is permanent.
+gh pr merge 1234 --merge > /tmp/bravros-merge-1234.txt 2>&1
+MERGE_RC=$?
 bravros merge-lock release
+cat /tmp/bravros-merge-1234.txt; echo "merge_rc=$MERGE_RC"
+[ "$MERGE_RC" = "0" ] || exit 1   # a Police Block lands here — read the reason in the file, see the table above
 
 # Keep homolog from drifting behind main for the next cycle. Server-side
 # fast-forward — no checkout, so it is safe from any worktree (the old
@@ -407,6 +466,17 @@ for s in .planning/.review-stamp-*.json; do
 done
 
 rm -f "/tmp/review-cache-${PR_NUMBER}.txt"
-# <!-- announce-template: "Plano {NUM} finalizado, mesclagem concluída. Projeto {PROJECT}." -->
-bravros ha say --force "${PLAN_NUM:+Plano $PLAN_NUM }finalizado, mesclagem concluída. Projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio >/dev/null 2>&1 || true
+# <!-- announce-template: "Plano {NUM} finalizado, mesclagem concluída. Ramo <fragmento>, projeto {PROJECT}." -->
+bash ~/.agent_config/scripts/announce.sh --force "${PLAN_NUM:+Plano $PLAN_NUM }finalizado, mesclagem concluída. Ramo <fragmento>, projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio || true
 ```
+
+**The last line of every `/finish` is the production status, explicit and alone** — the operator
+asks "merged to main?" after every run, so answer it before they do. Exactly one of:
+
+```
+main @ <short sha>
+homolog only — production pending
+```
+
+`main @` uses `git rev-parse --short origin/main` after the Step 7 fetch. `HAS_HOMOLOG=false` runs
+(merged straight to main) report `main @` as well. Never end on the announce, a table, or a question.

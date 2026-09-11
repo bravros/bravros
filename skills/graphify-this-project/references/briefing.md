@@ -9,9 +9,9 @@ Two refresh tiers, kept separate: **structure** (free AST rebuild on post-merge 
 ## Hard constraints
 
 - **ALWAYS confirm with the user before dispatching parallel sub-agent waves** — a 30-worker swarm is a noticeable burst; later waves re-confirm. Hooks/merge-driver install (Step 8) is default-on, no ask.
-  <!-- announce-template: "Extração do grafo aguarda sua confirmação antes de disparar agentes paralelos. Projeto {PROJECT}." -->
+  <!-- announce-template: "Extração do grafo aguarda sua confirmação antes de disparar agentes paralelos. Ramo {BRANCH}, projeto {PROJECT}." -->
   ```bash
-  bravros ha say --force "Extração do grafo aguarda sua confirmação antes de disparar agentes paralelos. Projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio >/dev/null 2>&1 || true
+  bash ~/.agent_config/scripts/announce.sh --force "Extração do grafo aguarda sua confirmação antes de disparar agentes paralelos. Ramo $(git branch --show-current), projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio || true
   ```
 - **NEVER skip the version-pin install** (`scripts/apply-dedup-fix.sh`, runbook Step 3) — mixed graphifyy pins on different machines silently overwrite each other's committed graph and strand it unlabeled.
 - **NEVER write a plaintext API key to disk or echo it in chat.**

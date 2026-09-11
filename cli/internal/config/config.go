@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -36,8 +37,44 @@ type AuditConfig struct {
 // answer from the absence of some other key (e.g. staging_branch) would mean a
 // missing, misnamed or malformed config silently drops the guard — the same
 // fail-open-by-omission class as the bug that made B-0036 exploitable.
+//
+// StagingLane selects how the police staging lane treats a same-repo
+// `gh pr merge <N>` whose head is the repo's staging branch and whose base is
+// protected. Valid values are "open" (default: a CLEAN staging→main PR merges
+// without a token), "reviewed" (additionally needs reviewDecision APPROVED or a
+// fresh .planning/.review-stamp-<N>.json), and "off" (no lane; every merge to a
+// protected branch needs a token). Any other value is treated as "off".
 type PoliceConfig struct {
-	DirectMain bool `json:"direct_main,omitempty" yaml:"direct_main,omitempty"`
+	DirectMain  bool   `json:"direct_main,omitempty" yaml:"direct_main,omitempty"`
+	StagingLane string `json:"staging_lane,omitempty" yaml:"staging_lane,omitempty"`
+}
+
+// Staging-lane modes accepted in police.staging_lane.
+const (
+	StagingLaneOpen     = "open"
+	StagingLaneReviewed = "reviewed"
+	StagingLaneOff      = "off"
+)
+
+// StagingLaneMode validates police.staging_lane and returns the effective mode
+// plus a human-readable reason when the configured value was not usable.
+//
+// An absent key (nil cfg, nil Police, or "") means "open" — the lane is the
+// default. An unknown value fails CLOSED to "off": a typo must cost a token,
+// never silently open the lane, and the reason names the rejected value so the
+// block message can say what to fix.
+func (c *BravrosConfig) StagingLaneMode() (mode string, reason string) {
+	if c == nil || c.Police == nil {
+		return StagingLaneOpen, ""
+	}
+	raw := strings.ToLower(strings.TrimSpace(c.Police.StagingLane))
+	switch raw {
+	case "":
+		return StagingLaneOpen, ""
+	case StagingLaneOpen, StagingLaneReviewed, StagingLaneOff:
+		return raw, ""
+	}
+	return StagingLaneOff, fmt.Sprintf("police.staging_lane is %q, which is not open|reviewed|off; treating it as \"off\"", c.Police.StagingLane)
 }
 
 // BravrosConfig holds per-project configuration from .bravros/config.json
@@ -354,4 +391,3 @@ func parseConfig(cfg *BravrosConfig, data []byte) (*BravrosConfig, bool) {
 	}
 	return cfg, false
 }
-

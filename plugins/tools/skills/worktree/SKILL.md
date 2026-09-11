@@ -22,11 +22,11 @@ Laravel repos additionally get a Herd URL, isolated `.env`, and optionally a clo
 
 - **Derive the id yourself**: condense feature description to ≤12-char slug, report name, URL and **path**.
 - **Shared parent DB is default — never ask.** `--clone-db` only when explicitly asked or running migrations.
-- **Parent checkout is never switched.** `create` branches off `origin/<base>`.
+- **Parent checkout is never switched.** `create` branches off `origin/<base>` (`.worktree.yml:base` → `bravros config get staging_branch` → homolog → main).
 
 ## Commands
 
-- **create** — `bash <skill>/scripts/create.sh [<app>] [<id>] [flags]`, stream stdout.
+- **create** — `bash <skill>/scripts/create.sh [<app>] [<id>] [flags]`, stream stdout. Non-Laravel repo → plain `git worktree` + runtime-dir clone, no Herd/.env/DB (auto-detected from `stack.framework` in `.bravros/config.json`, else `artisan`). Several worktrees = several calls, report every path. `--branch=<name>` tracks `origin/<name>` when it exists remotely.
 - **destroy** — `--dry-run` first, confirm via `ask_question` unless authorized, then `--yes`. Relay refusals verbatim.
 - **list** — `list.sh [--app=<repo>]`. Clean unmanaged with `bravros worktree cleanup <path> --force`.
 - **sync** — `sync.sh <name> [--onto=<ref>]`. Rebases (`--merge`), never pushes.

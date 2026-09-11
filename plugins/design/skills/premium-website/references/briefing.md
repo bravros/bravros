@@ -22,7 +22,7 @@ running dev servers in their own terminal: announce, then ask_question (run `npx
 
 <!-- announce-template: "Prévia do servidor pronta. Aguardando instrução para iniciar. Projeto {PROJECT}." -->
 ```bash
-bash ~/.bravros/scripts/announce.sh "Prévia do servidor pronta. Aguardando instrução para iniciar. Projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio >/dev/null 2>&1 || true
+bash ~/.agent_config/scripts/announce.sh --force "Prévia do servidor pronta, aguardando instrução para iniciar. Ramo $(git branch --show-current), projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio || true
 ```
 
 ## Imagery — human-in-the-loop, never an API call

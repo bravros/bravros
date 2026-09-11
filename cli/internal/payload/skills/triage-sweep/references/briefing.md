@@ -12,7 +12,7 @@ INTENT: drain a stale open-issue + pending-backlog queue by establishing, for **
 ## Step 0 — Preflight + materialize
 
 ```bash
-STAGING=$(grep -E '^staging_branch:' .bravros.yml 2>/dev/null | awk '{print $2}'); STAGING=${STAGING:-homolog}
+STAGING=$(bravros config get staging_branch 2>/dev/null); STAGING=${STAGING:-homolog}
 git rev-parse --abbrev-ref HEAD        # expect "$STAGING"; tree clean
 git fetch origin --quiet
 mkdir -p .claude/workflows && cp -f ~/.bravros/skills/triage-sweep/scripts/triage-sweep.js .claude/workflows/triage-sweep.js
@@ -51,7 +51,7 @@ After all appends: `bravros commit "🧹 chore: triage sweep ledger events" .pla
 
 Write `.planning/sweep-ledger.md` — one line per item: `<id> | <verdict> | <action> | <evidence>` — and report counts. Survivors are filterable: `gh issue list --label sweep:fix-ready` (real open work) · `sweep:skip` (human-only) · `sweep:deferred` (partial / plan-scope). Hand the `fix-ready` set to a fix loop, then `batch-merge-prs`.
 
-<!-- announce-template: "<resumo em português, ~20 palavras>" -->
+<!-- announce-template: "<resumo em português, ~20 palavras, terminando em: Ramo <fragmento>, projeto <repo>.>" -->
 ```bash
-bravros ha say --force "<resumo em português, ~20 palavras>" studio >/dev/null 2>&1 || true
+bash ~/.agent_config/scripts/announce.sh --force "<resumo em português, ~20 palavras, terminando em: Ramo <fragmento>, projeto <repo>.>" studio || true
 ```

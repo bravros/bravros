@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -97,5 +98,63 @@ func TestExtract_WritesFilesAndPreservesExecutableBit(t *testing.T) {
 	claudeMD := filepath.Join(destDir, "CLAUDE.md")
 	if _, err := os.Stat(claudeMD); err != nil {
 		t.Fatalf("Extract did not write %q: %v", claudeMD, err)
+	}
+}
+
+// TestListTopLevel_AgentsMatchesRepoRoot pins the agents/ mirror the same way
+// the skills one is pinned: every repo-root agents/*.md is embedded, and the
+// consumers that dispatch by subagent_type (scout-investigate.js,
+// orchestrate, context-authors.js, local-review, verify-prs.js, after-merge)
+// resolve to a file that actually ships. A roster that lives only in a
+// developer's ~/.claude/agents is exactly the fresh-install break this guards.
+func TestListTopLevel_AgentsMatchesRepoRoot(t *testing.T) {
+	srcDir, err := filepath.Abs(filepath.Join("..", "..", "..", "agents"))
+	if err != nil {
+		t.Fatalf("resolve repo-root agents dir: %v", err)
+	}
+	srcEntries, err := os.ReadDir(srcDir)
+	if err != nil {
+		t.Fatalf("read repo-root agents dir %q: %v", srcDir, err)
+	}
+	var want []string
+	for _, e := range srcEntries {
+		want = append(want, e.Name())
+	}
+	sort.Strings(want)
+	if len(want) == 0 {
+		t.Fatalf("repo-root agents dir at %q is empty — refusing a vacuous test", srcDir)
+	}
+
+	got, err := ListTopLevel("agents")
+	if err != nil {
+		t.Fatalf("ListTopLevel(agents): %v", err)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("embedded agents count = %d, repo-root agents/ has %d\nembedded: %v\nrepo-root: %v", len(got), len(want), got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("embedded agents entry[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+
+	// Every agent the shipped skills dispatch to must be in the roster. Names
+	// are the contract: Claude Code resolves subagent_type by the `name:`
+	// frontmatter, which by convention equals the file stem.
+	for _, name := range []string{
+		"code-tracer", "blast-radius-mapper", "repro-verifier", // scout
+		"phase-implementer", "acceptance-verifier", // orchestrate, auto-pr
+		"claudemd-author",             // context
+		"code-reviewer",               // local-review, batch-merge-prs
+		"pr-deploy-context-extractor", // after-merge
+	} {
+		data, err := FS.ReadFile("agents/" + name + ".md")
+		if err != nil {
+			t.Errorf("agent %q dispatched by a shipped skill is not embedded: %v", name, err)
+			continue
+		}
+		if !strings.Contains(string(data), "\nname: "+name+"\n") {
+			t.Errorf("agents/%s.md frontmatter does not declare `name: %s`", name, name)
+		}
 	}
 }

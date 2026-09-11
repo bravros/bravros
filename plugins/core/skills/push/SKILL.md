@@ -9,6 +9,7 @@ description: Push current branch to remote with branch safety checks.
 INTENT: push the current branch to origin. Push only — no committing, no PR creation.
 
 HARD CONSTRAINTS:
-- Never push `main`/`master` directly — refuse and point to a PR from homolog. `homolog` itself IS directly pushable (plan commits, hotfixes).
+- Never push `main`/`master` directly **in a PR-gated repo** — refuse and point to a PR from homolog. `homolog` itself IS directly pushable (plan commits, hotfixes).
+- **Direct-main repos are the exception, by design.** A repo whose `.bravros/config.json` declares `police.direct_main: true` (set by `bravros police direct-main on`, or scaffolded by `/git-this` for personal/scratch repos) has no staging branch and works on `main`; pushing `main` there is the normal flow. The gate is a pure binary: `bravros config get police.direct_main` prints `true` → direct-main, push allowed; anything else (empty, an error, an older CLI reporting an unknown key) → PR-gated, refuse. `staging_branch` is never the discriminator — `config get staging_branch` never prints empty.
 - No force push unless the operator explicitly asked for one.
 - Dirty working tree → stop and point to `/ship` or `/commit` first — committing is their job, not this skill's.

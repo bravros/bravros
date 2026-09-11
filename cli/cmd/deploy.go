@@ -123,7 +123,7 @@ var (
 	deployForce     bool
 	deployNoPrune   bool
 	deployJSON      bool   // emit the full DeployResult JSON object instead of the human summary
-	deployFilter    string // comma-separated skill names; overrides .bravros.yml:skills.enabled
+	deployFilter    string // comma-separated skill names; overrides .bravros/config.json:skills.enabled
 	deploySource    string // --source: deploy from an explicit dir instead of cwd (e.g. a selfupdate-fetched payload)
 )
 
@@ -166,15 +166,16 @@ Behavior:
     default (--no-prune disables this).
   - Incremental copy: files already up to date (mtime + size match) are
     skipped unless --force is set.
-  - Skill allowlist: when .bravros.yml contains skills.enabled: [name1, name2],
-    only the listed skills and any skill with "core: true" in SKILL.md frontmatter
-    are deployed. Use --filter to override per-invocation without editing config.
+  - Skill allowlist: when .bravros/config.json contains "skills": {"enabled":
+    ["name1", "name2"]}, only the listed skills and any skill with "core: true"
+    in SKILL.md frontmatter are deployed. Use --filter to override
+    per-invocation without editing config.
 
 Output: prints a concise human-readable summary by default. Use --json for the
 full DeployResult object (deployed files, skipped, pruned, skill lists) or
 --field <name> to extract a single value.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		// Resolve enabled-skills allowlist: --filter flag overrides .bravros.yml:skills.enabled.
+		// Resolve enabled-skills allowlist: --filter flag overrides .bravros/config.json:skills.enabled.
 		enabledSkills := config.EnabledSkills()
 		filterMode := false
 		if deployFilter != "" {
@@ -315,7 +316,7 @@ func init() {
 	deployCmd.Flags().BoolVar(&deployJSON, "json", false, "Emit the full DeployResult JSON object instead of the human summary")
 	deployCmd.Flags().BoolVar(&deployForce, "force", false, "Force overwrite every source file at destination, skipping any mtime/hash skip-unchanged comparison; also downgrades the pre-deploy bash-hygiene lint (skill word-split refusal) to a warning")
 	deployCmd.Flags().BoolVar(&deployNoPrune, "no-prune", false, "Preserve orphan skills/templates/hooks at the destination instead of removing them (default: prune orphans)")
-	deployCmd.Flags().StringVar(&deployFilter, "filter", "", "Comma-separated skill names to deploy; overrides .bravros.yml:skills.enabled (core skills always deploy)")
+	deployCmd.Flags().StringVar(&deployFilter, "filter", "", "Comma-separated skill names to deploy; overrides .bravros/config.json:skills.enabled (core skills always deploy)")
 	deployCmd.Flags().StringVar(&deploySource, "source", "", "Deploy from an explicit source dir instead of cwd — e.g. a payload fetched by 'bravros selfupdate' on a machine with no bravros clone (must contain skills/ and cli/go.mod, or a subset like skills/+templates/ for a fetched payload)")
 	deployCmd.MarkFlagsMutuallyExclusive("json", "field", "count-only")
 	rootCmd.AddCommand(deployCmd)

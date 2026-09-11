@@ -21,4 +21,4 @@ body: |
   4. **Post-Action**:
      - Autonomous (`.planning/.auto-*-lock` matches): print `STATUS: review-triggered. NEXT: wait for stamp` and return.
      - Interactive: announce and instruct the user to run `/address-pr` when review finishes.
-  5. **Notification**: Announce via `bravros ha say` if configured.
+  5. **Notification**: Announce via `announce.sh` if configured.

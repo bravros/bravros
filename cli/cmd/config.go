@@ -1,13 +1,17 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/bravros/bravros/cli/internal/config"
 	"github.com/bravros/bravros/cli/internal/managed"
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
 
 var configCmd = &cobra.Command{
@@ -153,11 +157,14 @@ Markdown strategy — HTML comment markers bracket auto-generated content:
 }
 
 // configGetCmd implements `bravros config get <key>` — reads a single value
-// from .bravros.yml and prints it to stdout.
+// from .bravros/config.json and prints it to stdout.
 //
 // Supported keys:
 //   - skills.preserve — prints preserved skill names as space-separated list
 //     (used by the bash legacy prune block in install.sh)
+//   - staging_branch — the two above are special-cased for their own default
+//     rules; every other dotted key path is resolved generically against the
+//     raw config map (see loadConfigMap / walkConfigPath).
 var configGetCmd = &cobra.Command{
 	Use:   "get <key>",
 	Short: "Read a single value from .bravros/config.json",
@@ -170,11 +177,23 @@ Supported keys:
                     Used by install.sh --legacy to populate the bash preserve list.
   staging_branch    Print the project staging/integration branch. Falls back to
                     "homolog" when unset or when no project config exists.
+  <dotted.path>     Any other dotted key path is walked generically into
+                    .bravros/config.json (e.g. stack.test_runner,
+                    merge_strategy.default, permanent_branches,
+                    police.direct_main, police.staging_lane). A scalar prints
+                    as-is; an array prints space-separated; an object prints
+                    as compact JSON. Unset key or missing config → empty
+                    output (exit 0). A config file that exists but does not
+                    parse → "warning: .bravros/config.json is not valid JSON:
+                    …" on stderr, exit 1 — so a broken config is never
+                    mistaken for an unset key.
 
 Examples:
-  bravros config get skills.preserve       # prints e.g. "graphify"
+  bravros config get skills.preserve             # prints e.g. "graphify"
   read -ra list <<< "$(bravros config get skills.preserve)"
-  STAGING=$(bravros config get staging_branch)   # prints e.g. "homolog"`,
+  STAGING=$(bravros config get staging_branch)   # prints e.g. "homolog"
+  bravros config get stack.test_runner           # prints e.g. "go test"
+  bravros config get permanent_branches          # prints e.g. "main homolog"`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		key := args[0]
@@ -205,9 +224,124 @@ Examples:
 			fmt.Println(branch)
 			return nil
 		default:
-			return fmt.Errorf("unknown config key %q; supported keys: skills.preserve, staging_branch", key)
+			m, err := loadConfigMap()
+			if err != nil {
+				// A config that exists but does not parse is NOT "unset": a
+				// script reading `$(bravros config get x)` must be able to
+				// tell "no value" (empty, exit 0) from "your config is broken"
+				// (warning on stderr, exit 1), or a typo in config.json
+				// silently turns every key into its default.
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: %v\n", err)
+				return err
+			}
+			if m == nil {
+				// No config on disk (JSON or legacy) → empty output, exit 0.
+				return nil
+			}
+			val, found := walkConfigPath(m, key)
+			if !found || val == nil {
+				return nil
+			}
+			printConfigValue(cmd.OutOrStdout(), val)
+			return nil
 		}
 	},
+	// The warning above IS the error message; without these cobra would print
+	// it a second time as "Error: …" and dump the usage block under it.
+	SilenceErrors: true,
+	SilenceUsage:  true,
+}
+
+// loadConfigMap reads .bravros/config.json as a generic map for dotted-key
+// lookups that aren't among the BravrosConfig struct's known fields (e.g. a
+// "project" key nobody has modeled, or a future key added before the struct
+// catches up). Falls back to a legacy .bravros.yml/.sbravros.yml when the
+// JSON config is absent, matching config.LoadBravrosConfig's own fallback —
+// but this is a read-only lookup: it never migrates the legacy file to disk,
+// since that side effect belongs solely to config.LoadBravrosConfig (used by
+// the two special-cased keys above).
+//
+// Three outcomes, and callers must keep them apart: (nil, nil) — no config
+// file exists at all; (m, nil) — parsed; (nil, err) — a file exists but does
+// not parse, err naming the file and the parser's reason.
+func loadConfigMap() (map[string]any, error) {
+	if data, err := os.ReadFile(config.ConfigFilename); err == nil {
+		var m map[string]any
+		if jErr := json.Unmarshal(data, &m); jErr != nil {
+			return nil, fmt.Errorf("%s is not valid JSON: %w", config.ConfigFilename, jErr)
+		}
+		return m, nil
+	}
+
+	for _, legacy := range []string{config.LegacyConfigFilename, config.LegacySbravrosFilename} {
+		data, err := os.ReadFile(legacy)
+		if err != nil {
+			continue
+		}
+		var m map[string]any
+		if yErr := yaml.Unmarshal(data, &m); yErr != nil {
+			return nil, fmt.Errorf("%s is not valid YAML: %w", legacy, yErr)
+		}
+		return m, nil
+	}
+
+	return nil, nil
+}
+
+// walkConfigPath descends a dotted key path (e.g. "stack.test_runner") into a
+// generic JSON/YAML-decoded config map, returning the value at that path and
+// whether every segment resolved to a nested object.
+func walkConfigPath(m map[string]any, path string) (any, bool) {
+	var cur any = m
+	for _, part := range strings.Split(path, ".") {
+		asMap, ok := cur.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		val, ok := asMap[part]
+		if !ok {
+			return nil, false
+		}
+		cur = val
+	}
+	return cur, true
+}
+
+// printConfigValue renders a generic config value the way bash scripts want
+// it: a scalar as-is, an array space-separated (mirroring skills.preserve
+// above), an object as compact JSON.
+func printConfigValue(w io.Writer, val any) {
+	switch v := val.(type) {
+	case []any:
+		for i, item := range v {
+			if i > 0 {
+				fmt.Fprint(w, " ")
+			}
+			fmt.Fprint(w, formatConfigScalar(item))
+		}
+		fmt.Fprintln(w)
+	case map[string]any:
+		data, err := json.Marshal(v)
+		if err != nil {
+			return
+		}
+		fmt.Fprintln(w, string(data))
+	default:
+		fmt.Fprintln(w, formatConfigScalar(v))
+	}
+}
+
+// formatConfigScalar prints a string value without quotes and every other
+// scalar (bool, number) via its default Go formatting.
+func formatConfigScalar(v any) string {
+	switch x := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return x
+	default:
+		return fmt.Sprint(x)
+	}
 }
 
 func init() {

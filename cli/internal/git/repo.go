@@ -1,11 +1,13 @@
 package git
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
+	"github.com/bravros/bravros/cli/internal/config"
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 )
@@ -280,13 +282,17 @@ func HasHomologBranch(cwd string) bool {
 //
 // Resolution order:
 //  1. If inside a linked worktree, walk up to the primary repo root and look for
-//     `.bravros.yml` there (the primary worktree holds the authoritative config).
-//  2. If `.bravros.yml` exists in cwd (primary worktree), read `project:` from it.
+//     `.bravros/config.json` there (the primary worktree holds the authoritative
+//     config).
+//  2. If `.bravros/config.json` exists in cwd (primary worktree), read `project`
+//     from it (falling back to a legacy `.bravros.yml`'s `project:` line when the
+//     JSON key is unset).
 //  3. Fallback: basename of the primary worktree root directory (not cwd, which may
 //     be a worktree directory like "myapp-0058" rather than the project "myapp").
 //
-// Note: the `.bravros.yml` `project:` field is optional. If it's absent this
-// function falls back to the primary root dir name — still more correct than cwd.
+// Note: the `project` field is optional and not a modeled BravrosConfig field —
+// nobody sets it today. If it's absent this function falls back to the primary
+// root dir name — still more correct than cwd.
 func ProjectName() string {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -329,30 +335,51 @@ func resolvePrimaryRoot(worktreeGitDir string) string {
 	return primaryRoot
 }
 
-// projectNameFromDir tries to read the project name from .bravros.yml in dir,
-// falling back to the directory basename.
+// projectNameFromDir tries to read the project name from the project config
+// in dir, falling back to the directory basename.
 func projectNameFromDir(dir string) string {
-	// Try .bravros.yml project field.
-	if name := readBravrosYMLProject(dir); name != "" {
+	// Try the configured project field.
+	if name := readConfiguredProjectName(dir); name != "" {
 		return name
 	}
 	return filepath.Base(dir)
 }
 
-// readBravrosYMLProject reads the optional `project:` field from .bravros.yml.
-// Returns "" if the file is absent or the field is not set.
-func readBravrosYMLProject(dir string) string {
-	data, err := os.ReadFile(filepath.Join(dir, ".bravros.yml"))
-	if err != nil {
-		return ""
+// readConfiguredProjectName reads the optional `project` field from the
+// project config in dir: `.bravros/config.json` first, via a generic key
+// lookup (the field isn't a modeled BravrosConfig struct member, since
+// nobody actually sets it — a plain map read is simpler than adding a field
+// no writer populates). Falls back to a legacy `.bravros.yml` / `.sbravros.yml`
+// `project:` line — the same two legacy filenames cmd/config.go's
+// loadConfigMap consults, in the same order — when the JSON key is unset or
+// the file doesn't exist. The CLI auto-migrates the legacy file into
+// `.bravros/config.json` on first touch, so this fallback only matters for a
+// project no bravros verb has run in yet. Returns "" if nothing sets the field.
+func readConfiguredProjectName(dir string) string {
+	if data, err := os.ReadFile(filepath.Join(dir, config.ConfigFilename)); err == nil {
+		var m map[string]any
+		if json.Unmarshal(data, &m) == nil {
+			if v, ok := m["project"]; ok {
+				if s, ok := v.(string); ok && s != "" {
+					return s
+				}
+			}
+		}
 	}
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "project:") {
-			val := strings.TrimSpace(strings.TrimPrefix(line, "project:"))
-			// Strip optional inline YAML quotes.
-			val = strings.Trim(val, `"'`)
-			return val
+
+	for _, legacy := range []string{config.LegacyConfigFilename, config.LegacySbravrosFilename} {
+		data, err := os.ReadFile(filepath.Join(dir, legacy))
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "project:") {
+				val := strings.TrimSpace(strings.TrimPrefix(line, "project:"))
+				// Strip optional inline YAML quotes.
+				val = strings.Trim(val, `"'`)
+				return val
+			}
 		}
 	}
 	return ""

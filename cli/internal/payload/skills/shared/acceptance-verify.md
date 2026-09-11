@@ -132,7 +132,7 @@ a silent pass. On `verdict: unverifiable`, print this block:
 
 ## Opt-in: the workflow variant (P-0183 G7)
 
-When `.bravros.yml` has `features.extra.acceptance_verify_workflow: true`, run the
+When `.bravros/config.json` has `features.extra.acceptance_verify_workflow: true`, run the
 verification as an ultracode Workflow instead of a single agent — same inputs, **same
 verdict-JSON contract**. Default (key absent/false) is the single fresh agent above.
 

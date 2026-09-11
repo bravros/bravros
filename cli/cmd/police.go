@@ -1,16 +1,17 @@
 package cmd
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
+	"github.com/bravros/bravros/cli/internal/config"
 	"github.com/bravros/bravros/cli/internal/token"
 	"github.com/bravros/bravros/cli/internal/trash"
 	"github.com/spf13/cobra"
@@ -19,6 +20,30 @@ import (
 var policeCmd = &cobra.Command{
 	Use:   "police",
 	Short: "Bravros police engine (audit and enforcement)",
+	Long: `PreToolUse gate for agent Bash commands.
+
+Merge gate: pushes and server-side merges into main/master need an out-of-band
+token (bravros police unlock, or bravros promote unlock) — EXCEPT the staging
+lane: a same-repo ` + "`gh pr merge <N>`" + ` whose head is the repo's staging branch
+(staging_branch, default homolog), whose base is protected, whose GitHub
+mergeStateStatus is CLEAN and which runs with no .planning/.auto-*-lock present
+is allowed without a token and recorded in ~/.claude/state/police-merge-audit.log.
+Per-repo knob: police.staging_lane = open (default) | reviewed | off.
+
+Direct-to-main repos declare it with: bravros police direct-main on.
+
+Safety floor — never suppressible by stand-down, no token lifts it:
+  rule 52          irreversible content loss (git checkout/restore/reset --hard/
+                   clean/stash drop, recursive rm over never-committed content)
+  AI signature     AI attribution on commit messages, PR titles and bodies
+  gate inputs      a Bash WRITE to a file the gate itself reads: the tokens under
+                   ~/.claude/state (police-token, promote-token, destructive-token),
+                   .planning/.review-stamp-<N>.json, and .bravros/config.json.
+                   Reads (cat/ls/stat, bravros police status) and revokes pass; the
+                   sanctioned writers are bravros police unlock / promote unlock /
+                   destructive unlock (outside Claude Code), bravros pr-review
+                   --write-stamp, bravros police direct-main / init / config, and
+                   the Write/Edit tools — commit the config change.`,
 }
 
 // policePreToolUseCmd intercepts tool usage.
@@ -40,10 +65,24 @@ var policePreToolUseCmd = &cobra.Command{
 			Input2 struct {
 				Command string `json:"command"`
 			} `json:"input"` // legacy shim: nothing real sends this
+			// Claude Code sends the session's working directory as top-level
+			// "cwd". The merge gate uses it for exactly one thing: recognising
+			// `cd <cwd> && …` as a no-op relocation (paylog 2aaa8ca8, 07:11).
+			// Decoded tolerantly: a non-string cwd must not make the whole
+			// Unmarshal fail — that was a fail-open on every gate in this file.
+			Cwd json.RawMessage `json:"cwd"`
 		}
 		if err := json.Unmarshal(data, &payload); err != nil {
+			// The shape is not the documented one. If it still names Bash, it is
+			// a Bash call this hook could not read — and a command it cannot
+			// read is a command it has not cleared. Any other tool passes.
+			if payloadNamesBash(data) {
+				return writePoliceDeny(cmd.OutOrStdout(), unparseablePayloadBlock)
+			}
 			return nil
 		}
+		cwd := ""
+		_ = json.Unmarshal(payload.Cwd, &cwd) // non-string cwd → "" (carve-out off)
 
 		// Claude Code's real PreToolUse contract is snake_case
 		// (tool_name/tool_input). The camelCase fallback below (toolName/input)
@@ -67,7 +106,8 @@ var policePreToolUseCmd = &cobra.Command{
 		}
 		// ───── SAFETY FLOOR (always-on; runs even under stand-down) ─────
 		//   Members: rule 52 — irreversible content loss;
-		//            checkAiSignature — AI attribution on commits and PR bodies.
+		//            checkAiSignature — AI attribution on commits and PR bodies;
+		//            checkGateInputWrite — Bash writes to the gate's own inputs.
 		//   The floor is "never suppressible", not "content loss" alone: the
 		//   zero-AI-attribution rule is absolute, so it may not sit below the
 		//   stand-down divider.
@@ -81,12 +121,25 @@ var policePreToolUseCmd = &cobra.Command{
 		if msg := checkAiSignature(command); msg != "" {
 			return writePoliceDeny(cmd.OutOrStdout(), msg)
 		}
+		//   Member: checkGateInputWrite — a Bash write to the files the gates
+		//   below READ (tokens, review stamps, .bravros/config.json). No token
+		//   lifts it: a token that could authorise forging a token is no gate.
+		if msg := checkGateInputWrite(command); msg != "" {
+			return writePoliceDeny(cmd.OutOrStdout(), msg)
+		}
 		// ───── STAND-DOWN-SUPPRESSIBLE RULES ─────
-		if verdict, detail := evaluateMergeGate(command); verdict != mergeAllowed {
+		laneAudit := ""
+		switch verdict, detail := evaluateMergeGateIn(command, cwd); verdict {
+		case mergeAllowed:
+		case mergeStagingLane:
+			// Allowed without a token — but recorded. The audit line is the
+			// detective control that replaces the per-merge token for this shape.
+			laneAudit = detail
+		default:
 			if isStandDownActive() {
 				return nil
 			}
-			if !hasValidPoliceToken() {
+			if !hasValidMergeToken() {
 				return writePoliceDeny(cmd.OutOrStdout(), mergeBlockMessage(verdict, detail))
 			}
 		}
@@ -94,6 +147,9 @@ var policePreToolUseCmd = &cobra.Command{
 			if msg := checkPrCommentBody(command); msg != "" {
 				return writePoliceDeny(cmd.OutOrStdout(), msg)
 			}
+		}
+		if laneAudit != "" {
+			auditLaneMerge(laneAudit)
 		}
 		return nil
 	},
@@ -114,6 +170,7 @@ const (
 	mergeProtected                         // resolved, targets a protected branch
 	mergeIndeterminate                     // the target could not be determined
 	mergeUnenforced                        // the command disables, or outruns, the pre-push hook
+	mergeStagingLane                       // allowed without a token via the staging lane; audited
 )
 
 // evaluateMergeGate reports whether cmd would reach a protected branch.
@@ -124,17 +181,37 @@ const (
 // `gh api` merge routes are resolved against the PR's real base — none of
 // which is knowable from the string alone.
 func evaluateMergeGate(cmd string) (mergeVerdict, string) {
+	return evaluateMergeGateIn(cmd, "")
+}
+
+// evaluateMergeGateIn is evaluateMergeGate with the session's working directory,
+// as the PreToolUse payload reports it. cwd is used ONLY to recognise
+// `cd <cwd>` as a relocation that goes nowhere; "" disables that carve-out.
+func evaluateMergeGateIn(cmd, cwd string) (mergeVerdict, string) {
 	verdict, detail := mergeAllowed, ""
+	// Lane merges on this line, remembered separately: they never excuse a
+	// later definite hit (`gh pr merge 12 --merge && git push origin main` must
+	// still block), and they surface only when nothing else did.
+	var lane []string
 
 	// Expand before anything reads the segments: every scan below walks tokens,
 	// and a quoted payload is one token until it is re-tokenized.
 	segs := expandInlineScripts(commandSegments(cmd), 4)
 
+	// Every scan below anchors on the words `gh` and `git`. A shell function or
+	// alias of that name rebinds the word for the rest of the line, so nothing
+	// the anchors see is what runs: `gh(){ command gh "$@" -R o/r; }; gh pr
+	// merge 5` merged into ANOTHER repo through the same-repo lane (adversarial
+	// review, blocker 1). Not modelled — refused outright.
+	if redefinesGitOrGH(cmd, codePayloads(segs)) {
+		return mergeIndeterminate, redefinesDetail
+	}
+
 	// Does anything on this line move the command somewhere else? Detection is
 	// enough — the gate no longer needs to resolve WHERE, because `git push` is
 	// enforced where it lands, by that repo's own pre-push hook. Only the gh
 	// merge routes, which perform no push, still care (see below).
-	relocates := commandRelocates(segs)
+	relocates := commandRelocates(segs, cwd)
 	ghContextChanged := commandGHContextChanged(segs)
 
 	for _, seg := range segs {
@@ -148,7 +225,16 @@ func evaluateMergeGate(cmd string) (mergeVerdict, string) {
 			d string
 			t string
 		)
+		// `"$(command -v gh)" pr merge 5 -R o/r` and `$GH push origin main`
+		// name the program through an expansion the shell performs after this
+		// gate has answered; no anchor can match it. The verb words that follow
+		// are what make it a merge route rather than an unrelated expansion.
+		if substitutedProgram(bare) {
+			v, d, t = mergeIndeterminate, substitutedProgramDetail, relocatedPushTarget
+		}
 		switch push, hookless := gitPushArgs(bare); {
+		case v != mergeAllowed:
+			// already decided above
 		case push != nil:
 			if gitPushDryRun(push) {
 				continue
@@ -180,12 +266,16 @@ func evaluateMergeGate(cmd string) (mergeVerdict, string) {
 			// no hook ever sees them (B-0036). This arm is the only reason the
 			// gate reads command text, and it is where fail-closed belongs.
 			if merge := ghArgs(bare, "pr", "merge"); merge != nil {
-				v, d, t = mergePRVerdict(merge)
-				if ghContextChanged {
+				// Context and relocation are decided from the command string
+				// alone, BEFORE the forge lookup: a merge the gate will refuse
+				// anyway must not pay a 5 s round-trip to find that out.
+				switch {
+				case ghContextChanged:
 					v, d, t = mergeIndeterminate, "merging with a forge context changed by this command", relocatedPushTarget
-				}
-				if relocates && ghFlagValue(merge, "--repo", "-R") == "" {
+				case relocates && ghFlagValue(merge, "--repo", "-R") == "":
 					v, d, t = mergeIndeterminate, "merging a pull request in a directory this command changes", relocatedPushTarget
+				default:
+					v, d, t = mergePRVerdict(merge)
 				}
 			} else if api := ghArgs(bare, "api"); api != nil {
 				v, d, t = apiMergeVerdict(api)
@@ -205,6 +295,11 @@ func evaluateMergeGate(cmd string) (mergeVerdict, string) {
 
 		// An opt-out excuses only this operation, never the remaining commands.
 		if v == mergeProtected && policeDirectMainAllowed(t) {
+			continue
+		}
+		// A lane merge is allowed for THIS segment only; keep scanning.
+		if v == mergeStagingLane {
+			lane = append(lane, d)
 			continue
 		}
 		// A definite hit anywhere in the command line decides it outright;
@@ -228,6 +323,9 @@ func evaluateMergeGate(cmd string) (mergeVerdict, string) {
 		// hands to an interpreter spells one out. Not parseable, not clearable.
 		if marker, found := embeddedMergeMarker(segs); found {
 			return mergeIndeterminate, "code passed to an interpreter that spells out `" + marker + "`"
+		}
+		if len(lane) > 0 {
+			return mergeStagingLane, strings.Join(lane, "; ")
 		}
 	}
 	return verdict, detail
@@ -640,9 +738,9 @@ func httpWriteMethod(m string) bool {
 // review rounds found a hole in some part of that model. The push arm no longer
 // needs the answer at all; the gh arms need only to know the question exists,
 // and fail closed when it does.
-func commandRelocates(segs [][]string) bool {
+func commandRelocates(segs [][]string, cwd string) bool {
 	for _, seg := range segs {
-		if segmentRunsCd(seg) {
+		if segmentRunsCd(seg) && !cdIsNoOp(seg, cwd) {
 			return true
 		}
 		// Scanned UNSTRIPPED: git's own environment relocates a push just as
@@ -702,29 +800,486 @@ func disablesPrePush(seg, push []string) (string, bool) {
 	return "", false
 }
 
+// redefinesDetail is the indeterminate detail for a command that rebinds the
+// words every scan in this file anchors on.
+const redefinesDetail = "the command redefines gh/git"
+
+// substitutedProgramDetail is the indeterminate detail for a merge or push
+// whose program is named by an expansion the shell resolves after the gate.
+const substitutedProgramDetail = "the program is named by a substitution"
+
+// prUnreadableDetail is the indeterminate detail for `gh pr merge "$PR"`: the
+// PR argument holds a variable, not a number, so no lookup can run.
+const prUnreadableDetail = "merging a pull request whose number could not be read"
+
+var (
+	// A function definition of gh or git, in either spelling: `gh() {`,
+	// `gh () {`, `function gh {`, `function gh() {`. The leading class keeps
+	// `regh()` and `mygit()` out; `{` is in it because `{ gh(){ …; }; }` is
+	// legal and commandSegments does not split on braces.
+	shellFuncRE = regexp.MustCompile(`(?:^|[;&|(\s{])(?:function\s+(?:gh|git)\b|(?:gh|git)\s*\(\s*\))`)
+	// `alias gh=…`, `alias git=…` — bash expands aliases in scripts only after
+	// `shopt -s expand_aliases`, but zsh does so by default, and the agent
+	// shell is zsh.
+	shellAliasRE = regexp.MustCompile(`(?:^|[;&|(\s{])alias\s+(?:gh|git)=`)
+	// The documented PreToolUse shape names the tool as "tool_name": "Bash".
+	// Matched on the raw bytes so a payload json.Unmarshal rejected can still
+	// be recognised as a Bash call and failed closed.
+	payloadBashRE = regexp.MustCompile(`"tool_name"\s*:\s*"[Bb]ash"`)
+)
+
+// redefinesGitOrGH reports whether the raw command, or any executed payload
+// inside it, defines a function or alias named gh or git.
+//
+// Scanned on the raw text rather than the tokens: `gh(){` tokenizes to `gh` and
+// `{` with the parens dropped, which is indistinguishable from an ordinary
+// `gh` invocation. The payloads are scanned too so an `eval` or `bash -c`
+// string that carries the definition is caught even when quoting keeps it out
+// of the raw scan's word boundaries.
+func redefinesGitOrGH(raw string, payloads []string) bool {
+	for _, text := range append([]string{raw}, payloads...) {
+		if shellFuncRE.MatchString(text) || shellAliasRE.MatchString(text) {
+			return true
+		}
+	}
+	return false
+}
+
+// substitutedProgram reports whether a token of seg names the program through
+// a shell expansion — `$(…)`, a backtick, `${…}` or a bare `$VAR` — and is
+// followed by the words of a route this gate gates: `pr merge`, `api`, `push`.
+//
+// The gate anchors on the literal words gh and git; an expansion is resolved
+// by the shell AFTER the hook has answered, so no anchor can ever see it. The
+// following words are what tell a merge route apart from `"$(date)" push` in
+// an unrelated program's argv — the false-positive cost is a token, the
+// false-negative cost is the branch.
+func substitutedProgram(seg []string) bool {
+	for i, raw := range seg {
+		tok := unquote(raw)
+		if !strings.HasPrefix(tok, "$") && !strings.Contains(tok, "$(") && !strings.Contains(tok, "${") && !strings.Contains(tok, "`") {
+			continue
+		}
+		if strings.Contains(tok, "=") && !strings.Contains(tok, "$(") && !strings.Contains(tok, "`") {
+			continue // `FOO=$BAR gh …` is an env prefix, not a program
+		}
+		rest := seg[i+1:]
+		switch {
+		case len(rest) >= 2 && unquote(rest[0]) == "pr" && unquote(rest[1]) == "merge":
+			return true
+		case len(rest) >= 1 && (unquote(rest[0]) == "api" || unquote(rest[0]) == "push"):
+			return true
+		}
+	}
+	return false
+}
+
+// payloadNamesBash reports whether raw PreToolUse bytes the JSON decoder
+// rejected still declare the Bash tool.
+func payloadNamesBash(data []byte) bool {
+	return payloadBashRE.Match(data)
+}
+
+const unparseablePayloadBlock = "✋🏽 Police Block: the PreToolUse payload for this Bash call could not be parsed, so the\n" +
+	"command inside it could not be inspected. The gate fails closed rather than clearing a\n" +
+	"command it never read. This usually means a field of an unexpected type (tool_input.command\n" +
+	"or cwd); re-issue the command as an ordinary Bash call.\n"
+
+// ---------------------------------------------------------------------------
+// Gate-input writes — the safety-floor rule that keeps the other rules honest
+//
+// Every decision above reads a file an agent can also write from Bash: the
+// police/promote/destructive tokens under ~/.claude/state (a `touch` mints
+// one), `.planning/.review-stamp-<N>.json` (a `printf` forges "reviewed"), and
+// `.bravros/config.json` (a redirect widens the staging lane or declares
+// direct_main). Each was reproduced against a built binary (adversarial
+// review, major 3). The hook cannot make the files unwritable; it can refuse
+// to be the thing that writes them.
+//
+// Only WRITES are denied. Reading a token (`cat`, `ls`, `stat`), the read-only
+// verbs (`bravros police status`, `bravros promote status`), revoking
+// (`bravros police revoke`, `rm` of a token — revocation only ever removes
+// authority) and the sanctioned writers (`bravros pr-review --write-stamp`,
+// `bravros police direct-main`, `bravros init`, `bravros config`) all pass:
+// a segment anchored on `bravros` is never a write here.
+//
+// Safety-floor member: never reads isStandDownActive(), and no token lifts it
+// — a token that could authorise forging a token would not be a gate.
+// ---------------------------------------------------------------------------
+
+// gateInputKind classifies a gate-input path so the block can name the
+// sanctioned writer for that kind.
+type gateInputKind int
+
+const (
+	gateInputNone gateInputKind = iota
+	gateInputToken
+	gateInputStamp
+	gateInputConfig
+)
+
+// gateInputRef classifies one token as a reference to a gate input. Substring
+// on the unquoted token, so `~/`, `$HOME/`, `./`, absolute and quoted spellings
+// all match; the bare token file names match too, so `cd ~/.claude/state &&
+// touch police-token` cannot split the path across segments.
+func gateInputRef(tok string) gateInputKind {
+	t := strings.TrimRight(unquote(tok), "/")
+	switch {
+	case strings.Contains(t, ".claude/state/"), strings.Contains(t, ".agent_config/state/"),
+		strings.HasSuffix(t, ".claude/state"), strings.HasSuffix(t, ".agent_config/state"):
+		return gateInputToken
+	case strings.Contains(t, ".review-stamp-"):
+		return gateInputStamp
+	case strings.Contains(t, ".bravros/config.json"):
+		// The file itself, not a sibling (`config.json.example`), wherever it
+		// sits inside the token (`open('.bravros/config.json','w')`).
+		if strings.HasSuffix(gateInputPath(t), ".bravros/config.json") {
+			return gateInputConfig
+		}
+	}
+	switch filepathBase(t) {
+	case "police-token", "promote-token", "destructive-token", "review-stamp-token":
+		return gateInputToken
+	}
+	return gateInputNone
+}
+
+// gateInputPathRE pulls the gate path out of a token that carries more than
+// the path — `open('/home/x/.claude/state/police-token','w')`, `of=…` — so the
+// block names the file, not the program text around it.
+var gateInputPathRE = regexp.MustCompile(`[^\s'"(),;=]*(?:\.claude/state|\.agent_config/state|\.review-stamp-|\.bravros/config\.json)[^\s'"(),;=]*`)
+
+// gateInputPath returns the gate path spelled inside tok, or tok itself.
+func gateInputPath(tok string) string {
+	t := unquote(tok)
+	if m := gateInputPathRE.FindString(t); m != "" {
+		return m
+	}
+	return t
+}
+
+// gateInputDirRef classifies a copy DESTINATION that is the parent directory
+// of a gate input, paired with a source whose basename is the gate file:
+// `cp /tmp/config.json .bravros/` writes .bravros/config.json without either
+// token spelling the full path.
+func gateInputDirRef(dest, src string) gateInputKind {
+	d := filepathBase(strings.TrimRight(unquote(dest), "/"))
+	s := filepathBase(unquote(src))
+	switch {
+	case d == ".bravros" && s == "config.json":
+		return gateInputConfig
+	case d == ".planning" && strings.HasPrefix(s, ".review-stamp-"):
+		return gateInputStamp
+	case d == "state" && gateInputRef(s) == gateInputToken:
+		return gateInputToken
+	}
+	return gateInputNone
+}
+
+// gateMessageFlags are the git/gh flags whose value is data, never a path:
+// `git commit -m "fix police-token docs"` names a token file and writes
+// nothing. Applied only to segments anchored on git or gh.
+var gateMessageFlags = map[string]bool{
+	"-m": true, "--message": true, "-b": true, "--body": true,
+	"-t": true, "--title": true, "--subject": true, "--notes": true, "-F": true, "--body-file": true,
+}
+
+// checkGateInputWrite returns a block message when command would write one of
+// the gate's own inputs from Bash, or "" when it may proceed.
+func checkGateInputWrite(command string) string {
+	// Cheap pre-filter: nothing here matches without one of these substrings.
+	if !strings.Contains(command, "state") && !strings.Contains(command, "review-stamp") &&
+		!strings.Contains(command, "config.json") && !strings.Contains(command, "-token") {
+		return ""
+	}
+	segs := expandInlineScripts(commandSegments(command), 4)
+	interpreter := false
+	refKind, refPath := gateInputNone, ""
+	for _, seg := range segs {
+		if kind, path := segmentWritesGateInput(seg); kind != gateInputNone {
+			return gateInputBlockMessage(kind, path)
+		}
+		if segmentRunsInterpreter(seg) {
+			interpreter = true
+		}
+		if refKind == gateInputNone {
+			if refs := gateRefsIn(seg); len(refs) > 0 {
+				refKind, refPath = refs[0].kind, refs[0].path
+			}
+		}
+	}
+	// An interpreter program — `python3 -c '…'`, `perl -e`, `node -e`, or a
+	// heredoc fed to `python3 -` — writes from inside a string this gate does
+	// not parse. A gate path anywhere on the same line is enough.
+	if interpreter && refKind != gateInputNone {
+		return gateInputBlockMessage(refKind, refPath)
+	}
+	return ""
+}
+
+// gateRef is one token of a segment that names a gate input.
+type gateRef struct {
+	index int
+	kind  gateInputKind
+	path  string
+}
+
+// gateProgram returns the segment with wrappers (`sudo`, `env`, `command`,
+// `time`, `nohup`, `exec`) and env assignments stripped, plus the program
+// name that anchors it.
+func gateProgram(seg []string) ([]string, string) {
+	bare := stripEnvPrefix(seg)
+	for len(bare) > 0 {
+		switch filepathBase(unquote(bare[0])) {
+		case "sudo", "command", "env", "exec", "nohup", "time", "builtin":
+			bare = stripEnvPrefix(bare[1:])
+			continue
+		}
+		break
+	}
+	if len(bare) == 0 {
+		return nil, ""
+	}
+	return bare, filepathBase(unquote(bare[0]))
+}
+
+// gateRefsIn lists the tokens of seg that name a gate input, excluding the
+// values of git/gh message flags and every segment anchored on bravros — the
+// sanctioned verbs read and write these files by design.
+func gateRefsIn(seg []string) []gateRef {
+	bare, program := gateProgram(seg)
+	if program == "" || program == "bravros" {
+		return nil
+	}
+	gitOrGH := program == "git" || program == "gh"
+	var out []gateRef
+	for i := 0; i < len(bare); i++ {
+		tok := unquote(bare[i])
+		if gitOrGH && strings.HasPrefix(tok, "-") {
+			name, _, attached := strings.Cut(tok, "=")
+			switch {
+			case gateMessageFlags[name] && !attached:
+				i++ // detached value: `-m MSG`
+			case gateMessageFlags[name]:
+				// attached: `--message=MSG`
+			case len(tok) > 2 && tok[1] != '-' && gateMessageFlags["-"+tok[len(tok)-1:]] && strings.Trim(tok[1:], "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ") == "":
+				i++ // bundled: `-am MSG`
+			case len(tok) > 2 && tok[1] != '-' && gateMessageFlags["-"+tok[1:2]]:
+				// glued: `-mMSG`
+			}
+			continue
+		}
+		if kind := gateInputRef(tok); kind != gateInputNone {
+			out = append(out, gateRef{i, kind, gateInputPath(tok)})
+		}
+	}
+	return out
+}
+
+// segmentRunsInterpreter reports whether seg runs a non-shell interpreter —
+// a program whose writes live inside a string argument or a heredoc.
+func segmentRunsInterpreter(seg []string) bool {
+	_, program := gateProgram(seg)
+	if program == "" || program == "bravros" {
+		return false
+	}
+	for _, raw := range seg {
+		name := filepathBase(unquote(raw))
+		if codeRunners[name] && !shellRunners[name] {
+			return true
+		}
+	}
+	return false
+}
+
+// shellRunners are the codeRunners whose payload commandSegments can parse;
+// expandInlineScripts already turned it into segments of its own, so the
+// outer token is transparent here.
+var shellRunners = map[string]bool{"sh": true, "bash": true, "zsh": true, "dash": true, "ksh": true, "fish": true}
+
+// segmentWritesGateInput reports which gate input, if any, one segment writes,
+// and the token that named it.
+//
+// Three write shapes: a redirect whose target is the path; a program that
+// writes a path argument in place (`touch`, `chmod`, `chown`, `truncate`,
+// `tee`, `mv`, `rm` of the config, `sed -i`); and a copy whose destination is
+// the path or its parent directory (`cp`, `ln`, `install`, `rsync`, `dd of=`).
+// Reads — `cat`, `ls`, `stat`, `grep`, a `cp` FROM the path — are not writes.
+func segmentWritesGateInput(seg []string) (gateInputKind, string) {
+	refs := gateRefsIn(seg)
+	bare, program := gateProgram(seg)
+	if program == "" || program == "bravros" || shellRunners[program] {
+		return gateInputNone, ""
+	}
+
+	// Redirects: `> path`, `>> path`, `>path`, `1>path`, `&>path`, `>|path`.
+	for i, raw := range bare {
+		tok := unquote(raw)
+		op := strings.TrimLeft(tok, "0123456789&")
+		if !strings.HasPrefix(op, ">") {
+			continue
+		}
+		target := strings.TrimLeft(op, ">|")
+		if target == "" && i+1 < len(bare) {
+			target = unquote(bare[i+1])
+		}
+		if kind := gateInputRef(target); kind != gateInputNone {
+			return kind, gateInputPath(target)
+		}
+	}
+	if len(refs) == 0 {
+		// A copy into the parent directory names no gate path outright.
+		if len(bare) >= 3 {
+			switch filepathBase(unquote(bare[0])) {
+			case "cp", "ln", "install", "rsync", "mv":
+				dest := bare[len(bare)-1]
+				for _, src := range bare[1 : len(bare)-1] {
+					if kind := gateInputDirRef(dest, src); kind != gateInputNone {
+						return kind, strings.TrimRight(unquote(dest), "/") + "/" + filepathBase(unquote(src))
+					}
+				}
+			}
+		}
+		return gateInputNone, ""
+	}
+
+	// Program names anywhere in the segment (`sudo touch …` is already
+	// unwrapped; `xargs touch` is not, and this catches it).
+	for i, raw := range bare {
+		name := filepathBase(unquote(raw))
+		switch name {
+		case "touch", "chmod", "chown", "truncate", "tee", "mv":
+			return refs[0].kind, refs[0].path
+		case "rm", "unlink":
+			// Deleting a token or a stamp only removes authority; deleting the
+			// config file drops `staging_lane: off`, which widens the lane.
+			for _, r := range refs {
+				if r.kind == gateInputConfig {
+					return r.kind, r.path
+				}
+			}
+		case "cp", "ln", "install", "rsync":
+			dest := bare[len(bare)-1]
+			// Directory destination first, so the block names the file that
+			// lands there rather than the directory.
+			for _, src := range bare[i+1 : len(bare)-1] {
+				if kind := gateInputDirRef(dest, src); kind != gateInputNone {
+					return kind, strings.TrimRight(unquote(dest), "/") + "/" + filepathBase(unquote(src))
+				}
+			}
+			if kind := gateInputRef(dest); kind != gateInputNone {
+				return kind, gateInputPath(dest)
+			}
+		case "dd":
+			for _, r := range refs {
+				if strings.HasPrefix(unquote(bare[r.index]), "of=") {
+					return r.kind, r.path
+				}
+			}
+		case "sed":
+			for _, later := range bare[i+1:] {
+				f := unquote(later)
+				if f == "--in-place" || strings.HasPrefix(f, "--in-place=") ||
+					(strings.HasPrefix(f, "-") && !strings.HasPrefix(f, "--") && strings.ContainsRune(f, 'i')) {
+					return refs[0].kind, refs[0].path
+				}
+			}
+		}
+	}
+	return gateInputNone, ""
+}
+
+// gateInputBlockMessage renders the block, naming the path and the sanctioned
+// writer for its kind.
+func gateInputBlockMessage(kind gateInputKind, path string) string {
+	head := "✋🏽 Police Block: this command writes the gate's own input (" + path + ").\n"
+	var body string
+	switch kind {
+	case gateInputToken:
+		body = "Merge and destructive tokens under ~/.claude/state are minted only OUTSIDE Claude Code —\n" +
+			"bravros police unlock, bravros promote unlock, bravros destructive unlock — by the operator.\n" +
+			"Read-only access is fine (bravros police status, bravros promote status, cat/ls/stat), and so\n" +
+			"is revoking (bravros police revoke, bravros promote revoke). Writing one from Bash is never.\n"
+	case gateInputStamp:
+		body = "Review stamps (.planning/.review-stamp-<N>.json) are written only by\n" +
+			"  bravros pr-review <N> --write-stamp\n" +
+			"which keys them to the reviewed commit. A hand-written stamp is a forged review.\n"
+	case gateInputConfig:
+		body = ".bravros/config.json declares the merge gate's per-repo policy (staging_lane, direct_main,\n" +
+			"staging_branch). Edit it with the Write tool or bravros police direct-main / bravros init,\n" +
+			"and commit it — the key is a commit-visible declaration, reviewed like code.\n"
+	}
+	return head + body + "This is the safety floor — it fires even under stand-down, and no token lifts it.\n"
+}
+
 // mergeBlockMessage renders the block for each verdict. The indeterminate case
 // gets its own wording because the operator's fix differs: a token authorizes a
 // deliberate merge, but an unresolvable base usually means the forge could not
 // be reached, and re-running is the right first move.
+//
+// Every block ends with the same fallback line — the token — so the sanctioned
+// path is always visible, and names the exact failed condition above it so the
+// agent relays something actionable rather than "blocked".
 func mergeBlockMessage(v mergeVerdict, detail string) string {
+	const tokenLine = "If the merge is deliberate, ask the operator to mint a token outside Claude Code:\n" +
+		"  bravros police unlock   (bravros promote unlock also works)\n"
 	if v == mergeUnenforced {
 		return "✋🏽 Police Block: " + detail + ".\n" +
 			"Protected branches are enforced by the repo's pre-push hook, which reads the\n" +
 			"real ref list git is about to send. This command would run without it, so no\n" +
 			"layer would check what it pushes.\n" +
-			"Drop the flag, or ask the operator to mint a token outside Claude Code:\n" +
-			"  bravros police unlock\n"
+			"Drop the flag, or " + strings.ToLower(tokenLine[:1]) + tokenLine[1:]
 	}
 	if v == mergeIndeterminate {
+		switch detail {
+		case laneUnknownDetail:
+			return "✋🏽 Police Block: " + detail + ".\n" +
+				"This PR is a staging-lane candidate; once GitHub reports mergeStateStatus CLEAN\n" +
+				"the same command merges without a token.\n" + tokenLine
+		case prUnreadableDetail:
+			return "✋🏽 Police Block: " + detail + ".\n" +
+				"A $VAR PR argument is unreadable to the hook — put the literal PR number on the merge\n" +
+				"line (`gh pr merge 123 --merge`); a CLEAN staging → main PR then merges with no token.\n" + tokenLine
+		case redefinesDetail:
+			return "✋🏽 Police Block: " + detail + ".\n" +
+				"A function or alias named gh or git rebinds the words this gate anchors on, so nothing\n" +
+				"on the line can be shown to be the real program. Drop the definition and run gh/git directly.\n" + tokenLine
+		case substitutedProgramDetail:
+			return "✋🏽 Police Block: " + detail + ".\n" +
+				"`$(…)`, a backtick or `$VAR` in the program position is resolved by the shell after this\n" +
+				"gate has answered. Spell the program as gh or git.\n" + tokenLine
+		}
 		return "✋🏽 Police Block: " + detail + ", and the target branch could not be determined.\n" +
 			"The forge lookup failed (offline, unauthenticated, or no such PR), so this\n" +
-			"command cannot be shown to be safe. Re-run once connectivity is restored.\n" +
-			"If the merge is deliberate, ask the operator to mint a token outside Claude Code:\n" +
-			"  bravros police unlock\n"
+			"command cannot be shown to be safe. Re-run once connectivity is restored.\n" + tokenLine
 	}
-	return "✋🏽 Police Block: Merging or pushing to main is blocked for agents.\n" +
-		"You must request the operator to mint a token from outside Claude Code:\n" +
-		"  bravros police unlock\n"
+
+	// mergeProtected. Compute the hint once, here — off the hot path.
+	cfg, found := config.LoadBravrosConfig()
+	staging := cfg.StagingBranch
+	if staging == "" {
+		staging = "homolog"
+	}
+	if i := strings.Index(detail, laneRefusedPrefix); i >= 0 {
+		why := strings.TrimSuffix(detail[i+len(laneRefusedPrefix):], ")")
+		return "✋🏽 Police Block: merging a pull request into a protected branch.\n" +
+			"Staging lane refused: " + why + ".\n" + tokenLine
+	}
+	head := "✋🏽 Police Block: Merging or pushing to main is blocked for agents"
+	if detail != "" {
+		head += " (" + detail + ")"
+	}
+	var hint string
+	switch {
+	case !found:
+		hint = "This repo has no " + config.ConfigFilename + ", so main is protected by default.\n"
+	case cfg.Police == nil || !cfg.Police.DirectMain:
+		hint = "police.direct_main is not set in " + config.ConfigFilename + ".\n"
+	}
+	return head + ".\n" + hint +
+		"If it is direct-to-main by design, ask the operator, then run: bravros police direct-main on  (commit it).\n" +
+		"Otherwise open a PR from " + staging + " — a CLEAN " + staging + " → main PR merges with `gh pr merge <N>` and no token.\n" +
+		tokenLine
 }
 
 // unquote strips matching leading and trailing single or double quotes from s.
@@ -843,7 +1398,11 @@ func startsWith(seg []string, words ...string) bool {
 		return false
 	}
 	for i, w := range words {
-		if unquote(seg[i]) != w {
+		got := unquote(seg[i])
+		if i == 0 {
+			got = filepathBase(got) // `/usr/bin/git commit` is still git
+		}
+		if got != w {
 			return false
 		}
 	}
@@ -986,18 +1545,18 @@ func mergePRVerdict(fields []string) (mergeVerdict, string, string) {
 	// numeric one dropped the other two on the floor and asked `gh pr view`
 	// with no argument at all — which answers for the CURRENT branch's PR, a
 	// different pull request than the one being merged (PR 90 round 12 review).
+	//
+	// fields[0..2] are the anchor words themselves (`gh pr merge`, however gh
+	// was spelled — `/opt/homebrew/bin/gh` is not a PR argument), so the scan
+	// starts after them.
 	var pr string
-	for i := 0; i < len(fields); i++ {
+	for i := 3; i < len(fields); i++ {
 		f := unquote(fields[i])
 		if strings.HasPrefix(f, "-") {
 			if !strings.Contains(f, "=") && ghPRMergeValueFlags[f] {
 				i++
 			}
 			continue
-		}
-		switch f {
-		case "gh", "pr", "merge":
-			continue // the command words themselves
 		}
 		pr = f
 		break
@@ -1009,40 +1568,47 @@ func mergePRVerdict(fields []string) (mergeVerdict, string, string) {
 	// Proven open against production on 2026-09-09 — see B-0036.
 	repo := ghFlagValue(fields, "--repo", "-R")
 	target := mergePRTarget(repo, pr)
-	if apiFieldUnreadable(repo) || apiFieldUnreadable(pr) {
+	if apiFieldUnreadable(pr) {
+		return mergeIndeterminate, prUnreadableDetail, target
+	}
+	if apiFieldUnreadable(repo) {
 		return mergeIndeterminate, "merging a pull request whose target could not be read", target
 	}
-	protected, ok := prBaseProtected(repo, pr)
+	facts, ok := lookupPR(repo, pr)
 	if !ok {
 		return mergeIndeterminate, "merging a pull request", target
 	}
-	if protected {
-		return mergeProtected, "merging a pull request into a protected branch", target
+	if !protectedBranches[facts.Base] {
+		return mergeAllowed, "", target
 	}
-	return mergeAllowed, "", target
+	// The staging lane: same-repo, numeric-or-bare PR, head == staging branch,
+	// CLEAN, no autonomous lock (see police_lane.go). URL, branch and -R forms
+	// never use it — they can name a PR in another repository.
+	if laneEligible(repo, pr) {
+		// The lane merges the staging branch INTO main; it never deletes it.
+		// `--delete-branch` would remove homolog on the forge and locally, and
+		// every flow that writes there next would recreate it from main.
+		if ghHasOption(fields, "--delete-branch", "-d") {
+			return mergeProtected, "merging a pull request into a protected branch (" + laneRefusedPrefix + "--delete-branch/-d is not allowed on a lane merge — the staging branch must survive it; drop the flag)", target
+		}
+		v, d := stagingLaneVerdict(pr, facts)
+		if v == mergeProtected {
+			d = "merging a pull request into a protected branch (" + d + ")"
+		}
+		return v, d, target
+	}
+	return mergeProtected, "merging a pull request into a protected branch (" + laneRefusedPrefix + "-R/--repo, URL and branch forms never use the lane)", target
 }
 
+// prBaseProtected is the base-only view of lookupPR, kept for the gh api merge
+// route, which has no lane: protected reports whether the PR's base is a
+// protected branch, ok whether the forge answered at all.
 func prBaseProtected(repo, pr string) (protected bool, ok bool) {
-	args := []string{"pr", "view", "--json", "baseRefName", "-q", ".baseRefName"}
-	if repo != "" {
-		args = append(args, "--repo", repo)
-	}
-	if pr != "" {
-		args = append(args, pr)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	out, err := exec.CommandContext(ctx, "gh", args...).Output()
-	if err != nil {
+	facts, ok := lookupPR(repo, pr)
+	if !ok {
 		return false, false
 	}
-	base := strings.TrimSpace(string(out))
-	if base == "" {
-		return false, false
-	}
-	return protectedBranches[base], true
+	return protectedBranches[facts.Base], true
 }
 
 // ---------------------------------------------------------------------------
@@ -1093,7 +1659,7 @@ func rule52Check(command string) *rule52Violation {
 			continue
 		}
 		var v *rule52Violation
-		switch seg[0] {
+		switch filepathBase(seg[0]) { // `/usr/bin/git reset --hard`, `/bin/rm -rf`
 		case "git":
 			if len(seg) < 2 {
 				continue
@@ -1137,7 +1703,8 @@ func rule52Check(command string) *rule52Violation {
 // the branch.
 func gitPushArgs(seg []string) (args []string, hookless bool) {
 	for i := range seg {
-		if unquote(seg[i]) != "git" {
+		// filepathBase: `/usr/bin/git push origin main` is still git.
+		if filepathBase(unquote(seg[i])) != "git" {
 			continue
 		}
 		rest := stripGitGlobalOpts(seg[i:])
@@ -1165,7 +1732,9 @@ func gitPushArgs(seg []string) (args []string, hookless bool) {
 // matches words, or nil. Same anchor-anywhere rule as gitPushArgs.
 func ghArgs(seg []string, words ...string) []string {
 	for i := range seg {
-		if unquote(seg[i]) != "gh" {
+		// filepathBase: `/opt/homebrew/bin/gh pr merge 5` and `./gh …` are the
+		// same program; anchoring on the bare word let both through unread.
+		if filepathBase(unquote(seg[i])) != "gh" {
 			continue
 		}
 		rest := seg[i:]
@@ -1198,7 +1767,7 @@ func ghArgs(seg []string, words ...string) []string {
 // commandRelocates still notices such a flag is present, which is all the gh
 // arms need.
 func stripGitGlobalOpts(seg []string) []string {
-	if len(seg) == 0 || unquote(seg[0]) != "git" {
+	if len(seg) == 0 || filepathBase(unquote(seg[0])) != "git" {
 		return seg
 	}
 	out := []string{"git"}
@@ -1233,6 +1802,29 @@ func segmentRunsCd(seg []string) bool {
 		}
 	}
 	return false
+}
+
+// cdIsNoOp reports whether seg is exactly `cd <abs>` where <abs> is the
+// session's own working directory, i.e. a relocation that goes nowhere.
+//
+// This is the one carve-out from "any cd fails closed": skills routinely spell
+// `cd /abs/repo && gh pr merge N --merge` from inside that very repo, and the
+// gate blocked it as indeterminate (paylog 2aaa8ca8, 2026-09-11T07:11). The
+// shape accepted is deliberately narrow — two tokens, an absolute literal path
+// with no shell expansion characters, equal to cwd after Clean. Relative paths,
+// `~`, variables, `cd -`, pushd, and any extra argument keep failing closed.
+func cdIsNoOp(seg []string, cwd string) bool {
+	if cwd == "" || !filepath.IsAbs(cwd) {
+		return false
+	}
+	if len(seg) != 2 || unquote(seg[0]) != "cd" {
+		return false
+	}
+	arg := seg[1]
+	if arg == "" || !filepath.IsAbs(arg) || strings.ContainsAny(arg, "$`~*?[{} \t\n") {
+		return false
+	}
+	return filepath.Clean(arg) == filepath.Clean(cwd)
 }
 
 // stripEnvPrefix strips leading `VAR=x` assignments off a segment, mirroring
@@ -1751,7 +2343,15 @@ func rule52ConsumeToken() bool {
 
 var policeUnlockCmd = &cobra.Command{
 	Use:   "unlock",
-	Short: "Mint a human-presence token to allow merging",
+	Short: "Mint a human-presence token to allow a merge the staging lane refuses",
+	Long: `Mint the 10-minute police token at ~/.claude/state/police-token.
+
+Needed only for merges the staging lane does not cover: git push to main,
+gh api / GraphQL merge routes, -R/URL/branch-form gh pr merge, a non-CLEAN or
+non-staging-head PR, a repo with police.staging_lane "reviewed"/"off", or any
+merge while a .planning/.auto-*-lock is present. A CLEAN <staging> → main
+` + "`gh pr merge <N>`" + ` needs no token. ` + "`bravros promote unlock`" + ` is honoured too.
+Must be run from a terminal OUTSIDE Claude Code.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if os.Getenv("CLAUDE_CODE_SESSION_ID") != "" || os.Getenv("CLAUDE_SESSION_ID") != "" {
 			return fmt.Errorf("bravros police unlock MUST be run from a separate terminal, outside of Claude Code")
@@ -1785,12 +2385,23 @@ var policeRevokeCmd = &cobra.Command{
 
 var policeStatusCmd = &cobra.Command{
 	Use:   "status",
-	Short: "Check police token status",
+	Short: "Check the police and promote merge tokens",
+	Long: `Report both tokens the merge gate honours: the police token
+(~/.claude/state/police-token, 10 min from mtime) and the promote token
+(~/.claude/state/promote-token, minted by bravros promote unlock).
+Says nothing about stand-down (bravros police standdown status) or the
+staging lane (bravros police direct-main status).`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if hasValidPoliceToken() {
 			fmt.Fprintln(cmd.OutOrStdout(), "🔓 Police token is VALID.")
 		} else {
 			fmt.Fprintln(cmd.OutOrStdout(), "🔒 Police token is MISSING or INVALID.")
+		}
+		promote := token.Gate{Name: "promote"}
+		if tok := promote.Read(); tok != nil && !tok.Expired() {
+			fmt.Fprintf(cmd.OutOrStdout(), "🔓 Promote token is VALID (expires %s).\n", tok.ExpiresAt.Format(time.RFC3339))
+		} else {
+			fmt.Fprintln(cmd.OutOrStdout(), "🔒 Promote token is MISSING or INVALID.")
 		}
 		return nil
 	},

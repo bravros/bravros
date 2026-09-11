@@ -17,9 +17,30 @@ IDs must not collide across worktrees and concurrent branches, so reserve on `ho
 2. switch to `homolog` locally
 3. `PLAN_ID=$(bravros nextid reserve plan --slug "$SLUG")`
 4. `bravros commit "📋 plan: reserve $PLAN_ID $SLUG" .planning/P-*` then `git push origin homolog`
-5. switch back to the feature branch and `git merge origin/homolog`
+5. switch back to the branch you started on and `git merge origin/homolog`
 
-Abort before the folder exists → `bravros nextid release $PLAN_ID`.
+Started on `homolog` already → steps 2 and 5 are no-ops; reserve in place. Read the staging branch
+from `bravros config get staging_branch` — it is `homolog` in the flow above only by default.
+
+**Abort before the folder exists → `bravros nextid release "$PLAN_ID"`.** The reservation is a
+placeholder file plus a commit; leaving it behind burns an id and shows up as a phantom plan in the
+fold table. Release is idempotent — safe to run when unsure whether the folder was written.
+
+## Branch discipline
+
+Recon writes `.planning/` only, and `.planning/` bookkeeping is the one thing allowed to land on the
+staging branch — that is why the reservation above commits there. Everything else about branches is
+**not recon's job**:
+
+- **Never `git checkout -b`, never `git worktree add`** unless `--worktree` was passed. The operator
+  runs several sessions in one checkout; a branch switch here moves their working tree under them
+  (operator, 2026-08-20: "dont start implementing or create branch because we have other sessions
+  running here okay? so document all so i can create a worktree just to work on this").
+- The hand-off names the branch `/orchestrate` will create — `feature/p-NNNN-<slug>` (change) or
+  `fix/p-NNNN-<slug>` (defect), cut from `origin/<staging>` — so the operator can pre-create a
+  worktree for it. Naming is not creating.
+- `--worktree` is the only path that creates anything, and it creates the worktree + branch together
+  via [`worktree-extension.md`](worktree-extension.md), never a bare branch in this checkout.
 
 ## Recording state
 

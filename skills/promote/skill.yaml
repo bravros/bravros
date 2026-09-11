@@ -35,11 +35,13 @@ body: |
 
   2. **PR body** (date, commit count, `--oneline` list, `Closes #N` refs) from the range `"$PROMOTE_BASE..homolog"`. Re-derive the snapshot with `git rev-parse --verify --quiet refs/bravros/promote-base` — a bare rev-parse of a missing ref echoes the LITERAL ref name to stdout, every range then silently fails, and the PR ships "Commits: 0". Missing ref → **fatal by design**: re-invoke `/promote` from Step 1. Never range against local main — it can lag arbitrarily (a 6-commit promote once reported 431 commits, B-0338).
   3. **Open PR**: `gh pr create --base main --head homolog --title "🔀 promote: <date> — <n> commit(s) homolog → main"`; number via `gh pr view homolog --json number -q .number`.
-  4. **Merge** per [`../shared/merge-flow.md`](../shared/merge-flow.md):
+  4. **Merge** per [`../shared/merge-flow.md`](../shared/merge-flow.md) — TTL check right before it (`bravros promote status --field ttl_remaining`; the 5-minute token is often burnt by PR + CI — expired → ask for ONE re-mint, never loop), then lock, then the merge with the **literal** PR number (no `cd … &&`, no `| tail`). The police hook honours the promote token — no second token is needed — but it reads raw command text, so a `$VAR` in the PR argument is unreadable → blocked.
 
   ```bash
-  bravros merge-lock acquire --timeout 60s --ttl 10m --meta reason=promote --meta pr="$PR_NUMBER"
-  gh pr merge "$PR_NUMBER" --merge
+  bravros merge-lock acquire --timeout 60s --ttl 10m --meta reason=promote --meta pr=1234
+  # substitute the literal number — a $VAR here is unreadable to the hook
+  gh pr merge 1234 --merge > /tmp/bravros-merge-1234.txt 2>&1
+  MERGE_RC=$?; cat /tmp/bravros-merge-1234.txt; echo "merge_rc=$MERGE_RC"
   ```
 
      Verify via PR `state` == `MERGED` — `mergeStateStatus` is a pre-merge hint, unreliable after merge. Anything else → `bravros merge-lock release`, exit 1. The lock is held through the homolog push in Step 5.

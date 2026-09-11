@@ -245,6 +245,12 @@ is swept on a later run.
 
 The PreToolUse merge gate. Deep-dive: [`docs/cli/police.md`](docs/cli/police.md).
 
+A `gh pr merge <N>` whose head is the repo's staging branch (default `homolog`) into `main` passes
+without a token when the PR is `CLEAN` and no `.planning/.auto-*-lock` exists (the staging lane);
+feature-branch merges and direct pushes to `main` still need `bravros police unlock` (a valid
+`bravros promote unlock` token is honoured too). Repos that work on `main` by design declare it with
+`bravros police direct-main on`.
+
 ```
 bravros police pretooluse              # hook entry point (stdin: the tool payload)
 bravros police unlock                  # mint the human-presence token
@@ -253,6 +259,7 @@ bravros police status
 bravros police standdown on [--ttl 4h] # suspend the gate for this session
 bravros police standdown off
 bravros police standdown status        # JSON
+bravros police direct-main on|off|status  # declare a direct-to-main repo (.bravros/config.json police.direct_main)
 ```
 
 **Rule 52 — the content-loss floor.** Before the merge gate even runs, `police pretooluse` blocks
@@ -299,8 +306,11 @@ allowed command emits nothing. A custom stdout field named `exitCode` is not a d
 bravros police unlock MUST be run from a separate terminal, outside of Claude Code
 ```
 
-On a Police Block the contract is: stop, tell the operator to run `bravros police unlock` in another
-terminal, and wait. The token (`~/.claude/state/police-token`) **expires 10 minutes after its mtime**
+On a Police Block the contract is: relay the named reason, and if it is a token case stop, tell the
+operator to run `bravros police unlock` in another terminal, and wait. Exception: a block that says
+mergeStateStatus is UNKNOWN is a retry, not a token request — poll `gh pr view <N> --json
+mergeStateStatus` until it is not UNKNOWN and re-run the same command. A `$VAR` PR argument is
+unreadable to the hook: put the literal PR number on the merge line. The token (`~/.claude/state/police-token`) **expires 10 minutes after its mtime**
 and self-deletes on the next read — it buys one merge, not one session. Same shape as
 `bravros promote unlock` and `bravros destructive unlock`.
 
@@ -308,8 +318,8 @@ and self-deletes on the next read — it buys one merge, not one session. Same s
 `${TMPDIR}/agent-audit-<session>/standdown.json`, default TTL 4h; `BRAVROS_POLICE_STANDDOWN=1` forces
 it on where there is no session id). It is broader and longer-lived than the token — prefer the token.
 
-**`police status` reports only the token**, never stand-down state; ask `police standdown status` for
-that, which emits `active`, `source` (`env` / `marker`), `session_id` and `expires_at`.
+**`police status` reports only the two tokens (police, promote)**, never stand-down state nor the
+lane/`direct_main`; ask `police standdown status` / `police direct-main status` for those, which emits `active`, `source` (`env` / `marker`), `session_id` and `expires_at`.
 
 **The same hook also polices `@claude review` PR comments.** Any `gh pr comment` body containing
 both `@claude` and `review` (case-insensitive) must start with the exact canonical opening

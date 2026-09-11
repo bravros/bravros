@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -390,5 +391,54 @@ func TestLoadBravrosConfig_CacheCloneIsolation(t *testing.T) {
 	}
 	if cfg2.Audit == nil || len(cfg2.Audit.DisabledRules) != 1 || cfg2.Audit.DisabledRules[0] != "6" {
 		t.Fatalf("cache poisoned: slice mutation leaked, got %+v", cfg2.Audit)
+	}
+}
+
+func TestPoliceConfig_StagingLaneMode(t *testing.T) {
+	orig, _ := os.Getwd()
+	tmp := t.TempDir()
+	os.Chdir(tmp)
+	defer os.Chdir(orig)
+
+	// No config file at all: the lane is open (default) and staging is homolog.
+	cfg, found := LoadBravrosConfig()
+	if found {
+		t.Fatal("expected found=false")
+	}
+	if mode, reason := cfg.StagingLaneMode(); mode != StagingLaneOpen || reason != "" {
+		t.Errorf("no config: mode=%q reason=%q, want open", mode, reason)
+	}
+	var nilCfg *BravrosConfig
+	if mode, _ := nilCfg.StagingLaneMode(); mode != StagingLaneOpen {
+		t.Errorf("nil receiver must default to open, got %q", mode)
+	}
+
+	for raw, want := range map[string]struct {
+		mode   string
+		reason bool
+	}{
+		"":          {StagingLaneOpen, false},
+		"open":      {StagingLaneOpen, false},
+		"reviewed":  {StagingLaneReviewed, false},
+		"off":       {StagingLaneOff, false},
+		" Reviewed": {StagingLaneReviewed, false},
+		"opne":      {StagingLaneOff, true},
+		"true":      {StagingLaneOff, true},
+	} {
+		writeConfig(t, ConfigFilename, `{"police": {"direct_main": false, "staging_lane": "`+raw+`"}}`)
+		cfg, found := LoadBravrosConfig()
+		if !found {
+			t.Fatalf("%q: expected found=true", raw)
+		}
+		if cfg.Police == nil || cfg.Police.StagingLane != raw {
+			t.Fatalf("%q: staging_lane not round-tripped: %+v", raw, cfg.Police)
+		}
+		mode, reason := cfg.StagingLaneMode()
+		if mode != want.mode || (reason != "") != want.reason {
+			t.Errorf("%q: mode=%q reason=%q, want %q reason=%v", raw, mode, reason, want.mode, want.reason)
+		}
+		if want.reason && !strings.Contains(reason, `"`+raw+`"`) {
+			t.Errorf("%q: reason must name the rejected value: %q", raw, reason)
+		}
 	}
 }

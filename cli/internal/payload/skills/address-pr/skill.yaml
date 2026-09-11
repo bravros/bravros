@@ -15,19 +15,18 @@ body: |
 
   INTENT: Read latest PR review (GitHub bot + local), implement fixes, push, stamp, and route next step.
 
-  1. **PR Target**: `$ARGUMENTS` if numeric, else `PR=$(gh pr view --json number -q .number)`.
+  1. **PR Target**: `$ARGUMENTS` if numeric, else `PR=$(gh pr view --json number -q .number)`. Non-numeric `$ARGUMENTS` are instructions for the round, never a PR number.
   2. **Fetch Review**:
      - GitHub latest bot comment (`claude` or `[bot]`).
      - Local newest `.planning/pr-reviews/${PR}-*.md`. See `references/fetch-review-data.md`.
-  3. **Fix**: Apply all fixes (blockers -> code issues -> style -> suggestions). Touch only review-named files. Verify sibling occurrences.
+  3. **Classify against HEAD, then fix**: already-satisfied findings are skipped and said so. A non-blocking finding that names a concrete code change is a fix, not informational ("always fix the nits"). Apply blockers -> code issues -> style -> suggestions. Touch only review-named files. Verify sibling occurrences.
   4. **Push & Stamp** — skip the whole step when no fixes were applied; HEAD has not moved, so there is nothing to ship and the stamp still keys to HEAD:
      - Run `/ship` with `🐛 fix: address PR #XX review feedback`.
      - Watch CI: `gh pr checks "$PR" --watch --fail-fast > /tmp/bravros-checks-$PR.txt 2>&1` then `RC=$?` — **never pipe the gate**; `| tail` returns the pipe's status and a red build reads as success.
-     - Round >= 2 only: `--write-stamp` skips when a stamp exists, silently preserving round 1's `commit_sha`. Delete `.planning/.review-stamp-${PR}.json` first *if and only if* its `commit_sha` differs from HEAD (see `references/briefing.md`).
-     - Stamp: `bravros pr-review "$PR" --write-stamp`.
+     - Stamp: `bravros pr-review "$PR" --write-stamp` — commit-sha-keyed, safe to re-run every round (same HEAD -> no-op, new HEAD -> refresh in place).
   5. **Route**:
-     - No fixes (🟢) if the round applied ZERO code changes — every finding informational, out of scope, or already satisfied.
+     - No fixes (🟢) if the round applied ZERO code changes — every finding informational (no code to change), out of scope, or already satisfied.
      - Re-review (⚠️) if blockers fixed, logic/control flow changed, tests modified, or security files touched.
      - Optional (✅) if fixes were applied and all were style/formatting, typos/comments, simple additions.
-     - Interactive: on 🟢 invoke `Skill({skill: "finish"})` immediately with NO args and NO ask_question — nothing to re-review, and the stamp is commit-sha-keyed so any HEAD move would force a needless extra round. Stop and report instead when the sentinel said `changes-requested`, or when a finding WAS actionable and you skipped it. On ⚠️ invoke `Skill({skill: "pr-review"})`; on ✅ present the merge decision (`/finish`).
+     - Interactive: on 🟢 invoke `Skill({skill: "finish"})` in the SAME turn, as the LAST tool call, with NO args and NO ask_question — a report that ends the turn without the call is a failed round. Only four anomalies may interrupt, each as ONE ask naming it: sentinel `changes-requested` · an actionable finding you skipped · PR base ≠ staging branch (unless `bravros config get police.direct_main` prints `true` — then `main` is the expected base) · PR stacked on / sharing a tree with another open PR or session. On ⚠️ invoke `Skill({skill: "pr-review"})`; on ✅ ask ONCE under a `Main merge` header in `/finish` Step 7 vocabulary. Third round on the same PR: offer `/local-review --deep` instead of looping.
      - Skip the completion announce on 🟢 — nothing was published and `/finish` fires its own.

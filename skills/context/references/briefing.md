@@ -15,8 +15,8 @@
    ```
    Pass operator test conventions from `references/test-runners.md` via `docs`. Returns `{ clusters, results }` — each entry `{ cluster, files_written?, files_audited?, staleness? }` (dead workers → `null`, filtered).
 5. **Audit findings → approval**: staleness (wrong versions, deprecated APIs, dead paths, wrong test patterns) and README drift are presented via `ask_question` — nothing overwritten without explicit confirmation. Announce before waiting:
-   <!-- announce-template: "Auditoria de contexto concluída, aguardando aprovação das atualizações sugeridas. Projeto {PROJECT}." -->
+   <!-- announce-template: "Auditoria de contexto concluída, aguardando aprovação das atualizações sugeridas. Ramo {BRANCH}, projeto {PROJECT}." -->
    ```bash
-   bravros ha say --force "Auditoria de contexto concluída, aguardando aprovação das atualizações sugeridas. Projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio >/dev/null 2>&1 || true
+   bash ~/.agent_config/scripts/announce.sh --force "Auditoria de contexto concluída, aguardando aprovação das atualizações sugeridas. Ramo $(git branch --show-current), projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio || true
    ```
 6. **Report**: stack detected, Context7 usage, files created/updated/unchanged, directories skipped, README findings.

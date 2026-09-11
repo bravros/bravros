@@ -149,7 +149,18 @@ body: |
 
   ```bash
   php artisan route:list --except-vendor >/dev/null; echo "boot rc=$?"   # boots without Horizon
+  composer show aws/aws-sdk-php >/dev/null 2>&1; echo "aws-sdk rc=$?"    # required for the managed queue
   ```
+
+  **`aws/aws-sdk-php` must be a composer dependency.** Laravel Cloud's managed queue is SQS
+  underneath, and a deploy without this package fails with "Your application has a managed queue
+  but is missing the [aws/aws-sdk-php] package." Add it (`composer require aws/aws-sdk-php`) before
+  the first deploy that enables the managed queue, not after the failure.
+
+  **Scale-to-zero / hibernation wake interval is a dashboard setting, not code.** The hourly (or
+  other) wake cadence that keeps a hibernating environment checking in is configured in the Laravel
+  Cloud dashboard for that environment — there is no config file, env var, or code path to search
+  for it. Point the operator at the dashboard instead of hunting the repo.
 
   Post-deploy, confirm on a cacheable route: `cache-control: public, max-age=0, s-maxage=3600,
   must-revalidate`, no `set-cookie`, no `csrf-token` meta — and that a form route still posts

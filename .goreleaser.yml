@@ -20,7 +20,7 @@ project_name: bravros
 before:
   hooks:
     - sh -c "cd cli && go generate ./internal/payload/..."
-    - sh -c "tar -czf bravros-payload.tar.gz skills templates home scripts/reconcile-global-claude.py scripts/announce.sh scripts/mute-announce.sh"
+    - sh -c "tar -czf bravros-payload.tar.gz skills agents templates home scripts/reconcile-global-claude.py scripts/announce.sh scripts/mute-announce.sh"
 
 builds:
   - id: bravros

@@ -47,12 +47,12 @@ PRIMARY_BRANCH=$(cd "$BACKLOG_ROOT" && git branch --show-current)
 1. Duplicate scan: fold table + titles in `.planning/backlog/`. Likely dupe → announce and
    ask (continue / cancel / link) before writing.
    <!-- announce-template: "Item pendente possivelmente duplicado, aguardando decisão. Ramo {BRANCH}, projeto {PROJECT}." -->
-   `bravros ha say --force "Item pendente possivelmente duplicado, aguardando decisão. Ramo <fragmento>, projeto <repo>." studio >/dev/null 2>&1 || true`
+   `bash ~/.agent_config/scripts/announce.sh --force "Item pendente possivelmente duplicado, aguardando decisão. Ramo <fragmento>, projeto <repo>." studio || true`
 2. Infer `type` (+ `severity`/`source` when it's a fix or incident); confirm in one
    `ask_question`. Titles: `<type>: short description` — parentheses, em-dashes, and
    10-word titles produce awkward slugs.
    <!-- announce-template: "Novo item pendente aguardando confirmação. Ramo {BRANCH}, projeto {PROJECT}." -->
-   `bravros ha say --force "Novo item pendente aguardando confirmação. Ramo <fragmento>, projeto <repo>." studio >/dev/null 2>&1 || true`
+   `bash ~/.agent_config/scripts/announce.sh --force "Novo item pendente aguardando confirmação. Ramo <fragmento>, projeto <repo>." studio || true`
 3. Write the file (frontmatter + one-paragraph what/why body), append the `created` event,
    commit + push from `$BACKLOG_ROOT`. Surface the ID and mention `/backlog promote NNNN`.
 
@@ -60,7 +60,7 @@ PRIMARY_BRANCH=$(cd "$BACKLOG_ROOT" && git branch --show-current)
 
 1. Announce, then ask: worktree (`/recon --worktree`) or local (`/recon`)?
    <!-- announce-template: "Item pendente pronto para promoção, aguardando escolha. Ramo {BRANCH}, projeto {PROJECT}." -->
-   `bravros ha say --force "Item pendente pronto para promoção, aguardando escolha. Ramo <fragmento>, projeto <repo>." studio >/dev/null 2>&1 || true`
+   `bash ~/.agent_config/scripts/announce.sh --force "Item pendente pronto para promoção, aguardando escolha. Ramo <fragmento>, projeto <repo>." studio || true`
 2. Read the item; append a `promoted` event (subject `B-NNNN`); hand off to `/recon` with the
    item as context — `/recon` links it in the plan body. The file does not move.
 3. After promote, the full `/recon` → `/orchestrate` pipeline applies — the only exception is

@@ -12,9 +12,9 @@ Announce, then tell the user (separate terminal / GUI): enable **1Password app �
 → Developer → Integrate with 1Password CLI**, verify with `op whoami`, then say "done" so
 preflight reruns.
 
-<!-- announce-template: "Configuração de área de trabalho do 1Password necessária. Siga as instruções no terminal separado. Projeto {PROJECT}." -->
+<!-- announce-template: "Configuração de área de trabalho do 1Password necessária. Siga as instruções no terminal separado. Ramo {BRANCH}, projeto {PROJECT}." -->
 ```bash
-bravros ha say --force "Configuração de área de trabalho do 1Password necessária. Siga as instruções no terminal separado. Projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio >/dev/null 2>&1 || true
+bash ~/.agent_config/scripts/announce.sh --force "Configuração de área de trabalho do 1Password necessária. Siga as instruções no terminal separado. Ramo $(git branch --show-current), projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio || true
 ```
 
 ## service-account
@@ -32,7 +32,7 @@ export OP_SERVICE_ACCOUNT_TOKEN="$(op read 'op://HomeLab/OP Service Account - Au
 Verify with `op user get --me`. Warn: the token bypasses biometric — treat like a root
 credential; never commit, log, or paste it.
 
-<!-- announce-template: "Configuração de conta de serviço do 1Password necessária. Siga as instruções no terminal separado. Projeto {PROJECT}." -->
+<!-- announce-template: "Configuração de conta de serviço do 1Password necessária. Siga as instruções no terminal separado. Ramo {BRANCH}, projeto {PROJECT}." -->
 ```bash
-bravros ha say --force "Configuração de conta de serviço do 1Password necessária. Siga as instruções no terminal separado. Projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio >/dev/null 2>&1 || true
+bash ~/.agent_config/scripts/announce.sh --force "Configuração de conta de serviço do 1Password necessária. Siga as instruções no terminal separado. Ramo $(git branch --show-current), projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio || true
 ```

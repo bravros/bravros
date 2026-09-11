@@ -2,7 +2,7 @@
 
 Framework-agnostic full-suite regression gate: run the suite, parse counts, reconcile
 against the pre-implementation baseline, block on **new** failures only. Opt-in for
-`/orchestrate` and `/auto-pr` via `features.extra.verify_suite: true` in `.bravros.yml`
+`/orchestrate` and `/auto-pr` via `features.extra.verify_suite: true` in `.bravros/config.json`
 (default false).
 
 ## Contract
@@ -26,9 +26,9 @@ floor). The baseline runs in a throwaway worktree at `origin/<base>` so the work
 is never touched.
 
 ```bash
-BASE_BR=$(awk '/^base:/{print $2; exit}' .bravros.yml 2>/dev/null)
+BASE_BR=$(bravros config get staging_branch 2>/dev/null)
 [ -z "$BASE_BR" ] && BASE_BR=homolog
-RUNNER=$(awk '/test_runner:/{sub(/^[^:]*:[[:space:]]*/,""); print; exit}' .bravros.yml 2>/dev/null)
+RUNNER=$(bravros config get stack.test_runner 2>/dev/null)
 PRE_FAIL_FILE="$PWD/.planning/.verify-suite-pre-fail.json"
 mkdir -p .planning
 
@@ -149,14 +149,14 @@ intentional: the safe default is to over-report, never under-report.
 
 ## Step 1: Runner Resolution
 
-Read `stack.test_runner` from `.bravros.yml`; if unset, infer from the repo (`go.mod` →
+Read `stack.test_runner` from `.bravros/config.json`; if unset, infer from the repo (`go.mod` →
 `go test ./...`, `artisan` + Pest → `php artisan test`, `package.json` `scripts.test`,
 `pytest.ini`/`pyproject`). If nothing resolves:
 
 ```bash
 if [ -z "$RUNNER" ]; then
   echo "⚠️  [verify-suite] NO TEST RUNNER CONFIGURED — plan treated as UNVERIFIED."
-  echo "    Fix: add stack.test_runner to .bravros.yml and re-run."
+  echo "    Fix: add stack.test_runner to .bravros/config.json and re-run."
   echo '{"runner":"","passed":0,"failed":0,"skipped":0,"new_failures":[],"status":"skipped"}' \
     > .planning/.verify-suite-result.json
   exit 0

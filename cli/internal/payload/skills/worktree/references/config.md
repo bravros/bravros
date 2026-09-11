@@ -20,12 +20,13 @@ db:
 
 Placeholders: `{name}` = `<repo><id>`, `{repo}` = repo basename, `{n}` = the id.
 
-**Do not put this block in `.bravros.yml`** — that file round-trips through a Go struct
-and silently drops unknown keys.
+**Do not put this block in `.bravros/config.json`** — that file round-trips through a Go struct
+and silently drops unknown keys. (The legacy `.bravros.yml` is auto-migrated into it and is never
+read by these scripts.)
 
 ## Behavior notes
 
-- **Non-Laravel repo (or no Herd):** worktree + runtime-dir clone + branch resolution + git smoke tests still run; `.env`/Herd/DB steps skipped with a note; `--clone-db` refuses.
+- **Non-Laravel repo (or no Herd):** worktree + runtime-dir clone + branch resolution + git smoke tests still run; `.env`/Herd/DB/storage steps skipped with a note; `--clone-db` refuses. Detection reads `stack.framework` from `.bravros/config.json` first (`bravros config get` when it can answer, python3 otherwise), then falls back to an `artisan` file at the repo root — a Go/Node/Python repo never triggers Herd.
 - **Merge checks are content-aware** (diff vs merge-base, not literal ancestry) — squash-merged PRs and stray planning-only commits don't mislabel a shipped branch as unmerged.
 - **Shared parent DB is the default** because production-sized DBs are slow to copy. `--clone-db` seeds from the newest valid local dump; `--live-dump` forces a live mysqldump.
 - **Destroy** unlinks Herd FIRST (no dangling link if a later step fails), only ever drops the clone DB (never the parent's), and deletes the local branch only when its code is safe (`merged`, or `plan-only` after explicit `--force`).

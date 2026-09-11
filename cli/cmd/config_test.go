@@ -187,16 +187,209 @@ func TestConfigGet_StagingBranch_FromJSONConfig(t *testing.T) {
 	}
 }
 
-// TestConfigGet_UnknownKey verifies that an unknown key returns an error.
-func TestConfigGet_UnknownKey(t *testing.T) {
+// TestConfigGet_UnknownKey_GenericEmpty verifies that a dotted key path with
+// no config file on disk (and, more generally, any unset generic key) is
+// treated as unset — empty output, exit 0 — rather than an error. Generic
+// key resolution has no notion of "unknown key" anymore: every non-special
+// key is a path to walk.
+func TestConfigGet_UnknownKey_GenericEmpty(t *testing.T) {
 	dir := t.TempDir()
 	chdirTo(t, dir)
 
 	err := configGetCmd.RunE(configGetCmd, []string{"unknown.key"})
-	if err == nil {
-		t.Fatal("expected error for unknown key, got nil")
+	if err != nil {
+		t.Fatalf("expected nil error for unset generic key, got %v", err)
 	}
-	if !strings.Contains(err.Error(), "unknown config key") {
-		t.Fatalf("expected 'unknown config key' in error, got %q", err.Error())
+
+	out := captureStdout(t, func() {
+		configGetCmd.RunE(configGetCmd, []string{"unknown.key"}) //nolint:errcheck
+	})
+	if out != "" {
+		t.Fatalf("expected empty output for unset generic key, got %q", out)
+	}
+}
+
+// TestConfigGet_Generic_NestedKey verifies a nested dotted key path
+// (stack.test_runner) is walked into .bravros/config.json and printed as-is.
+func TestConfigGet_Generic_NestedKey(t *testing.T) {
+	dir := t.TempDir()
+	chdirTo(t, dir)
+	if err := os.MkdirAll(".bravros", 0o755); err != nil {
+		t.Fatalf("mkdir .bravros: %v", err)
+	}
+	cfg := `{"stack": {"test_runner": "go test", "framework": "go"}}`
+	if err := os.WriteFile(".bravros/config.json", []byte(cfg), 0o644); err != nil {
+		t.Fatalf("write config.json: %v", err)
+	}
+
+	out := captureStdout(t, func() {
+		configGetCmd.RunE(configGetCmd, []string{"stack.test_runner"}) //nolint:errcheck
+	})
+	if out != "go test\n" {
+		t.Fatalf("expected \"go test\\n\", got %q", out)
+	}
+}
+
+// TestConfigGet_Generic_Array verifies an array value (permanent_branches)
+// prints space-separated, mirroring the skills.preserve special case.
+func TestConfigGet_Generic_Array(t *testing.T) {
+	dir := t.TempDir()
+	chdirTo(t, dir)
+	if err := os.MkdirAll(".bravros", 0o755); err != nil {
+		t.Fatalf("mkdir .bravros: %v", err)
+	}
+	cfg := `{"permanent_branches": ["main", "homolog"]}`
+	if err := os.WriteFile(".bravros/config.json", []byte(cfg), 0o644); err != nil {
+		t.Fatalf("write config.json: %v", err)
+	}
+
+	out := captureStdout(t, func() {
+		configGetCmd.RunE(configGetCmd, []string{"permanent_branches"}) //nolint:errcheck
+	})
+	if out != "main homolog\n" {
+		t.Fatalf("expected \"main homolog\\n\", got %q", out)
+	}
+}
+
+// TestConfigGet_Generic_Object verifies an object value (police) prints as
+// compact JSON.
+func TestConfigGet_Generic_Object(t *testing.T) {
+	dir := t.TempDir()
+	chdirTo(t, dir)
+	if err := os.MkdirAll(".bravros", 0o755); err != nil {
+		t.Fatalf("mkdir .bravros: %v", err)
+	}
+	cfg := `{"police": {"direct_main": true}}`
+	if err := os.WriteFile(".bravros/config.json", []byte(cfg), 0o644); err != nil {
+		t.Fatalf("write config.json: %v", err)
+	}
+
+	out := captureStdout(t, func() {
+		configGetCmd.RunE(configGetCmd, []string{"police"}) //nolint:errcheck
+	})
+	if out != `{"direct_main":true}`+"\n" {
+		t.Fatalf("expected compact JSON object, got %q", out)
+	}
+}
+
+// TestConfigGet_Generic_UnsetNestedKey verifies a nested key that doesn't
+// exist in an otherwise-present config produces empty output, exit 0 — not
+// an error.
+func TestConfigGet_Generic_UnsetNestedKey(t *testing.T) {
+	dir := t.TempDir()
+	chdirTo(t, dir)
+	if err := os.MkdirAll(".bravros", 0o755); err != nil {
+		t.Fatalf("mkdir .bravros: %v", err)
+	}
+	cfg := `{"staging_branch": "homolog"}`
+	if err := os.WriteFile(".bravros/config.json", []byte(cfg), 0o644); err != nil {
+		t.Fatalf("write config.json: %v", err)
+	}
+
+	err := configGetCmd.RunE(configGetCmd, []string{"stack.test_runner"})
+	if err != nil {
+		t.Fatalf("expected nil error for unset nested key, got %v", err)
+	}
+	out := captureStdout(t, func() {
+		configGetCmd.RunE(configGetCmd, []string{"stack.test_runner"}) //nolint:errcheck
+	})
+	if out != "" {
+		t.Fatalf("expected empty output for unset nested key, got %q", out)
+	}
+}
+
+// TestConfigGet_Generic_FromLegacyYAML verifies the generic path also
+// respects the legacy .bravros.yml fallback for a key with no special case.
+func TestConfigGet_Generic_FromLegacyYAML(t *testing.T) {
+	dir := t.TempDir()
+	chdirTo(t, dir)
+	configFixture(t, "permanent_branches:\n  - main\n  - homolog\n")
+
+	out := captureStdout(t, func() {
+		configGetCmd.RunE(configGetCmd, []string{"permanent_branches"}) //nolint:errcheck
+	})
+	if out != "main homolog\n" {
+		t.Fatalf("expected \"main homolog\\n\", got %q", out)
+	}
+}
+
+// TestConfigGet_Generic_CorruptJSON_WarnsAndFails pins the difference between
+// "unset" and "broken": a .bravros/config.json that exists but does not parse
+// must NOT read as an empty value (exit 0) — a script consuming
+// `$(bravros config get x)` would then silently fall back to its default for
+// every key. It gets a warning naming the file on stderr and a non-zero exit.
+func TestConfigGet_Generic_CorruptJSON_WarnsAndFails(t *testing.T) {
+	dir := t.TempDir()
+	chdirTo(t, dir)
+	if err := os.MkdirAll(".bravros", 0o755); err != nil {
+		t.Fatalf("mkdir .bravros: %v", err)
+	}
+	if err := os.WriteFile(".bravros/config.json", []byte(`{"stack": {"test_runner": "go test"`), 0o644); err != nil {
+		t.Fatalf("write config.json: %v", err)
+	}
+
+	var err error
+	var out string
+	stderr := captureStderr(t, func() {
+		out = captureStdout(t, func() {
+			err = configGetCmd.RunE(configGetCmd, []string{"stack.test_runner"})
+		})
+	})
+	if err == nil {
+		t.Fatal("expected a non-nil error for a corrupt config.json, got nil")
+	}
+	if out != "" {
+		t.Errorf("a corrupt config must print nothing on stdout, got %q", out)
+	}
+	if !strings.HasPrefix(stderr, "warning: .bravros/config.json is not valid JSON: ") {
+		t.Errorf("stderr must start with the canonical warning, got %q", stderr)
+	}
+	// The warning is the whole message: cobra must not print it again as
+	// "Error: …" nor dump usage — both are silenced on configGetCmd.
+	if !configGetCmd.SilenceErrors || !configGetCmd.SilenceUsage {
+		t.Error("configGetCmd must set SilenceErrors and SilenceUsage so the warning is printed exactly once")
+	}
+}
+
+// TestConfigGet_Generic_CorruptLegacyYAML_WarnsAndFails — the legacy fallback
+// gets the same treatment: a .bravros.yml that fails to parse is a warning +
+// exit 1, not an empty value.
+func TestConfigGet_Generic_CorruptLegacyYAML_WarnsAndFails(t *testing.T) {
+	dir := t.TempDir()
+	chdirTo(t, dir)
+	configFixture(t, "permanent_branches: [main, homolog\n")
+
+	var err error
+	stderr := captureStderr(t, func() {
+		captureStdout(t, func() {
+			err = configGetCmd.RunE(configGetCmd, []string{"permanent_branches"})
+		})
+	})
+	if err == nil {
+		t.Fatal("expected a non-nil error for a corrupt .bravros.yml, got nil")
+	}
+	if !strings.HasPrefix(stderr, "warning: .bravros.yml is not valid YAML: ") {
+		t.Errorf("stderr must start with the canonical warning, got %q", stderr)
+	}
+}
+
+// TestConfigGet_Generic_MissingConfig_StaysSilent guards the one exit-0 path
+// that must survive the corrupt-file change: no config on disk at all is still
+// "unset", empty output, nil error.
+func TestConfigGet_Generic_MissingConfig_StaysSilent(t *testing.T) {
+	dir := t.TempDir()
+	chdirTo(t, dir)
+
+	var err error
+	stderr := captureStderr(t, func() {
+		captureStdout(t, func() {
+			err = configGetCmd.RunE(configGetCmd, []string{"stack.test_runner"})
+		})
+	})
+	if err != nil {
+		t.Fatalf("missing config must be exit 0, got %v", err)
+	}
+	if stderr != "" {
+		t.Errorf("missing config must print no warning, got %q", stderr)
 	}
 }

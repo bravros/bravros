@@ -22,12 +22,19 @@ owned by the project — see its own `CLAUDE.md`.
 
 ## SDLC workflow
 
-Feature work flows: **`/plan` → `/orchestrate` → `/pr` → `/finish`** (`/plan` reviews inline
-and writes a `.planning/P-NNNN-<slug>/` dossier; `/orchestrate` executes it).
+Feature work flows: **`/recon` → `/orchestrate` → `/pr` → `/finish`** (`/recon` documents
+findings in a `.planning/P-NNNN-<slug>/` dossier; `/orchestrate` plans the execution and runs it
+on a `feature/p-NNNN-<slug>` branch — never directly on the staging branch).
 
 - Branch model: `feature/*` → **`homolog`** (staging) → **`main`** (production, PR-gated only).
-- Never push directly to `main`; promote `homolog → main` with **`/promote`** (needs an
-  out-of-band token minted from a separate terminal — Claude cannot mint it).
+- Never push directly to `main`. Three sanctioned paths merge `homolog → main`, all through a
+  PR: `/finish` Step 7 (feature completion, asks under a `Main merge` header), `/hotfix`
+  (emergency), and `/promote` (standalone bundle release; the only one that always needs an
+  out-of-band `bravros promote unlock` token — Claude cannot mint it). The `bravros police`
+  hook lets a CLEAN `homolog → main` PR merge through (the staging lane); a feature branch or a
+  direct push to `main` still needs `bravros police unlock`. Repos that work on `main` by design
+  declare `"police": {"direct_main": true}` in `.bravros/config.json`
+  (`bravros police direct-main on`).
 - Accumulate multiple fixes on `homolog`, then **one** `/promote` for a bundled release —
   don't promote after every fix.
 - Backlog before planning: capture ideas with **`/backlog add`**; promote to a plan when ready.

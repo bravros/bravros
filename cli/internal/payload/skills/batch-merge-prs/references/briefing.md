@@ -37,4 +37,4 @@ all open PRs"): integration-branch flow, park rules, Linear sweep → `reference
 
 GOTCHA: `gh pr diff` has NO `--stat` — `--name-only`; stats via `gh pr view --json files,additions,deletions`.
 On completion (PT-BR, ~20 palavras, nomeie o ramo):
-`bravros ha say --force "Mesclagem em lote concluída: <N> revisões publicadas em homologação. Ramo <fragmento>, projeto <repo>." studio >/dev/null 2>&1 || true`
+`bash ~/.agent_config/scripts/announce.sh --force "Mesclagem em lote concluída: <N> revisões publicadas em homologação. Ramo <fragmento>, projeto <repo>." studio || true`

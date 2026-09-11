@@ -9,6 +9,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -1162,8 +1163,13 @@ func runFetchPathDeploy(t *testing.T, home, payloadDir, targetDir string) {
 // P-0014 Phase 4. The fetch path now DOES orphan-prune (it is the only delivery
 // path left, so a skill deleted upstream has to be removed), but pruning is
 // scoped to skills+templates — the subtrees the payload actually ships.
-// ~/.claude/hooks and ~/.claude/agents are content bravros does not own at the
-// target and must come through a fetch-path deploy byte-for-byte intact.
+// ~/.claude/hooks is content bravros does not own at the target and must come
+// through a fetch-path deploy byte-for-byte intact — hooks is never in this
+// lane's PruneSubtrees. agents/ IS a prune target now (the payload ships the
+// roster), but only against a payload that actually carries agents/: this fake
+// payload has none, so deploy.detectOrphans skips the subtree and the user's
+// agent survives. The positive case — a payload WITH agents/ prunes an agent
+// absent from it — is TestSelfupdateFetchPathPrunesAgentsWhenPayloadShipsThem.
 func TestSelfupdateFetchPathNeverPrunesHooksOrAgents(t *testing.T) {
 	home, payloadDir := setupFetchPathTest(t)
 	isolatePreserveConfig(t, "")
@@ -1626,10 +1632,13 @@ func TestSelfupdate_CacheHitDoesNoWorkAtAll(t *testing.T) {
 // TestSelfupdate_RefreshNeverTouchesHooksOrAgents re-points the P-0014 scoping
 // invariant at the D2 lane. Its fetch-path twin
 // (TestSelfupdateFetchPathNeverPrunesHooksOrAgents) still guards the legacy
-// lane; the CONTRACT — bravros prunes only inside skills/ + templates/, and
-// ~/.claude/hooks and ~/.claude/agents are content it does not own — has to
-// hold on whichever lane is actually running on a user's machine, and after D2
-// that is this one.
+// lane; the CONTRACT — this lane prunes only inside skills/ (setupPlanPrune),
+// and a file the operator put in ~/.claude/hooks or ~/.claude/agents is never
+// removed or rewritten — has to hold on whichever lane is actually running on
+// a user's machine, and after D2 that is this one. Note the refresh MAY write
+// the shipped roster INTO agents/ (claude-agents is a default component); the
+// invariant is about the operator's own files, and the record here is a
+// current-schema `--components=claude-skills` so nothing is adopted either.
 func TestSelfupdate_RefreshNeverTouchesHooksOrAgents(t *testing.T) {
 	_, root := setupRefreshLaneTest(t)
 
@@ -1707,4 +1716,294 @@ func TestSelfupdate_RefreshPrunesNothing(t *testing.T) {
 	if got, _ := os.ReadFile(edited); string(got) != "# edited by the operator\n" {
 		t.Errorf("the operator's edit was overwritten: %q", got)
 	}
+}
+
+// ── default-component adoption (claude-agents on a pre-agents install) ───────
+
+// rewriteStateForTest applies mutate to the on-disk setup.json and writes it
+// back — the way to fabricate a state file an OLDER binary would have left
+// behind (lower schema, a component list that predates a default, a recorded
+// install_method).
+func rewriteStateForTest(t *testing.T, root string, mutate func(*setupState)) {
+	t.Helper()
+	st := readState(t, root)
+	mutate(&st)
+	data, err := json.MarshalIndent(st, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal state: %v", err)
+	}
+	if err := os.WriteFile(setupStatePath(root), append(data, '\n'), 0o644); err != nil {
+		t.Fatalf("write state: %v", err)
+	}
+}
+
+func stateComponentIDs(st setupState) []string {
+	var ids []string
+	for _, c := range st.Components {
+		ids = append(ids, c.ID)
+	}
+	return ids
+}
+
+func containsString(list []string, want string) bool {
+	for _, s := range list {
+		if s == want {
+			return true
+		}
+	}
+	return false
+}
+
+// TestSelfupdate_RefreshAdoptsAgentsOnPreAgentsInstall is the reviewer's
+// reproduction: a machine set up before the claude-agents component existed
+// carries a setup.json listing cli, claude-skills, claude-templates and
+// claude-settings. The refresh used to replay exactly that list forever, so
+// such a machine never received the subagent roster and /scout, /orchestrate
+// & co. dispatched to agents that did not exist. It must (1) install every
+// embedded agent, (2) record claude-agents in setup.json so the next refresh
+// replays it, (3) carry install_method forward verbatim, and (4) be a no-op
+// the second time.
+func TestSelfupdate_RefreshAdoptsAgentsOnPreAgentsInstall(t *testing.T) {
+	_, root := setupRefreshLaneTest(t)
+
+	if _, err := runSetupForTest(t, setupFlags{components: "claude-skills,claude-templates,claude-settings", skills: "core", yes: true}); err != nil {
+		t.Fatalf("seed setup run: %v", err)
+	}
+	// Downgrade the record to what a pre-agents binary wrote: schema 1, no
+	// claude-agents, and an installer-owned binary.
+	rewriteStateForTest(t, root, func(st *setupState) {
+		st.Schema = 1
+		st.InstallMethod = "installer"
+		var kept []setupStateComponent
+		for _, c := range st.Components {
+			if c.ID != "claude-agents" {
+				kept = append(kept, c)
+			}
+		}
+		st.Components = kept
+	})
+	if err := os.RemoveAll(filepath.Join(root, "agents")); err != nil {
+		t.Fatalf("clear agents dir: %v", err)
+	}
+	before := readState(t, root)
+	if containsString(stateComponentIDs(before), "claude-agents") {
+		t.Fatal("fixture still lists claude-agents")
+	}
+
+	stderr, err := runSelfupdate(t)
+	if err != nil {
+		t.Fatalf("refresh must not error: %v", err)
+	}
+
+	want, err := payload.ListTopLevel("agents")
+	if err != nil {
+		t.Fatalf("payload.ListTopLevel(agents): %v", err)
+	}
+	if len(want) == 0 {
+		t.Fatal("embedded agents/ is empty — refusing a vacuous test")
+	}
+	got := fileNames(t, filepath.Join(root, "agents"))
+	if len(got) != len(want) {
+		t.Fatalf("~/.claude/agents has %d entries %v, embedded payload has %d %v", len(got), got, len(want), want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("agents entry[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+	if !strings.Contains(stderr, "added component claude-agents") {
+		t.Errorf("the one-time adoption must be reported on stderr, got %q", stderr)
+	}
+
+	after := readState(t, root)
+	ids := stateComponentIDs(after)
+	if !containsString(ids, "claude-agents") {
+		t.Errorf("setup.json must now list claude-agents, got %v", ids)
+	}
+	if after.Schema != setupStateSchema {
+		t.Errorf("schema must be raised to %d so the next refresh does not re-adopt, got %d", setupStateSchema, after.Schema)
+	}
+	if after.InstallMethod != "installer" {
+		t.Errorf("install_method must be carried forward verbatim (bravros update reads it), got %q", after.InstallMethod)
+	}
+	for _, c := range after.Components {
+		if c.ID == "claude-agents" && c.Target != "agents" {
+			t.Errorf("claude-agents target = %q, want %q", c.Target, "agents")
+		}
+	}
+	// The pre-existing record is a prefix of the new one: nothing reordered,
+	// nothing dropped.
+	for i, c := range before.Components {
+		if i >= len(after.Components) || after.Components[i].ID != c.ID {
+			t.Errorf("recorded component %d changed: before %q, after %v", i, c.ID, ids)
+		}
+	}
+
+	// Steady state: the widened record replays as-is, byte-identical file,
+	// no adoption line.
+	first, _ := os.ReadFile(setupStatePath(root))
+	stderr2, err := runSelfupdate(t)
+	if err != nil {
+		t.Fatalf("second refresh must not error: %v", err)
+	}
+	second, _ := os.ReadFile(setupStatePath(root))
+	if string(first) != string(second) {
+		t.Errorf("second refresh rewrote setup.json:\n%s\n---\n%s", first, second)
+	}
+	if strings.Contains(stderr2, "added component") {
+		t.Errorf("second refresh must not adopt again, got %q", stderr2)
+	}
+}
+
+// TestSelfupdate_RefreshAdoptsOnlyPostRecordDefaults is the boundary of the
+// adoption rule: claude-templates and claude-settings were defaults when
+// schema 1 was written, so their absence from a schema-1 record is a choice
+// (`--components=claude-skills`) the hook must respect. Only claude-agents —
+// which did not exist yet — is added.
+func TestSelfupdate_RefreshAdoptsOnlyPostRecordDefaults(t *testing.T) {
+	_, root := setupRefreshLaneTest(t)
+
+	if _, err := runSetupForTest(t, setupFlags{components: "claude-skills", skills: "core", yes: true}); err != nil {
+		t.Fatalf("seed setup run: %v", err)
+	}
+	rewriteStateForTest(t, root, func(st *setupState) {
+		st.Schema = 1
+		var kept []setupStateComponent
+		for _, c := range st.Components {
+			if c.ID != "claude-agents" {
+				kept = append(kept, c)
+			}
+		}
+		st.Components = kept
+	})
+	_ = os.RemoveAll(filepath.Join(root, "agents"))
+
+	if _, err := runSelfupdate(t); err != nil {
+		t.Fatalf("refresh must not error: %v", err)
+	}
+
+	ids := stateComponentIDs(readState(t, root))
+	if !containsString(ids, "claude-agents") {
+		t.Errorf("claude-agents must be adopted, got %v", ids)
+	}
+	for _, deselected := range []string{"claude-templates", "claude-settings"} {
+		if containsString(ids, deselected) {
+			t.Errorf("%s was deselected at setup time and must not be adopted by a hook, got %v", deselected, ids)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "templates")); err == nil {
+		t.Error("~/.claude/templates was installed although the operator deselected claude-templates")
+	}
+	if _, err := os.Stat(filepath.Join(root, "settings.json")); err == nil {
+		t.Error("~/.claude/settings.json was written although the operator deselected claude-settings")
+	}
+}
+
+// TestSelfupdate_RefreshCurrentSchemaAdoptsNothing — a record written by THIS
+// build that deliberately omits claude-agents (`--components=claude-skills`)
+// is at the current schema, so the adoption rule has nothing to add.
+func TestSelfupdate_RefreshCurrentSchemaAdoptsNothing(t *testing.T) {
+	_, root := setupRefreshLaneTest(t)
+
+	if _, err := runSetupForTest(t, setupFlags{components: "claude-skills", skills: "core", yes: true}); err != nil {
+		t.Fatalf("seed setup run: %v", err)
+	}
+	if ids := stateComponentIDs(readState(t, root)); containsString(ids, "claude-agents") {
+		t.Fatalf("fixture: explicit --components must not include claude-agents, got %v", ids)
+	}
+
+	if _, err := runSelfupdate(t); err != nil {
+		t.Fatalf("refresh must not error: %v", err)
+	}
+	if ids := stateComponentIDs(readState(t, root)); containsString(ids, "claude-agents") {
+		t.Errorf("a current-schema record that omits claude-agents is a choice; refresh added it anyway: %v", ids)
+	}
+	if _, err := os.Stat(filepath.Join(root, "agents")); err == nil {
+		t.Error("~/.claude/agents was installed against an explicit current-schema deselection")
+	}
+}
+
+// TestSelfupdate_RefreshMigrationCarriesAgents — a pre-v2 install (no
+// setup.json at all) predates every adopted default, so the D11 migration
+// installs the roster alongside the skills it already has.
+func TestSelfupdate_RefreshMigrationCarriesAgents(t *testing.T) {
+	_, root := setupRefreshLaneTest(t)
+	seedSkill(t, root, "my-own-skill", "---\nname: my-own-skill\n---\nmine\n")
+
+	if _, err := runSelfupdate(t); err != nil {
+		t.Fatalf("refresh must not error: %v", err)
+	}
+
+	want, err := payload.ListTopLevel("agents")
+	if err != nil {
+		t.Fatalf("payload.ListTopLevel(agents): %v", err)
+	}
+	got := fileNames(t, filepath.Join(root, "agents"))
+	if len(got) != len(want) {
+		t.Errorf("migration must install every embedded agent: got %v, want %v", got, want)
+	}
+	if ids := stateComponentIDs(readState(t, root)); !containsString(ids, "claude-agents") {
+		t.Errorf("migrated setup.json must list claude-agents, got %v", ids)
+	}
+}
+
+// TestSelfupdateFetchPathPrunesAgentsWhenPayloadShipsThem — the --fetch-payload
+// lane prunes agents/ the same way the clone lane (`bravros deploy`) does, now
+// that .goreleaser.yml tars agents/ into the payload: an agent absent from a
+// payload that DOES carry agents/ was deleted upstream, and lingers forever
+// otherwise. Contrast TestSelfupdateFetchPathNeverPrunesHooksOrAgents, where
+// the payload ships no agents/ and the subtree is left alone.
+func TestSelfupdateFetchPathPrunesAgentsWhenPayloadShipsThem(t *testing.T) {
+	home, payloadDir := setupFetchPathTest(t)
+	isolatePreserveConfig(t, "")
+
+	targetDir := t.TempDir()
+	seeded := seedFetchTargetRuntime(t, targetDir)
+
+	writeInstalledTag(t, payloadDir, "v1.0.0")
+	selfupdateFetchTargetDirOverride = targetDir
+	selfupdateFetchClientOverride = &fakeFetchClient{
+		resolveTag: "v2.0.0",
+		writePayload: func(destDir string) error {
+			writeFakePayloadTree(t, destDir)
+			agentsDir := filepath.Join(destDir, "agents")
+			if err := os.MkdirAll(agentsDir, 0755); err != nil {
+				return err
+			}
+			return os.WriteFile(filepath.Join(agentsDir, "shipped-agent.md"), []byte("---\nname: shipped-agent\n---\n"), 0644)
+		},
+	}
+	if err := selfupdateViaFetch(home); err != nil {
+		t.Fatalf("fetch-path deploy: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(targetDir, "agents", "shipped-agent.md")); err != nil {
+		t.Errorf("payload agent must be deployed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(targetDir, "agents", "my-agent.md")); err == nil {
+		t.Error("agents/my-agent.md is absent from a payload that ships agents/ and must be pruned, like the clone lane does")
+	}
+	// hooks/ is still never a prune target on this lane.
+	hook := filepath.Join(targetDir, "hooks", "pre-push")
+	if got, err := os.ReadFile(hook); err != nil || string(got) != seeded[hook] {
+		t.Errorf("hooks/pre-push must survive untouched: err=%v content=%q", err, got)
+	}
+}
+
+// fileNames lists the regular files directly under dir, sorted the way
+// os.ReadDir returns them — the agents roster is flat *.md files, which
+// setup_test.go's dirNames (directories only) cannot see.
+func fileNames(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read dir %s: %v", dir, err)
+	}
+	var out []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			out = append(out, e.Name())
+		}
+	}
+	return out
 }

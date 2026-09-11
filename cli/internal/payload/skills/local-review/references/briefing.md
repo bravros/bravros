@@ -31,5 +31,5 @@ Unless `--no-post`: `gh pr comment` headed `🤖 **Local Claude Review** (not @c
 - **Interactive — changes requested:** `/address-pr` · let me read it first · second opinion.
 
 ```bash
-bravros ha say --force "Revisão local concluída, aguardando sua decisão sobre o próximo passo. Projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." >/dev/null 2>&1 || true
+bash ~/.agent_config/scripts/announce.sh --force "Revisão local concluída, aguardando sua decisão sobre o próximo passo. Ramo $(git branch --show-current), projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio || true
 ```

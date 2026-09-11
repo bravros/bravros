@@ -7,7 +7,7 @@ INTENT: one command, one merge-ready PR. Stages delegate to `/recon` (which revi
 
 1. **Only runs when the user EXPLICITLY typed /auto-pr.** Never substitute it for an interactive skill.
 2. **Zero ask_question.** Compact and continue on context pressure; the pipeline must complete.
-3. **NEVER merge to main.** `/promote` with its out-of-band token is the only path. Stop after the PR unless `--auto-merge` was passed.
+3. **NEVER merge to main.** `/promote` with its out-of-band token is the only path. Stop after the PR unless `--auto-merge` was passed. This is enforced, not promised: the `.planning/.auto-pr-lock` written in Step 0 is also what closes the `bravros police` staging lane, so a `gh pr merge` into `main` from this run is blocked by the hook until the operator clears the lock.
 4. **STATUS lines are breadcrumbs, not exits** (B-0173) — as a subagent, run every remaining stage locally in one uninterrupted invocation; the parent sends no continuation messages.
 5. **Marker-less review approval writes NO stamp — by design.** Do not retry. Surface the escape hatch: operator runs `bravros pr-review unlock` from a separate terminal (this session cannot mint the token), then `bravros pr-review "$PR_NUM" --write-stamp`.
 6. Max 3 review cycles; max 2 fix rounds per phase; commit after every stage with explicit file lists (never `git add .`).
@@ -20,7 +20,7 @@ bravros autopr preflight --skill auto-pr
 ```
 
 The lock persists until the user clears it from a separate terminal. Opt-in verify suite
-(`.bravros.yml` `features.extra.verify_suite: true`): baseline per [`../shared/verify-suite.md`](../../shared/verify-suite.md) Step 0, reconcile after execution.
+(`.bravros/config.json`: `{"features": {"extra": {"verify_suite": true}}}`): baseline per [`../shared/verify-suite.md`](../../shared/verify-suite.md) Step 0, reconcile after execution.
 
 ## Flags
 
@@ -31,6 +31,6 @@ The lock persists until the user clears it from a separate terminal. Opt-in veri
 After `/pr`, run the trigger → wait → fix loop per `references/review-loop.md` — its sentinel block is byte-exact and load-bearing. Then post the final report (READY/BLOCKED with blockers verbatim) and announce:
 
 ```bash
-# <!-- announce-template: "Fluxo automático finalizado. Revisão pronta no repositório. Projeto {PROJECT}." -->
-bash ~/.bravros/scripts/announce.sh "Fluxo automático finalizado. Revisão pronta no repositório. Projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio >/dev/null 2>&1 || true
+# <!-- announce-template: "Fluxo automático finalizado. Revisão pronta no repositório. Ramo <fragmento>, projeto {PROJECT}." -->
+bash ~/.agent_config/scripts/announce.sh --force "Fluxo automático finalizado. Revisão pronta no repositório. Ramo <fragmento>, projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio || true
 ```

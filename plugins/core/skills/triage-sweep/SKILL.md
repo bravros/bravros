@@ -19,9 +19,9 @@ Read [briefing.md](references/briefing.md) on demand for detailed context and in
 
 1. **Step 0 — Preflight + materialize:**
    ```bash
-   STAGING=$(grep -E '^staging_branch:' .bravros.yml 2>/dev/null | awk '{print $2}'); STAGING=${STAGING:-homolog}
+   STAGING=$(bravros config get staging_branch 2>/dev/null); STAGING=${STAGING:-homolog}
    mkdir -p .agent_config/workflows && cp -f ~/.agent_config/skills/triage-sweep/scripts/triage-sweep.js .agent_config/workflows/triage-sweep.js
    ```
 2. **Step 1 — Triage (parallel, read-only):** Run `triage-sweep` workflow across code, worktrees, open PRs, and `.planning/` plan folders.
 3. **Step 2 — Apply (SERIAL):** Append event to `.planning/events.jsonl` or run `gh issue close`.
-4. **Step 3 — Ledger + close out:** Write `.planning/sweep-ledger.md` and announce completion via `bravros ha say`.
+4. **Step 3 — Ledger + close out:** Write `.planning/sweep-ledger.md` and announce completion via `announce.sh`.

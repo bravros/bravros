@@ -111,11 +111,10 @@ needs. Never run destructive verbs against the working repo.
 
 ```bash
 FIXTURE="$SCRATCH/fixture"
-mkdir -p "$FIXTURE/.planning"
-cat > "$FIXTURE/.bravros.yml" <<'YAML'
-project: smoke-fixture
-base: homolog
-YAML
+mkdir -p "$FIXTURE/.planning" "$FIXTURE/.bravros"
+cat > "$FIXTURE/.bravros/config.json" <<'JSON'
+{"staging_branch": "homolog"}
+JSON
 
 RESULTS_FILE="$SCRATCH/commands.jsonl"
 : > "$RESULTS_FILE"

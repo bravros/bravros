@@ -15,7 +15,7 @@ know *what* a line of output means, or before adding a check.
 | 6 | Skill in source but not deployed | missing deploy | same |
 | 7 | Skill deployed but retired from source | orphan — its triggers still fire | `--fix` prunes |
 | 8 | `skills/shared` / `skills/_shared` deployed | install-hygiene failure (repo-only material) | `--fix` removes it |
-| 9 | `~/.bravros/CLAUDE.md` managed block vs `home/CLAUDE.md` | managed-block drift | `scripts/reconcile-global-claude.py` |
+| 9 | `~/.agent_config/CLAUDE.md` managed block vs `home/CLAUDE.md` | managed-block drift | `scripts/reconcile-global-claude.py` |
 | 10 | `~/.bravros/settings.json` present + valid JSON; a locked file reports healthy | config presence | restore from `config/settings.json` |
 | 11 | `templates/.githooks/commit-msg` deployed and carrying the `bravros-managed-commit-msg-hook` marker | commit-format gate | `bravros hooks update --force` |
 | 12 | `hooks/*.{sh,py}` and `scripts/*.{sh,py}`, source vs deployed (md5) | file drift | `cp -f` (auto-fixed) |

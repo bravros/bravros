@@ -55,7 +55,7 @@ nowhere else (`afterpay296` / PR #334).
 All run **before** merge truth and classification — a rejected-PR branch that is
 worktree-held, protected, or attached to an open plan stays put.
 
-1. **Protected names** — `main`, `master`, `homolog`, `staging`, `develop` (case-insensitive) + anything in `.bravros.yml:branch_prune.protected`.
+1. **Protected names** — `main`, `master`, `homolog`, `staging`, `develop` (case-insensitive) + anything in `.bravros/config.json`'s `permanent_branches`.
 2. **GitHub branch protection** — protected set fetched once per run (`gh api --paginate …/branches?protected=true`), per-branch fallback on failure. Best-effort: offline/unauthenticated silently reads "not protected" so prune works offline.
 3. **Current HEAD** — never delete the checked-out branch.
 4. **Open-plan ref** — any `.planning/*-{approved,reviewed,in-progress}.md` with `branch: <name>` in YAML frontmatter (frontmatter must start at byte 0; mid-file `---` fences rejected).

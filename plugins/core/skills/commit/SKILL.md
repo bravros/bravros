@@ -16,6 +16,7 @@ HARD CONSTRAINTS:
 - Name files explicitly — never blanket-stage. Never stage `.env`, `.env.*`, credentials, or API keys.
 - NEVER add AI signatures (`Co-Authored-By: Claude`, "Generated with…") — the hook rejects them.
 - Subject ≤ 50 chars (hard 72), present tense, lowercase, why over what; detail goes in the body.
+- No branch gate here — that lives in `/push` and `/ship`. Committing on `main` is normal in a direct-main repo — `bravros config get police.direct_main` prints `true` (`/git-this` personal repos); anything else (empty, an error, an older CLI reporting an unknown key) means PR-gated: branch first, then commit. `staging_branch` is never the discriminator — it never prints empty.
 
 REPO FACT — the only accepted `<emoji> <type>` pairs:
 ✨ feat · 🐛 fix · 📚 docs · 💄 style · ♻️ refactor · ⚡ perf · 🧪 test · 🔧 build · 🧹 chore ·

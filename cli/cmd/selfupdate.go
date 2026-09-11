@@ -207,6 +207,11 @@ func selfupdateReportRefresh(o embedRefreshOutcome) {
 	for _, rel := range res.Conflicts {
 		fmt.Fprintf(os.Stderr, "  kept your %s — new version at %s.new\n", rel, rel)
 	}
+	// One-time, so it is worth a line even outside --verbose: the operator
+	// should know a component they never picked just appeared, and why.
+	for _, id := range o.Adopted {
+		fmt.Fprintf(os.Stderr, "  added component %s — a default that did not exist when this install was recorded\n", id)
+	}
 	if selfupdateVerbose {
 		for _, w := range o.Warnings {
 			fmt.Fprintln(os.Stderr, "  ⚠️  "+w)
@@ -468,6 +473,10 @@ type embedRefreshOutcome struct {
 	Skipped bool
 	// Migrated is true when a pre-v2 install (no setup.json) was refreshed.
 	Migrated bool
+	// Adopted lists the component ids this refresh added to a recorded
+	// selection because they became defaults after that selection was
+	// written (selfupdateAdoptedSince). Empty on every steady-state run.
+	Adopted  []string
 	Scope    payload.SkillScope
 	Result   *setupApplyResult
 	Warnings []string
@@ -500,11 +509,12 @@ func selfupdateRefreshFromEmbed(root string) (embedRefreshOutcome, error) {
 		return out, err
 	}
 
-	sels, scope, migrated, err := selfupdateRefreshSelections(root, prev)
+	sel, err := selfupdateRefreshSelections(root, prev)
 	if err != nil {
 		return out, err
 	}
-	out.Scope, out.Migrated = scope, migrated
+	sels, scope, migrated := sel.Selections, sel.Scope, sel.Migrated
+	out.Scope, out.Migrated, out.Adopted = scope, migrated, sel.Adopted
 	if len(sels) == 0 {
 		out.Skipped = true
 		return out, nil
@@ -557,21 +567,64 @@ func selfupdateRefreshFromEmbed(root string) (embedRefreshOutcome, error) {
 		if _, _, wErr := setupWriteState(root, plan, scope); wErr != nil {
 			return out, wErr
 		}
+		return out, nil
+	}
+	// A recorded selection that just gained a component (D-adopt below) is
+	// persisted so the NEXT refresh replays it instead of re-deriving it —
+	// carrying every other recorded field forward verbatim.
+	if len(sel.Adopted) > 0 {
+		if err := selfupdatePersistAdoptedComponents(root, prev, plan, sel.Adopted); err != nil {
+			return out, err
+		}
 	}
 	return out, nil
 }
 
-// selfupdateRefreshSelections decides WHAT to refresh. Empty result means
+// selfupdateAdoptedSince names the default components that did not exist
+// when older setup.json files were written, keyed by the setupStateSchema at
+// which each became a default. A recorded state at schema N predates every
+// entry with a value > N, so the refresh widens that machine's selection by
+// exactly those — and by nothing else.
+//
+// This is deliberately NOT "every Default && !Internal component absent from
+// the recorded list": claude-templates and claude-settings were defaults from
+// schema 1, so their absence from a schema-1 state is an operator's explicit
+// deselection (`--components=claude-skills`), and a hook must never install a
+// component somebody chose not to have. Only a component the operator could
+// not possibly have declined — because it did not exist yet — is adopted.
+//
+// The reference case: claude-agents (schema 2). Without it, a machine set up
+// before the roster shipped replays cli,claude-skills,claude-templates,
+// claude-settings forever and /scout, /orchestrate & co. dispatch to
+// subagents that do not exist on that machine.
+var selfupdateAdoptedSince = map[string]int{
+	"claude-agents": 2,
+}
+
+// refreshSelection is what selfupdateRefreshSelections decides: the
+// components to re-materialise, the skill scope they resolve at, whether the
+// selection was derived from a pre-v2 install (Migrated), and which ids were
+// adopted on top of a recorded selection (Adopted).
+type refreshSelection struct {
+	Selections []payload.Selection
+	Scope      payload.SkillScope
+	Migrated   bool
+	Adopted    []string
+}
+
+// selfupdateRefreshSelections decides WHAT to refresh. Empty Selections means
 // "nothing is installed here" — the caller reports and returns.
-func selfupdateRefreshSelections(root string, prev *setupState) ([]payload.Selection, payload.SkillScope, bool, error) {
+func selfupdateRefreshSelections(root string, prev *setupState) (refreshSelection, error) {
 	if prev != nil && len(prev.Components) > 0 {
 		scope := prev.SkillsScope
 		if !scope.Valid() {
 			// A state file written by a newer binary can name a scope this
 			// build cannot resolve. The recorded skill LIST is still exact
 			// (payload.Selection stores it precisely so this stays possible),
-			// so replay that verbatim rather than guessing a scope.
-			return selfupdateReplayRecorded(prev), prev.SkillsScope, false, nil
+			// so replay that verbatim rather than guessing a scope. No
+			// adoption either: a newer writer already knew every default
+			// this build knows.
+			return refreshSelection{Selections: selfupdateReplayRecorded(prev), Scope: prev.SkillsScope}, nil
 		}
 		var sels []payload.Selection
 		for _, c := range prev.Components {
@@ -584,11 +637,15 @@ func selfupdateRefreshSelections(root string, prev *setupState) ([]payload.Selec
 			// whose recorded scope already covers it.
 			sel, err := comp.Select(scope)
 			if err != nil {
-				return nil, scope, false, err
+				return refreshSelection{}, err
 			}
 			sels = append(sels, sel)
 		}
-		return sels, scope, false, nil
+		sels, adopted, err := selfupdateAdoptNewDefaults(sels, scope, prev.Schema)
+		if err != nil {
+			return refreshSelection{}, err
+		}
+		return refreshSelection{Selections: sels, Scope: scope, Adopted: adopted}, nil
 	}
 
 	// No setup.json. Pre-v2 install → migrate at scope all; otherwise skip.
@@ -600,13 +657,93 @@ func selfupdateRefreshSelections(root string, prev *setupState) ([]payload.Selec
 		ids = append(ids, "claude-templates")
 	}
 	if len(ids) == 0 {
-		return nil, payload.ScopeAll, false, nil
+		return refreshSelection{Scope: payload.ScopeAll}, nil
+	}
+	// A pre-v2 install predates every adopted default (schema 0), so the
+	// migration carries them too — the agents roster is what makes the
+	// skills it already has dispatchable.
+	for id, since := range selfupdateAdoptedSince {
+		if since > 0 {
+			ids = append(ids, id)
+		}
 	}
 	sels, err := setupSelections(ids, payload.ScopeAll)
 	if err != nil {
-		return nil, payload.ScopeAll, false, err
+		return refreshSelection{}, err
 	}
-	return sels, payload.ScopeAll, true, nil
+	return refreshSelection{Selections: sels, Scope: payload.ScopeAll, Migrated: true}, nil
+}
+
+// selfupdateAdoptNewDefaults appends, to a selection recorded at
+// recordedSchema, every selfupdateAdoptedSince component that (a) became a
+// default after that schema, (b) this build still ships as Default and not
+// Internal, and (c) is not already in the list. Returns the widened list and
+// the adopted ids in manifest order, so the outcome is deterministic.
+func selfupdateAdoptNewDefaults(sels []payload.Selection, scope payload.SkillScope, recordedSchema int) ([]payload.Selection, []string, error) {
+	have := make(map[string]bool, len(sels))
+	for _, s := range sels {
+		have[s.ID] = true
+	}
+	var adopted []string
+	for _, c := range payload.Components() {
+		since, adoptable := selfupdateAdoptedSince[c.ID]
+		if !adoptable || since <= recordedSchema {
+			continue
+		}
+		if !c.Default || c.Internal || have[c.ID] {
+			continue
+		}
+		sel, err := c.Select(scope)
+		if err != nil {
+			return nil, nil, err
+		}
+		sels = append(sels, sel)
+		adopted = append(adopted, c.ID)
+	}
+	return sels, adopted, nil
+}
+
+// selfupdatePersistAdoptedComponents rewrites setup.json with the adopted
+// components appended to the recorded list and the schema raised to this
+// build's, so the next refresh replays the widened selection instead of
+// re-adopting. Everything else — install_method above all — is carried
+// forward verbatim: this lane must never re-derive install_method from the
+// running binary's path, because that could clobber what install.sh recorded
+// and `bravros update` reads that field to decide whether it may replace the
+// binary at all.
+//
+// A component the plan skipped (plugin-managed target) is not recorded: the
+// operator has not been given it, so the next refresh must try again.
+func selfupdatePersistAdoptedComponents(root string, prev *setupState, plan *setupPlan, adopted []string) error {
+	skipped := map[string]bool{}
+	for _, id := range plan.SkippedIDs {
+		skipped[id] = true
+	}
+	st := *prev
+	st.Components = append([]setupStateComponent(nil), prev.Components...)
+	for _, id := range adopted {
+		if skipped[id] {
+			continue
+		}
+		c, ok := payload.ComponentByID(id)
+		if !ok {
+			continue
+		}
+		for _, sel := range plan.Selections {
+			if sel.ID == id {
+				st.Components = append(st.Components, setupStateComponent{Selection: sel, Target: c.TargetRel()})
+				break
+			}
+		}
+	}
+	if len(st.Components) == len(prev.Components) {
+		return nil // everything adopted was skipped — nothing new to record
+	}
+	st.Schema = setupStateSchema
+	if _, _, err := writeSetupStateFile(root, st); err != nil {
+		return err
+	}
+	return nil
 }
 
 // selfupdateReplayRecorded rebuilds selections straight from state.json without
@@ -775,21 +912,22 @@ func selfupdateViaFetch(home string) error {
 	deployResult, deployErr := deploy.Deploy(deploy.DeployOpts{
 		SourceDir: payloadDir,
 		TargetDir: selfupdateFetchTargetDirOverride,
-		// Pruning is ON here, and scoped. The payload ships skills/ + templates/
-		// (.goreleaser.yml), which is the COMPLETE deployable tree — the source
-		// repo has no hooks/ or agents/ either. So for those two subtrees
-		// "absent from the payload" genuinely means "deleted upstream", and with
-		// the clone lane retired this fetch is the only delivery path: without
-		// pruning, a skill removed upstream would linger on every machine
-		// forever.
+		// Pruning is ON here, and scoped. The payload ships skills/, agents/
+		// and templates/ (.goreleaser.yml), which is the COMPLETE deployable
+		// tree for those three subtrees — the source repo has no hooks/. So
+		// for skills, agents and templates "absent from the payload" genuinely
+		// means "deleted upstream", and on a machine with no clone this fetch
+		// is the only delivery path: without pruning, a skill or agent removed
+		// upstream would linger on every machine forever.
 		//
 		// PruneSubtrees narrows orphan detection to exactly what the payload
-		// carries. ~/.claude/hooks and ~/.claude/agents are content bravros does
-		// not own at the target, and they stay untouched. (deploy.detectOrphans
-		// already skips any subtree missing from SourceDir; this scoping is the
-		// explicit contract, so a payload that ever shipped an empty hooks/ or
-		// agents/ still could not trigger a wipe.)
-		PruneSubtrees: []string{"skills", "templates"},
+		// carries, matching the clone lane (`bravros deploy`, which prunes the
+		// package default skills/templates/hooks/agents). ~/.claude/hooks is
+		// content bravros does not own at the target, and it stays untouched.
+		// (deploy.detectOrphans already skips any subtree missing from
+		// SourceDir; this scoping is the explicit contract, so a payload that
+		// ever shipped an empty hooks/ still could not trigger a wipe.)
+		PruneSubtrees: []string{"skills", "templates", "agents"},
 		// FilterMode: EnabledSkills here is a deploy filter, not a prune
 		// instruction. config.EnabledSkills() resolves .bravros.yml from CWD
 		// first, and selfupdate fires unattended from the SessionStart hook —

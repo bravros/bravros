@@ -18,36 +18,48 @@ body: |
 
   ## Process
 
-  0. **Auto-branch on debug handoff.** `/root-cause` passes `debug: D-NNNN` (bare ID) in
-     `$ARGUMENTS`. If present and currently on `main`/`homolog`:
+  0. **Auto-branch on scout handoff.** `/scout` passes `debug: S-NNNN` (bare ID) in `$ARGUMENTS`.
+     If present and currently on the staging branch or `main`/`master`:
      ```bash
-     SLUG=$(ls .planning/debug/ 2>/dev/null | grep "^${DEBUG_ID}-" | sed -E 's/^D-[0-9]+-//; s/-(open|complete)$//' || echo "quick-fix")
-     git switch -c "fix/${SLUG}"
+     STAGING=$(bravros config get staging_branch)
+     [ "$(bravros config get police.direct_main 2>/dev/null)" = true ] && STAGING=main   # default is homolog; no such remote branch here
+     SLUG=$(ls .planning/scout/ 2>/dev/null | grep "^${DEBUG_ID}-" | head -1 | sed -E 's/^S-[0-9]+-//; s/-(open|complete)$//' || echo "quick-fix")
+     git fetch origin "$STAGING" && git switch -c "fix/${SLUG}" "origin/$STAGING"
      ```
-     Commit convention for debug handoffs: append the bare ID — `fix: <description> (D-NNNN)`.
+     Commit convention for scout handoffs: append the bare ID — `fix: <description> (S-NNNN)`.
      Never reference a path.
-  1. **Branch safety** — on `main` (or `master`), announce and ask before touching any file:
-     create `fix/quick-<slug>` (recommended) / switch to `homolog` / stay on main (operator
-     accepts the risk).
+  1. **Branch safety — product code is not edited on the staging branch or on `main`/`master`.**
+     `STAGING=$(bravros config get staging_branch)` (default `homolog`), then
+     `[ "$(bravros config get police.direct_main 2>/dev/null)" = true ] && STAGING=main` — the config
+     prints the default even where no `origin/homolog` exists, and the fetch below fails on it.
+     Anything beyond a one-file trivial change: cut the branch first, no question needed —
+     `git fetch origin "$STAGING" && git switch -c "fix/<slug>" "origin/$STAGING"`. The one-file
+     exemption applies on the staging branch only, and only when the operator asked for it to land
+     there ("commit directly to homolog"). On `main`/`master` there is no exemption: announce and
+     ask before touching any file — create `fix/<slug>` off `origin/$STAGING` (recommended) / stay
+     on main (operator accepts the risk). Direct-main repos (`police.direct_main: true` in
+     `.bravros/config.json`) work on `main` by design and skip this step.
      <!-- announce-template: "Atenção: trabalhando na produção, aguardando escolha de ramo. Ramo {BRANCH}, projeto {PROJECT}." -->
      ```bash
-     bravros ha say --force "Atenção: trabalhando na produção, aguardando escolha de ramo. Ramo <fragmento>, projeto <repo>." studio >/dev/null 2>&1 || true
+     bash ~/.agent_config/scripts/announce.sh --force "Atenção: trabalhando na produção, aguardando escolha de ramo. Ramo <fragmento>, projeto <repo>." studio || true
      ```
   2. **Clarify** only if genuinely ambiguous; confirm the approach in one line.
   3. **Implement** the minimal change requested — do not refactor, clean up, or improve
      surrounding code.
-  4. **Verify** with targeted tests on what you touched. Full suite: hand the operator the
-     command for a separate tab — never run it yourself.
+  4. **Verify** with targeted tests on what you touched. Full suite: PHP/Pest → hand the operator
+     the command for a separate tab, never run it yourself; Go and other fast suites → run them.
   5. **Commit** via `/commit` — message says what changed and why, not which file was touched.
   6. **Ask next** — done / create a PR (`/pr`) / keep going on the branch:
      <!-- announce-template: "Tarefa concluída, aguardando instrução. Ramo {BRANCH}, projeto {PROJECT}." -->
      ```bash
-     bravros ha say --force "Tarefa concluída, aguardando instrução. Ramo <fragmento>, projeto <repo>." studio >/dev/null 2>&1 || true
+     bash ~/.agent_config/scripts/announce.sh --force "Tarefa concluída, aguardando instrução. Ramo <fragmento>, projeto <repo>." studio || true
      ```
 
   ## Rules
 
-  - Never commit directly on `main` — branch first (Step 1).
+  - Never commit product code on `main`/`master`, nor on the staging branch beyond a one-file
+    trivial change the operator asked for — branch first (Step 1). Always the `announce.sh`
+    wrapper, never bare `bravros ha say`; it prepends the opener and silences its own stdout.
   - `/quick` is the path for confident, contained fixes — scope is the operator's call. Want a
     planning pass? Run `/recon` instead.
   - Use `/ship` to commit and push in one move.

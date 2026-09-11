@@ -13,22 +13,27 @@ metadata:
 body: |
   Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
-  INTENT: ship an urgent production fix now, bypassing the plan workflow. Flow: commit → push/merge into homolog → PR homolog→main → merge → sync back. `$ARGUMENTS` is the description — ask if empty.
+  INTENT: ship an urgent production fix now, bypassing the plan workflow. Flow: confirm repo → commit → push/merge into homolog → PR homolog→main → wait for mergeability → merge → sync back → deploy status. `$ARGUMENTS` is the description — ask if empty.
 
   ## Hard constraints
 
   - **Running `/hotfix` IS approval for merge-to-main** — emergency exemption (no `ask_question` checkpoints).
+  - **Never route a hotfix through `/pr` → `/pr-review` → `/finish`** — if a review is wanted it is not a hotfix.
   - **Autopr lock gate**: If `bravros autopr status` reports lock present, refuse to merge until cleared (`bravros autopr clear-lock`).
+  - **The police staging lane — not a token — lets the merge through**: head `homolog`, `mergeStateStatus` `CLEAN`, no autonomous lock, plain `gh pr merge 1234 --merge` with the **literal** PR number (the hook reads raw command text — a `$VAR` in the PR argument is unreadable → blocked). `police.staging_lane: reviewed` repos need `bravros police unlock` from a separate terminal — say so ONCE, do not loop.
   - **Merge-lock skipped**: Documented exception per merge flow.
   - **NEVER delete homolog branch. NEVER skip PR** (main is protected).
   - If targeted tests fail, STOP and ask.
 
   ## Flow Summary
 
+  0. Confirm repo identity first: `git remote get-url origin` + `basename "$(git rev-parse --show-toplevel)"`.
   1. Refuse on `main`/`master`. Strip issue ref (`#42`) for description, carry as `Closes #42` in PR.
   2. Format changed files → `bravros commit "🩹 hotfix: <description>" <changed files only>`.
-  3. Push; merge to `homolog` & push if not on homolog → `gh pr create --base main --head homolog --title "🩹 hotfix: <description>"`.
-  4. Autopr gate → `gh pr merge "$PR_NUMBER" --merge` → verify state == `MERGED`.
-  5. Sync `homolog` from `main` (`git checkout homolog && git pull && git fetch origin main && git merge --ff-only origin/main`).
-  6. Plan closure: resolve `P-NNNN`, append completed event to `.planning/events.jsonl`, `bravros commit`.
-  7. Announce (PT-BR) via `bravros ha say --force ... studio`.
+  3. Push; merge to `homolog` & push if not on homolog → `gh pr create --base main --head homolog --title "🩹 hotfix: <description>"` (body via `--body-file` written in a previous step).
+  4. Wait for mergeability: `until [ "$(gh pr view "$PR_NUMBER" --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ]; do sleep 2; done` — otherwise the first merge hits the `UNKNOWN` police block.
+  5. Autopr gate → `gh pr merge 1234 --merge > /tmp/bravros-merge-1234.txt 2>&1` (substitute the literal number — a `$VAR` here is unreadable to the hook; no `cd … &&`, no `| tail`) → verify state == `MERGED`. A `✋🏽 Police Block` names its reason — relay it in one line; never `gh api`/raw HTTP, never `/promote`.
+  6. Sync `homolog` from `main` (`git checkout homolog && git pull && git fetch origin main && git merge --ff-only origin/main`).
+  7. Plan closure: resolve `P-NNNN`, append completed event to `.planning/events.jsonl`, `bravros commit`.
+  8. Deploy status line: `merged main @ <sha> · deploy: <auto/manual/none> · built+restarted: <yes/no/n-a> · verified: <how/not yet>`; compiled/infra targets say whether a server rebuild + restart is still required.
+  9. Announce (PT-BR) via `bash ~/.agent_config/scripts/announce.sh --force "<PT-BR>" studio || true`.

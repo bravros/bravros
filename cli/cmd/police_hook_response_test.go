@@ -49,15 +49,52 @@ func TestPoliceHookExecutableContract(t *testing.T) {
 	if out, err := exec.Command("git", "init", cwd).CombinedOutput(); err != nil {
 		t.Fatalf("init scratch repo: %v: %s", err, out)
 	}
-	for _, tc := range []struct{ name, command, reason string }{
-		{"merge", "git push origin main", "Police Block"},
-		{"destructive", "git stash drop", "Police Block"},
-		{"attribution", `git commit -m "Made with Cursor"`, "AI signature"},
-		{"comment", `gh pr comment 90 --body "@claude please review"`, "Police Block"},
-		{"allowed", "printf hello", ""},
+	// A `gh` PATH shim answers the merge gate's PR lookup with a CLEAN
+	// homolog→main PR, so the staging-lane cases below never hit the forge. It
+	// is installed before the env slice is built, so the subprocess inherits it.
+	fakePRView(t, "main", "homolog", "CLEAN", "", laneOID, false)
+	lock := filepath.Join(cwd, ".planning", ".auto-pr-lock")
+	for _, tc := range []struct {
+		name, command, reason string
+		setup                 func()
+	}{
+		{"merge", "git push origin main", "Police Block", nil},
+		{"destructive", "git stash drop", "Police Block", nil},
+		{"attribution", `git commit -m "Made with Cursor"`, "AI signature", nil},
+		{"comment", `gh pr comment 90 --body "@claude please review"`, "Police Block", nil},
+		{"allowed", "printf hello", "", nil},
+		// Staging lane: a CLEAN homolog→main merge is allowed silently…
+		{"staging-lane", "gh pr merge 7 --merge", "", nil},
+		// …and the same shape with a `cd <cwd>` prefix once the payload says so.
+		{"staging-lane-cd-cwd", "cd " + cwd + " && gh pr merge 7 --merge", "", nil},
+		// Adversarial-review shapes, against the real binary and a hand-made
+		// payload, exactly as the reviewer reproduced them.
+		{"gh-redefined", `gh(){ command gh "$@" -R o/r; }; gh pr merge 7 --merge`, "redefines gh/git", nil},
+		{"gh-alias", `alias gh='gh -R o/r'; shopt -s expand_aliases; gh pr merge 7`, "redefines gh/git", nil},
+		{"gh-path-form", "/usr/local/bin/gh pr merge 7 -R o/r --merge", "never use the lane", nil},
+		{"gh-substituted", `"$(command -v gh)" pr merge 7 -R o/r --merge`, "named by a substitution", nil},
+		{"git-path-form", "/usr/bin/git push origin main", "Merging or pushing to main", nil},
+		{"lane-delete-branch", "gh pr merge 7 --merge --delete-branch", "--delete-branch/-d", nil},
+		{"lane-var-pr", `gh pr merge "$PR" --merge`, "put the literal PR number", nil},
+		{"token-forge", "touch " + home + "/.claude/state/police-token", "gate's own input", nil},
+		{"stamp-forge", `printf '{"commit_sha":"abc"}' > .planning/.review-stamp-7.json`, "gate's own input", nil},
+		{"config-widen", `printf '{"staging_branch":"feature/x"}' > .bravros/config.json`, "gate's own input", nil},
+		{"token-read", "cat " + home + "/.claude/state/police-token; bravros police status", "", nil},
+		// …until an autonomous lock closes it.
+		{"lane-lock", "gh pr merge 7 --merge", "autonomous lock", func() {
+			if err := os.MkdirAll(filepath.Dir(lock), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(lock, []byte("skill=auto-pr\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			payload, err := json.Marshal(map[string]any{"tool_name": "Bash", "tool_input": map[string]string{"command": tc.command}, "permission_mode": "bypassPermissions"})
+			if tc.setup != nil {
+				tc.setup()
+			}
+			payload, err := json.Marshal(map[string]any{"tool_name": "Bash", "tool_input": map[string]string{"command": tc.command}, "permission_mode": "bypassPermissions", "cwd": cwd})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -89,6 +126,15 @@ func TestPoliceHookExecutableContract(t *testing.T) {
 				t.Fatalf("reason %q missing %q", reason, tc.reason)
 			}
 		})
+	}
+	// The two lane merges above were allowed without a token, so both must be
+	// on the audit log under the subprocess's HOME.
+	audit, err := os.ReadFile(filepath.Join(home, ".claude", "state", "police-merge-audit.log"))
+	if err != nil {
+		t.Fatalf("lane merges must be audited: %v", err)
+	}
+	if n := strings.Count(string(audit), "pr=7 homolog->main mode=open"); n != 2 {
+		t.Fatalf("want 2 audit lines, got %d:\n%s", n, audit)
 	}
 }
 

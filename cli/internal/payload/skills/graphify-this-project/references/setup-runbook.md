@@ -8,7 +8,7 @@ The full step sequence. Order matters where marked: the version pin (Step 3) mus
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"; cd "$REPO_ROOT"; mkdir -p graphify-out
 ```
 
-Canonical name for `.graphify` / CLAUDE.md: prefer `.bravros.yml`'s `remote:` (`basename <remote> .git`), then `git config remote.origin.url`, then the directory basename. An existing `graphify-out/graph.json` is fine — extraction refreshes in place.
+Canonical name for `.graphify` / CLAUDE.md: prefer `.bravros/config.json`'s `git.remote` (`basename <remote> .git`), then `git config remote.origin.url`, then the directory basename. An existing `graphify-out/graph.json` is fine — extraction refreshes in place.
 
 Write the git-tracked `.graphify` state file (if it exists: ensure `context_path` + hook-tuning keys are present, leave user edits intact):
 
@@ -83,8 +83,8 @@ Paid semantic alternatives (only when the user explicitly wants LLM-derived sema
 
 - **DeepSeek headless:** `bash <skill-dir>/scripts/extract-deepseek.sh .` (~$0.50–2.00, ~10–20 min, comes out labelled — skip Step 6).
 - **DeepSeek 10-terminal opencode swarm** (max quality, big repos): AST extract, then `sed -i.bak 's/MAX_PER_GROUP = 50/MAX_PER_GROUP = 200/' <skill-dir>/scripts/make-code-groups.py && uv run python <skill-dir>/scripts/make-code-groups.py .` (restore the `.bak`); HAND OFF — the operator opens 10 opencode terminals on DeepSeek, pastes `references/worker-prompt.md` as system context, dispatches one group per task line ("Process group `<name>`. Files in `graphify-out/groups/<name>.txt`. Write JSON to `graphify-out/.graphify_chunk_<name>.json`"), biggest first; then `bash graphify-out/finalize.sh`. Announce the handoff:
-  <!-- announce-template: "Extração do grafo pronta, abra os terminais externos conforme as instruções. Projeto {PROJECT}." -->
-  `bravros ha say --force "Extração do grafo pronta, abra os terminais externos conforme as instruções. Projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio >/dev/null 2>&1 || true`
+  <!-- announce-template: "Extração do grafo pronta, abra os terminais externos conforme as instruções. Ramo {BRANCH}, projeto {PROJECT}." -->
+  `bash ~/.agent_config/scripts/announce.sh --force "Extração do grafo pronta, abra os terminais externos conforme as instruções. Ramo $(git branch --show-current), projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio || true`
 - **Gemini:** `zsh -c 'source ~/.zshrc.local 2>/dev/null; opload GEMINI_API_KEY 2>/dev/null; graphify extract . --backend gemini'` (~5 min, ~$0.07).
 - **Claude Haiku swarm** (last resort): AST extract + `make-code-groups.py` (50-file cap), confirm agent count with the user, one Agent per group (`model=haiku`, embed `references/worker-prompt.md`), then `bash graphify-out/finalize.sh`.
 - **Kimi:** `graphify extract . --backend kimi` (keys are region-specific, `.ai` vs `.cn`).
@@ -104,8 +104,8 @@ Count unlabelled communities:
   1. Batch files at `graphify-out/labeling/batch-<i>.json` (~60 communities per batch, entries `{cid, size, samples, sample_files}` — `prep-label-batches.py` produces the shape; point its `/tmp/graphify-label/` output into `graphify-out/labeling/`).
   2. Write `graphify-out/labeling/PROMPT.md` yourself (reference: paylog's committed copy): domain paragraph; output contract (*for each `batch-<i>.json` write sibling `results-<i>.json`, flat `"cid" → "label"` map, IDs as strings, no wrapper/fences*); label rules (2–4 words, kebab-case, English — translate PT-BR concepts, keep proper nouns; `helpers`/`common` banned; distinct); PT→EN glossary when the code is PT-BR; expected total as the completion check.
   3. HAND OFF: operator opens the folder in Antigravity; its agents write the `results-<i>.json` siblings in place. Announce:
-     <!-- announce-template: "Lote de rotulagem pronto para o Antigravity na pasta do projeto {PROJECT}." -->
-     `bravros ha say --force "Lote de rotulagem pronto para o Antigravity na pasta do projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio >/dev/null 2>&1 || true`
+     <!-- announce-template: "Lote de rotulagem pronto para o Antigravity na pasta do projeto. Ramo {BRANCH}, projeto {PROJECT}." -->
+     `bash ~/.agent_config/scripts/announce.sh --force "Lote de rotulagem pronto para o Antigravity na pasta do projeto. Ramo $(git branch --show-current), projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio || true`
   4. Collate + patch: merge `results-*.json` → `community-labels.json`, patch `graph.json` (`collate-labels.py` logic pointed at the folder).
   5. **Dedup pass — expect collisions**: parallel batches can't see each other (paylog round 1: 116 colliding labels / 508 communities, 68 named `order-service`). Group `dedup-batch-<i>.json` **by collision** + `DEDUP-PROMPT.md`, hand off again, merge back.
   6. Commit `graphify-out/labeling/` as the audit trail.
@@ -166,8 +166,8 @@ Report: hook convention (and whether hooks get committed), configs written. Inte
 ## Step 9 — (optional) CLAUDE.md
 
 Ask first — announce that a decision is pending:
-<!-- announce-template: "Configuração do grafo concluída, aguardando sua decisão sobre atualizar o contexto. Projeto {PROJECT}." -->
-`bravros ha say --force "Configuração do grafo concluída, aguardando sua decisão sobre atualizar o contexto. Projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio >/dev/null 2>&1 || true` If yes: root section from `references/claude-md-section.md` filled with the ACTUAL node/edge/community counts and god nodes (never placeholders); inject a one-liner pointer into every nested `CLAUDE.md` lacking "Knowledge graph available". On re-run, replace old-format sections (mentions of `.mcp.json` or `~/Sites/context`) with the in-project template.
+<!-- announce-template: "Configuração do grafo concluída, aguardando sua decisão sobre atualizar o contexto. Ramo {BRANCH}, projeto {PROJECT}." -->
+`bash ~/.agent_config/scripts/announce.sh --force "Configuração do grafo concluída, aguardando sua decisão sobre atualizar o contexto. Ramo $(git branch --show-current), projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio || true` If yes: root section from `references/claude-md-section.md` filled with the ACTUAL node/edge/community counts and god nodes (never placeholders); inject a one-liner pointer into every nested `CLAUDE.md` lacking "Knowledge graph available". On re-run, replace old-format sections (mentions of `.mcp.json` or `~/Sites/context`) with the in-project template.
 
 ## Step 10 — Verify + commit set
 

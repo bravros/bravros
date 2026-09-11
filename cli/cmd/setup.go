@@ -7,7 +7,7 @@ package cmd
 // run on a machine that has only the binary, and neither ever asks the operator
 // what they want. `setup` installs from the payload EMBEDDED in this binary
 // (cli/internal/payload) and gives the choice its first GLOBAL home:
-// config.EnabledSkills() resolves .bravros.yml from CWD
+// config.EnabledSkills() resolves .bravros/config.json from CWD
 // (cli/internal/config/preserve.go:10-13), so "I only want core skills" is
 // today a per-project answer that depends on which repo the operator happened
 // to be standing in when the SessionStart hook fired. state.json (written
@@ -73,7 +73,18 @@ var setupPruneSubtrees = []string{"skills", "templates"}
 
 // setupStateSchema versions the on-disk state.json shape. Phase 6 reads this
 // file after a binary swap; bump on any incompatible change.
-const setupStateSchema = 1
+//
+// It doubles as the marker the SessionStart refresh uses to adopt a default
+// component that did not exist when a machine's setup.json was written: a
+// state at schema N predates every component listed in
+// cmd/selfupdate.go's selfupdateAdoptedSince with a value > N, and the refresh
+// widens the recorded selection by exactly those (never by a default the
+// operator could already have deselected). Bump this whenever a new default
+// component ships, and register it there with the new value.
+//
+//   - 1: cli, claude-skills, claude-templates, claude-settings
+//   - 2: + claude-agents (the custom-subagent roster the skills dispatch to)
+const setupStateSchema = 2
 
 // setupAllowPluginManagedEnv lets an operator who knowingly wants both
 // delivery mechanisms proceed past the plugin-managed refusal (D7). It is an
@@ -882,6 +893,20 @@ func setupWriteStateForRun(root string, plan *setupPlan, scope payload.SkillScop
 		st.Components = append(st.Components, setupStateComponent{Selection: sel, Target: c.TargetRel()})
 	}
 
+	return writeSetupStateFile(root, st)
+}
+
+// writeSetupStateFile serialises st to <root>/state/setup.json — the ONE
+// place that file is written. Returns "written" or "unchanged": a byte-equal
+// rewrite is skipped so an idempotent run leaves the file's mtime alone.
+//
+// It takes an already-built state on purpose: setupWriteStateForRun rebuilds
+// every field from the running binary (install_method included), which is
+// right for `setup` but wrong for the SessionStart refresh — that lane must
+// carry a recorded install_method forward verbatim, because `bravros update`
+// reads it to decide whether it may replace the binary at all
+// (selfupdatePersistAdoptedComponents in cmd/selfupdate.go).
+func writeSetupStateFile(root string, st setupState) (string, string, error) {
 	data, err := json.MarshalIndent(st, "", "  ")
 	if err != nil {
 		return "", "", err
@@ -1312,6 +1337,7 @@ Components (one selection axis; there is no plugin-category picker):
   cli                the bravros binary itself (always, placed by the installer)
   claude-skills      ~/.claude/skills, at scope core (default) or all
   claude-templates   ~/.claude/templates (git hooks, project templates)
+  claude-agents      ~/.claude/agents (custom subagents the skills dispatch to)
   claude-settings    the managed settings.json block, deep-merged
 
 Non-destructive by contract: a file that already exists and differs is never
@@ -1320,7 +1346,7 @@ and reported. settings.json is deep-merged entry-by-entry, never replaced.
 
 Re-running is idempotent: a second run with the same selection reports no
 changes. The choice is recorded in <config dir>/state/setup.json, which is the
-first machine-wide home for it (.bravros.yml's skills.enabled is resolved from
+first machine-wide home for it (.bravros/config.json's skills.enabled is resolved from
 the current working directory, so it is per-project by construction).
 
 Interactive by default when stdin is a TTY. Non-interactive:

@@ -91,7 +91,7 @@ git diff --quiet HEAD -- .planning/events.jsonl \
 # The base ref's only consumer has run. Next promote overwrites it anyway.
 git update-ref -d refs/bravros/promote-base 2>/dev/null || true
 
-bravros promote revoke   # single-use consumed
+bravros promote revoke   # single-use consumed — the police hook honoured the same token; there is no second one to revoke
 ```
 
 ## Announces (100% PT-BR)
@@ -99,8 +99,8 @@ bravros promote revoke   # single-use consumed
 Token missing (pre-flight):
 
 ```bash
-# <!-- announce-template: "Aguardando token de promoção. Execute bravros promote unlock em um terminal separado. Projeto {PROJECT}." -->
-bravros ha say --force "Aguardando token de promoção. Execute bravros promote unlock em um terminal separado. Projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio >/dev/null 2>&1 || true
+# <!-- announce-template: "Aguardando token de promoção. Execute a liberação em um terminal separado. Ramo homologação, projeto {PROJECT}." -->
+bash ~/.agent_config/scripts/announce.sh --force "Aguardando token de promoção. Execute a liberação em um terminal separado. Ramo homologação, projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio || true
 ```
 
 Completion. The release-tag variant is ONLY valid on the portable `claude` repo (every main
@@ -113,10 +113,10 @@ RELEASE_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
 case "$RELEASE_TAG" in
   pre-deploy-*|pre-reset-*|backup-*) RELEASE_TAG="" ;;   # snapshot tags — not a release
 esac
-# <!-- announce-template: "Versão {TAG} publicada em produção. Projeto {PROJECT}." -->
+# <!-- announce-template: "Versão {TAG} publicada em produção. Ramo homologação, projeto {PROJECT}." -->
 if [ "$PROMOTE_PROJECT" = "claude" ] && [ -n "$RELEASE_TAG" ]; then
-  bravros ha say --force "Versão ${RELEASE_TAG} publicada em produção. Projeto ${PROMOTE_PROJECT}." studio >/dev/null 2>&1 || true
+  bash ~/.agent_config/scripts/announce.sh --force "Versão ${RELEASE_TAG} publicada em produção. Ramo homologação, projeto ${PROMOTE_PROJECT}." studio || true
 else
-  bravros ha say --force "Promoção concluída. Código publicado em produção. Projeto ${PROMOTE_PROJECT}." studio >/dev/null 2>&1 || true
+  bash ~/.agent_config/scripts/announce.sh --force "Promoção concluída. Código publicado em produção. Ramo homologação, projeto ${PROMOTE_PROJECT}." studio || true
 fi
 ```

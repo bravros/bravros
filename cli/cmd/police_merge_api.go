@@ -74,7 +74,7 @@ func gitPushPositionals(fields []string) []string {
 	repo := ""
 	options := true
 	start := 0
-	if len(fields) > start && fields[start] == "git" {
+	if len(fields) > start && filepathBase(unquote(fields[start])) == "git" {
 		start++
 	}
 	if len(fields) > start {
@@ -450,15 +450,20 @@ func policeDirectMainAllowed(targetRepo string) bool {
 // hook is installed here. Where a push actually lands is the hook's business,
 // answered in the real directory rather than a parsed one.
 func gitIn(args ...string) string {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), gitInTimeout)
 	defer cancel()
 
-	out, err := exec.CommandContext(ctx, "git", args...).Output()
+	c := exec.CommandContext(ctx, "git", args...)
+	c.WaitDelay = time.Second // see lookupPR: a lingering child must not hold the pipe
+	out, err := c.Output()
 	if err != nil {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
 }
+
+// gitInTimeout bounds each git question; a variable so tests can shrink it.
+var gitInTimeout = 3 * time.Second
 
 // currentRepoSlug returns the session repo's owner/name from its origin remote,
 // or "" when that cannot be determined.

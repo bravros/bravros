@@ -22,7 +22,7 @@ body: |
   - **Manual-only.** Nothing auto-triggers this skill — `/finish` and `/promote` never prune. The ONLY entry point is a user typing `/prune-merged`, and Step 2 user review is mandatory before any `--apply`.
   - **Both local and remote refs deleted** on a successful prune.
   - **Worktree safety.** A branch checked out in any worktree is OFF-LIMITS — skipped in both dry-run and `--apply`, reported as `SKIPPED-WORKTREE (<path>)`. Teardown is owned solely by `bravros worktree cleanup <path>`.
-  - **Protected by design.** Hard blocklist: `main`, `homolog`, `master`, `staging`, `develop`, current HEAD, open-plan branches, GitHub branch-protection rules, `.bravros.yml:branch_prune.protected`.
+  - **Protected by design.** Hard blocklist: `main`, `homolog`, `master`, `staging`, `develop`, current HEAD, open-plan branches, GitHub branch-protection rules, `.bravros/config.json` `permanent_branches`.
   - **Recoverable.** Pruned branches write 7-day tombstone refs (`feat/foo` → `refs/tombstones/feat-foo`).
 
   ## Flow

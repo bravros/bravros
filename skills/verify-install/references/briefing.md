@@ -12,9 +12,9 @@ Source repo resolves `$PORTABLE_REPO` → `~/Code/monorepos/bravros/bravros` →
 
 ## Hard constraints
 
-- **`ℹ️ INTENTIONAL` is not a failure.** It comes from `~/.bravros/.verify-ignore`, which lists checks the operator diverges from on purpose (this machine runs with the hooks stripped out of `settings.json`). Ignored checks never count as failures and `--fix` skips them. Never "repair" one; never suggest deleting the file without asking.
+- **`ℹ️ INTENTIONAL` is not a failure.** It comes from `~/.agent_config/.verify-ignore`, which lists checks the operator diverges from on purpose (this machine runs with the hooks stripped out of `settings.json`). Ignored checks never count as failures and `--fix` skips them. Never "repair" one; never suggest deleting the file without asking.
 - **A locked `settings.json` is healthy, not drift.** `chmod 400` or macOS `chflags uchg` is a deliberate operator lock; `bravros deploy` honours it and so must every fix. `--fix` never writes a locked path.
-- **`~/.bravros/CLAUDE.md` is reconciled on its managed block only** (`# >>> bravros-managed-global >>> … <<<`). Personal content outside the markers is never compared and never touched — a whole-file `cp -f` destroys it. Cleaning that region up is a judgment call: [`references/managed-global-cleanup.md`](managed-global-cleanup.md).
+- **`~/.agent_config/CLAUDE.md` is reconciled on its managed block only** (`# >>> bravros-managed-global >>> … <<<`). Personal content outside the markers is never compared and never touched — a whole-file `cp -f` destroys it. Cleaning that region up is a judgment call: [`references/managed-global-cleanup.md`](managed-global-cleanup.md).
 - **The skill digest has exactly one implementation:** `bravros deploy skill-sha <dir>` (Go, `deploy.ComputeSkillSHA`). Never re-derive it in bash or python — bash strings are NUL-terminated, so the `relpath\0sha\n` record format is unbuildable in shell and every reimplementation silently diverges.
 - `skills/shared/` is repo-only source material. Finding it *deployed* is an install-hygiene failure, not an orphan.
 
@@ -26,9 +26,9 @@ Source repo resolves `$PORTABLE_REPO` → `~/Code/monorepos/bravros/bravros` →
 4. Source repo missing → `git clone git@github.com:bravros/bravros.git ~/Code/monorepos/bravros/bravros` (`~/bravros` on Linux), then `bash install.sh`.
 5. After a fix, re-run to confirm green.
 
-<!-- announce-template: "Falhas de instalação encontradas, aguardando decisão sobre correção automática. Projeto {PROJECT}." -->
+<!-- announce-template: "Falhas de instalação encontradas, aguardando decisão sobre correção automática. Ramo {BRANCH}, projeto {PROJECT}." -->
 ```bash
-bash ~/.bravros/scripts/announce.sh "Falhas de instalação encontradas, aguardando decisão sobre correção automática. Projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio >/dev/null 2>&1 || true
+bash ~/.agent_config/scripts/announce.sh --force "Falhas de instalação encontradas, aguardando decisão sobre correção automática. Ramo $(git branch --show-current), projeto $(basename "$PWD")." studio || true
 ```
 
 ## `--auto` (SessionStart)

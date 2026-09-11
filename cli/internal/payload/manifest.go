@@ -182,6 +182,24 @@ var components = []Component{
 		targetRel:    []string{"templates"},
 	},
 	{
+		// The custom-subagent roster. A SEPARATE component rather than a
+		// second subtree of claude-skills because the manifest is a bijection
+		// (one KindEmbeddedTree component <-> one embedded top-level dir,
+		// asserted by TestComponents_EmbeddedSubtreeBijection) and because
+		// skills are scope-filtered per name while agents are all-or-nothing:
+		// a core-scope install still ships /scout and /orchestrate, which
+		// dispatch to these agents by subagent_type. Default on for the same
+		// reason — a skill set without its agents is a fresh-install break,
+		// not a smaller install. Not Internal: the wizard should show it.
+		ID:           "claude-agents",
+		Label:        "Claude subagents",
+		Description:  "Custom subagent definitions (code-reviewer, phase-implementer, code-tracer, …) that the shipped skills dispatch to by name. Installed to ~/.claude/agents.",
+		Kind:         KindEmbeddedTree,
+		Default:      true,
+		embedSubtree: "agents",
+		targetRel:    []string{"agents"},
+	},
+	{
 		ID:          "claude-settings",
 		Label:       "Claude settings",
 		Description: "Managed settings.json block (SessionStart hook and friends), deep-merged into any existing file — never overwritten.",

@@ -1,4 +1,4 @@
-# Plan --worktree Extension
+# recon --worktree extension
 
 When `/recon --worktree` is invoked (or `BRAVROS_WORKTREE=true`), the dossier is created inside
 an isolated worktree instead of the current checkout. Dossier shape, inline review, backlog
@@ -25,7 +25,11 @@ PARENT_DIR=$(dirname "$PWD")
 NEXT_NUM=${PLAN_ID#P-}                            # P-0042 → 0042
 PLAN_NUM_SHORT=$(echo "$NEXT_NUM" | sed 's/^0*//') # 0042 → 42
 WORKTREE_PATH="${PARENT_DIR}/${REPO_NAME}${PLAN_NUM_SHORT}"
-BRANCH_NAME="<type>/<short-description>"
+# Same convention /orchestrate uses when it cuts the branch itself:
+# feature/p-NNNN-<slug> for a change, fix/p-NNNN-<slug> for a defect.
+KIND=<defect|change — the §1 classification>
+TYPE=feature; [ "$KIND" = "defect" ] && TYPE=fix
+BRANCH_NAME="${TYPE}/$(echo "$PLAN_ID" | tr '[:upper:]' '[:lower:]')-${SLUG}"   # e.g. feature/p-0042-skale-replay
 
 bravros worktree setup "$BRANCH_NAME" --path "$WORKTREE_PATH"
 ```

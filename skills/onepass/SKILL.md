@@ -9,9 +9,9 @@ description: Store, read, inject, and rotate secrets via the 1Password CLI (op).
 
 Run `bash <skill-dir>/scripts/preflight.sh`: exit `0` (desktop or service-account mode) → proceed; exit `2` → offer `scripts/install-op.sh` (Linux path adds the signed repo + uses `sudo` — announce first), rerun; exit `1` → auth failed: fire the announce below, then `ask_question` for the mode and follow `references/auth-setup.md` — **auth happens in a separate terminal** (this session shares no TTY with the biometric prompt, and exports here don't persist). Never run `op item create`/`edit` before preflight returns 0 — failed writes leave half-created items and burn service-account rate limit.
 
-<!-- announce-template: "Autenticação do 1Password necessária. Aguardando escolha do modo de acesso. Projeto {PROJECT}." -->
+<!-- announce-template: "Autenticação do 1Password necessária. Aguardando escolha do modo de acesso. Ramo {BRANCH}, projeto {PROJECT}." -->
 ```bash
-bravros ha say --force "Autenticação do 1Password necessária. Aguardando escolha do modo de acesso. Projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio >/dev/null 2>&1 || true
+bash ~/.agent_config/scripts/announce.sh --force "Autenticação do 1Password necessária. Aguardando escolha do modo de acesso. Ramo $(git branch --show-current), projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio || true
 ```
 
 ## Naming & metadata — enforce before create (non-negotiable)

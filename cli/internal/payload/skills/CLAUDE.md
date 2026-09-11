@@ -113,7 +113,7 @@ Skills do not emit `🏁`/`🤖` echo checkpoints — pure ceremony at runtime, 
 
 Shared skill content lives in `skills/shared/`. Skills reference it by relative path (`../shared/<file>.md`) and Read it on demand. A consumer may instead replace its own `references/*.md` with a symlink into `skills/shared/` — then edit only `skills/shared/<file>.md` and `bravros deploy` materializes a copy at install time via `cp -L`. No symlinked consumers remain as of P-0187 (the last two, `plan-review` and `plan-approved`, retired with the planning-chain collapse).
 
-`skills/shared/` **is deployed** to `~/.config/bravros/skills/shared/` as a plain payload directory — not a skill (no `SKILL.md`, never in `.deploy-manifest.json`, unaffected by `skills.enabled`), and refreshed wholesale on every deploy. It was source-only until 2026-08-13, which was correct while every consumer symlinked into it, but P-0187 retired the last symlink and left the prose `../shared/*.md` links pointing at nothing in the runtime — so six core skills (`finish`, `promote`, `hotfix`, `batch-merge-prs`, `plan`, `auto-pr`) silently lost the shared merge gates at merge time. **A prose link into `../shared/` is a runtime dependency**: when you add one, the file must exist in the deployed runtime, and a safety-critical gate should also be restated in the consumer's own `references/` so it never depends on a cross-skill Read succeeding.
+`skills/shared/` **is deployed** to `~/.agent_config/skills/shared/` (the host runtime skills dir) as a plain payload directory — not a skill (no `SKILL.md`, never in `.deploy-manifest.json`, unaffected by `skills.enabled`), and refreshed wholesale on every deploy. It was source-only until 2026-08-13, which was correct while every consumer symlinked into it, but P-0187 retired the last symlink and left the prose `../shared/*.md` links pointing at nothing in the runtime — so six core skills (`finish`, `promote`, `hotfix`, `batch-merge-prs`, `plan`, `auto-pr`) silently lost the shared merge gates at merge time. **A prose link into `../shared/` is a runtime dependency**: when you add one, the file must exist in the deployed runtime, and a safety-critical gate should also be restated in the consumer's own `references/` so it never depends on a cross-skill Read succeeding.
 
 Note: `auto-pr/references/worktree-mode.md` covers the `--worktree` flag for `auto-pr`.
 
@@ -144,7 +144,7 @@ Version-locked names decay when the next point release ships. Ungrounded tier na
 
 ### (c) Canonical model list — single source of truth
 
-Do not hard-code current model identifiers in individual skill files. The canonical current models (e.g., `claude-sonnet-4-6`, `claude-opus-4-7`) are tracked in `~/.config/bravros/CLAUDE.md` under "Execution & Model Tiers". Reference that file rather than duplicating version strings here.
+Do not hard-code current model identifiers in individual skill files. The canonical current models (e.g., `claude-sonnet-4-6`, `claude-opus-4-7`) are tracked in the managed block of `~/.agent_config/CLAUDE.md` under "Execution & Model Tiers". Reference that file rather than duplicating version strings here.
 
 ## Skill Targeting — retired (P-0187)
 
@@ -160,11 +160,14 @@ target ≤300 chars.
 
 Some skills live outside the bravros source repo by design — they are not in `skills/` and are never deployed by `bravros deploy` or `bash install.sh`.
 
-Users who want such skills to survive deploy and selfupdate cycles add them to `.bravros.yml`:
+Users who want such skills to survive deploy and selfupdate cycles add them to `.bravros/config.json`:
 
-```yaml
-skills:
-  preserve: [my-custom-skill]
+```json
+{
+  "skills": {
+    "preserve": ["my-custom-skill"]
+  }
+}
 ```
 
 This adds the named directories to the `PreserveSkills` allowlist. The following operations will skip pruning any skill listed here:
@@ -178,11 +181,14 @@ This adds the named directories to the `PreserveSkills` allowlist. The following
 
 ## Per-project Skill Allowlist (opt-in via `skills.enabled`)
 
-By default `bravros deploy` copies **all** skills from the source repo to `~/.config/bravros/skills/`. On project machines where homelab or domain-specific skills are unwanted, add an opt-in allowlist to `.bravros.yml`:
+By default `bravros deploy` copies **all** skills from the source repo to `~/.agent_config/skills/` (the host runtime skills dir). On project machines where homelab or domain-specific skills are unwanted, add an opt-in allowlist to `.bravros/config.json`:
 
-```yaml
-skills:
-  enabled: [plan, finish, auto-pr, batch-merge-prs, pr, pr-review]
+```json
+{
+  "skills": {
+    "enabled": ["plan", "finish", "auto-pr", "batch-merge-prs", "pr", "pr-review"]
+  }
+}
 ```
 
 When non-empty, only the listed skills AND any skill with `core: true` in its SKILL.md frontmatter are deployed. SDLC essentials (`/plan`, `/orchestrate`, `/finish`, `/auto-pr`, `/batch-merge-prs`, `/commit`, `/ship`, `/push`, `/start`, `/promote`, `/hotfix`, `/pr`, `/pr-review`, `/address-pr`) all carry `core: true` — they deploy regardless of the allowlist so SDLC workflows always work.
@@ -198,15 +204,16 @@ bravros deploy --dry-run                          # preview which skills would d
 
 ### Example — Laravel project hiding homelab skills
 
-```yaml
-# .bravros.yml (in the Laravel project repo)
-skills:
-  enabled:
-    - plan
-    - finish
-    - auto-pr
-    # core skills (plan, finish, auto-pr, etc.) always deploy — no need to list them
-    # homelab skills (private-homelab, etc.) are excluded
+`.bravros/config.json` (in the Laravel project repo) — core skills (`plan`, `finish`, `auto-pr`,
+etc.) always deploy so there's no need to list them, and homelab skills (`private-homelab`, etc.)
+are excluded by omission:
+
+```json
+{
+  "skills": {
+    "enabled": ["plan", "finish", "auto-pr"]
+  }
+}
 ```
 
 ---
@@ -283,7 +290,7 @@ Worktrees each have their own CLAUDE.md — `/context` writes to `cwd/CLAUDE.md`
 ## Audible Completion Announces
 
 Skills that complete long-running operations fire a PT-BR audio announcement to Echo Studio
-via `bash ~/.bravros/scripts/announce.sh "<message>" studio >/dev/null 2>&1 || true`.
+via `bash ~/.agent_config/scripts/announce.sh --force "<message>" studio || true` — no `>/dev/null`, the wrapper silences its own stdout; never bare `bravros ha say`.
 `HASS_TOKEN` is exported from the macOS keychain in `~/.zshenv`, so the helper skips 1Password
 entirely; it silently no-ops when the Mac is locked or HA is unreachable.
 **Always redirect stdout** — the helper prints `Sent to studio: …`, which is noise in the transcript.
@@ -293,7 +300,7 @@ entirely; it silently no-ops when the Mac is locked or HA is unreachable.
 The 100% Brazilian-Portuguese constraint governs **only the message string passed to
 `announce.sh`**. It exists because Alexa's PT-BR voice mangles English, and it stops there.
 
-It does **not** govern — these follow the operator-language rule in `~/.config/bravros/CLAUDE.md`:
+It does **not** govern — these follow the operator-language rule in `~/.agent_config/CLAUDE.md`:
 
 | Always the operator's language | Always PT-BR |
 |---|---|
@@ -324,10 +331,10 @@ Allowed substitution variables:
 | `{PROJECT}` | `basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"` | Project name from meta |
 
 **Rules:**
-- 100% Brazilian Portuguese — no English words (see translation table in `~/.config/bravros/CLAUDE.md`)
+- 100% Brazilian Portuguese — no English words (see translation table in `~/.agent_config/CLAUDE.md`)
 - One sentence, ~20 words max
 - Always placed AFTER text output (never replace on-screen recap with audio-only)
-- Always non-blocking: append `2>/dev/null || true` if not using the `announce.sh` wrapper
+- Always non-blocking: `|| true` after the `announce.sh` call; end every message with `Ramo <fragmento>, projeto <repo>.`
 
 ### Skills with announce triggers
 
