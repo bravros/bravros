@@ -139,6 +139,9 @@ func laneEligible(repo, pr string) bool {
 // Conditions are checked cheapest-first and the FIRST failure is reported, so
 // the block names one concrete thing to fix.
 func stagingLaneVerdict(pr string, f prFacts) (mergeVerdict, string) {
+	if !repoUsesHomolog() {
+		return mergeAllowed, ""
+	}
 	cfg, _ := config.LoadBravrosConfig() // found=false still yields the homolog default
 	staging := cfg.StagingBranch
 	if staging == "" {

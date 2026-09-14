@@ -1741,6 +1741,9 @@ func mergePRVerdict(fields []string) (mergeVerdict, string, string) {
 	if apiFieldUnreadable(repo) {
 		return mergeIndeterminate, "merging a pull request whose target could not be read", target
 	}
+	if policeDirectMainAllowed(target) {
+		return mergeAllowed, "", target
+	}
 	facts, ok := lookupPR(repo, pr)
 	if !ok {
 		return mergeIndeterminate, "merging a pull request", target

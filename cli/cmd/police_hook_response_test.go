@@ -46,8 +46,18 @@ func TestPoliceHookExecutableContract(t *testing.T) {
 	}
 	home := t.TempDir()
 	cwd := t.TempDir()
-	if out, err := exec.Command("git", "init", cwd).CombinedOutput(); err != nil {
-		t.Fatalf("init scratch repo: %v: %s", err, out)
+	for _, a := range [][]string{
+		{"init", "-q", "-b", "main", "."},
+		{"commit", "-q", "--allow-empty", "-m", "seed"},
+		{"branch", "homolog"},
+	} {
+		c := exec.Command("git", a...)
+		c.Dir = cwd
+		c.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("init scratch repo: %v\n%s", err, out)
+		}
 	}
 	// A `gh` PATH shim answers the merge gate's PR lookup with a CLEAN
 	// homolog→main PR, so the staging-lane cases below never hit the forge. It

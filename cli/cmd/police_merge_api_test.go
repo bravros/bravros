@@ -137,6 +137,21 @@ func TestPoliceDirectMainAllowed_ExplicitOptOutOnly(t *testing.T) {
 	write := func(t *testing.T, body string) {
 		t.Helper()
 		dir := t.TempDir()
+		argsList := [][]string{
+			{"init", "-q", "-b", "main", "."},
+			{"remote", "add", "origin", "git@github.com:owner/repo.git"},
+			{"commit", "-q", "--allow-empty", "-m", "seed"},
+			{"branch", "homolog"},
+		}
+		for _, args := range argsList {
+			c := exec.Command("git", args...)
+			c.Dir = dir
+			c.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
+				"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+			if out, err := c.CombinedOutput(); err != nil {
+				t.Fatalf("git %v: %v\n%s", args, err, out)
+			}
+		}
 		if body != "" {
 			if err := os.MkdirAll(filepath.Join(dir, ".bravros"), 0o755); err != nil {
 				t.Fatal(err)
@@ -182,6 +197,50 @@ func TestPoliceDirectMainAllowed_ExplicitOptOutOnly(t *testing.T) {
 			t.Error("local opt-out must not excuse a merge aimed at another repo")
 		}
 	})
+
+	t.Run("repo without homolog branch allows direct main without config", func(t *testing.T) {
+		dir := t.TempDir()
+		argsList := [][]string{
+			{"init", "-q", "-b", "main", "."},
+			{"remote", "add", "origin", "git@github.com:owner/repo.git"},
+			{"commit", "-q", "--allow-empty", "-m", "seed"},
+		}
+		for _, args := range argsList {
+			c := exec.Command("git", args...)
+			c.Dir = dir
+			c.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
+				"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+			if out, err := c.CombinedOutput(); err != nil {
+				t.Fatalf("git %v: %v\n%s", args, err, out)
+			}
+		}
+		t.Chdir(dir)
+		if !policeDirectMainAllowed("") {
+			t.Error("a repo without homolog branch must allow direct main")
+		}
+	})
+
+	t.Run("repo without homolog branch never excuses another repo", func(t *testing.T) {
+		dir := t.TempDir()
+		argsList := [][]string{
+			{"init", "-q", "-b", "main", "."},
+			{"remote", "add", "origin", "git@github.com:owner/repo.git"},
+			{"commit", "-q", "--allow-empty", "-m", "seed"},
+		}
+		for _, args := range argsList {
+			c := exec.Command("git", args...)
+			c.Dir = dir
+			c.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
+				"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+			if out, err := c.CombinedOutput(); err != nil {
+				t.Fatalf("git %v: %v\n%s", args, err, out)
+			}
+		}
+		t.Chdir(dir)
+		if policeDirectMainAllowed("other/repo") {
+			t.Error("a repo without homolog branch must not excuse another repo")
+		}
+	})
 }
 
 // gitRepo builds a throwaway repo with an origin remote and optional bravros
@@ -189,12 +248,17 @@ func TestPoliceDirectMainAllowed_ExplicitOptOutOnly(t *testing.T) {
 func gitRepo(t *testing.T, originURL, cfg string) {
 	t.Helper()
 	dir := t.TempDir()
-	for _, args := range [][]string{
-		{"init", "-q", "."},
+	argsList := [][]string{
+		{"init", "-q", "-b", "main", "."},
 		{"remote", "add", "origin", originURL},
-	} {
+		{"commit", "-q", "--allow-empty", "-m", "seed"},
+		{"branch", "homolog"},
+	}
+	for _, args := range argsList {
 		c := exec.Command("git", args...)
 		c.Dir = dir
+		c.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
 		if out, err := c.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
@@ -548,11 +612,15 @@ func twoReposOn(t *testing.T, sessionBranch, otherBranch string) (session, other
 	t.Helper()
 	mk := func(origin, branch string) string {
 		dir := t.TempDir()
-		for _, args := range [][]string{
+		argsList := [][]string{
 			{"init", "-q", "-b", branch, "."},
 			{"remote", "add", "origin", origin},
 			{"commit", "-q", "--allow-empty", "-m", "seed"},
-		} {
+		}
+		if branch != "homolog" {
+			argsList = append(argsList, []string{"branch", "homolog"})
+		}
+		for _, args := range argsList {
 			c := exec.Command("git", args...)
 			c.Dir = dir
 			c.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
@@ -573,11 +641,15 @@ func twoRepos(t *testing.T, cfg string) (session, other string) {
 	t.Helper()
 	mk := func(origin, branch string) string {
 		dir := t.TempDir()
-		for _, args := range [][]string{
+		argsList := [][]string{
 			{"init", "-q", "-b", branch, "."},
 			{"remote", "add", "origin", origin},
 			{"commit", "-q", "--allow-empty", "-m", "seed"},
-		} {
+		}
+		if branch != "homolog" {
+			argsList = append(argsList, []string{"branch", "homolog"})
+		}
+		for _, args := range argsList {
 			c := exec.Command("git", args...)
 			c.Dir = dir
 			c.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
@@ -850,4 +922,89 @@ func TestPathDestinationIsNeverExcused(t *testing.T) {
 	if v, _ := evaluateMergeGate("git push origin main"); v != mergeAllowed {
 		t.Errorf("direct_main must still excuse a push to the session's own origin, got %v", v)
 	}
+}
+
+// gitRepoWithoutHomolog builds a throwaway repo with only a main branch (no homolog)
+// and an origin remote, representing trunk-based repositories.
+func gitRepoWithoutHomolog(t *testing.T, originURL, cfg string) {
+	t.Helper()
+	dir := t.TempDir()
+	argsList := [][]string{
+		{"init", "-q", "-b", "main", "."},
+		{"remote", "add", "origin", originURL},
+		{"commit", "-q", "--allow-empty", "-m", "seed"},
+	}
+	for _, args := range argsList {
+		c := exec.Command("git", args...)
+		c.Dir = dir
+		c.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	if cfg != "" {
+		if err := os.MkdirAll(filepath.Join(dir, ".bravros"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, ".bravros", "config.json"), []byte(cfg), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Chdir(dir)
+}
+
+func TestPoliceTrunkBasedRepoWithoutHomolog(t *testing.T) {
+	gitRepoWithoutHomolog(t, "git@github.com:skaisser/private-homelab.git", "")
+
+	t.Run("push to main allowed in trunk-based repo", func(t *testing.T) {
+		for _, cmd := range []string{
+			"git push origin main",
+			"git push",
+			"git push origin +main:main",
+			"git push -u origin main",
+			"git push origin HEAD:main",
+			"git push origin refs/heads/main",
+		} {
+			v, d := evaluateMergeGate(cmd)
+			if v != mergeAllowed {
+				t.Errorf("expected mergeAllowed for %q in trunk-based repo, got %v (%s)", cmd, v, d)
+			}
+		}
+	})
+
+	t.Run("pr merge allowed in trunk-based repo", func(t *testing.T) {
+		for _, cmd := range []string{
+			"gh pr merge 12 --merge",
+			"gh pr merge 12 --rebase",
+			"gh pr merge 12 --squash",
+			"gh pr merge --merge",
+		} {
+			v, d := evaluateMergeGate(cmd)
+			if v != mergeAllowed {
+				t.Errorf("expected mergeAllowed for %q in trunk-based repo, got %v (%s)", cmd, v, d)
+			}
+		}
+	})
+
+	t.Run("api merge to local repo allowed in trunk-based repo", func(t *testing.T) {
+		v, d := evaluateMergeGate("gh api -X PUT repos/skaisser/private-homelab/pulls/12/merge")
+		if v != mergeAllowed {
+			t.Errorf("expected mergeAllowed for local API merge, got %v (%s)", v, d)
+		}
+	})
+
+	t.Run("external repo merge not excused by local trunk repo", func(t *testing.T) {
+		v, _ := evaluateMergeGate("gh pr merge -R other/repo 12 --merge")
+		if v == mergeAllowed {
+			t.Error("external repo must not be excused by local repo not using homolog")
+		}
+	})
+
+	t.Run("relocated push not excused by local trunk repo", func(t *testing.T) {
+		v, _ := evaluateMergeGate("cd /tmp && git push origin main")
+		if v == mergeAllowed {
+			t.Error("relocated push must not be excused by local repo not using homolog")
+		}
+	})
 }

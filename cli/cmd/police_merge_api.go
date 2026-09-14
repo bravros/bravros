@@ -333,6 +333,9 @@ func apiMergeVerdict(fields []string) (mergeVerdict, string, string) {
 			return mergeIndeterminate, "merging branches via the API", repo
 		}
 		if protectedBranches[base] {
+			if policeDirectMainAllowed(repo) {
+				return mergeAllowed, "", repo
+			}
 			return mergeProtected, "merging branches into a protected branch via the API", repo
 		}
 		return mergeAllowed, "", repo
@@ -341,6 +344,9 @@ func apiMergeVerdict(fields []string) (mergeVerdict, string, string) {
 	// {owner}/{repo}/pulls/{n}/merge — resolve the PR's base from the forge.
 	if len(parts) == 5 && parts[2] == "pulls" && parts[4] == "merge" {
 		repo := targetRepo(parts[0] + "/" + parts[1])
+		if policeDirectMainAllowed(repo) {
+			return mergeAllowed, "", repo
+		}
 		if _, err := strconv.Atoi(parts[3]); err != nil {
 			// `pulls/$PR/merge`, `pulls/${PR}/merge`, `pulls/{pull_number}/merge`.
 			// This is the merge route whatever fills that slot, so a number the
@@ -407,29 +413,57 @@ func mergePRTarget(repo, pr string) string {
 // cannot excuse a push into a tree this process never inspected.
 const relocatedPushTarget = "\x00relocated"
 
-// policeDirectMainAllowed reports whether the repo the agent is standing in has
-// EXPLICITLY opted out of the protected-branch gate via police.direct_main in
-// .bravros/config.json — the escape hatch for repos that are direct-push-to-main
-// by design (the paylog workspace meta-repo, /git-this personal repos).
-//
-// The opt-out describes the local repo, so it may only excuse a command aimed
-// at that same repo. A command naming a DIFFERENT repo explicitly (gh pr merge
-// -R other/repo, gh api repos/other/repo/...) is never excused by local config
-// — otherwise standing in a direct-main scratch repo would unlock main
-// everywhere on the machine.
-//
-// Called only once the gate has already decided to block, so the config read
-// stays off the hot path that every Bash call pays.
-func policeDirectMainAllowed(targetRepo string) bool {
-	cfg, found := config.LoadBravrosConfig()
-	if !found || cfg.Police == nil || !cfg.Police.DirectMain {
+// gitBranchExists reports whether a local branch refs/heads/<branch> or a
+// remote tracking branch refs/remotes/*/<branch> exists in the session git repo.
+func gitBranchExists(branch string) bool {
+	if branch == "" {
 		return false
 	}
+	out := gitIn("show-ref", branch)
+	if out == "" {
+		return false
+	}
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 {
+			ref := fields[1]
+			if ref == "refs/heads/"+branch || (strings.HasPrefix(ref, "refs/remotes/") && strings.HasSuffix(ref, "/"+branch)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// repoUsesHomolog reports whether the repo where the command runs uses a
+// homolog/staging workflow. A repo uses homolog if:
+//  1. Git contains a local branch refs/heads/homolog or remote tracking
+//     branch refs/remotes/*/homolog (checked via git show-ref), OR
+//  2. .bravros/config.json explicitly configures staging_branch to a
+//     non-empty name other than "none" or "off", and that branch exists in Git.
+//
+// Repos that do not use homolog (such as trunk-based repos) do not gate main.
+func repoUsesHomolog() bool {
+	if gitBranchExists("homolog") {
+		return true
+	}
+	cfg, found := config.LoadBravrosConfig()
+	if found && cfg.StagingBranch != "" && cfg.StagingBranch != "homolog" &&
+		cfg.StagingBranch != "none" && cfg.StagingBranch != "off" {
+		return gitBranchExists(cfg.StagingBranch)
+	}
+	return false
+}
+
+// isLocalPushTarget reports whether targetRepo describes the session's local
+// repository rather than an external or relocated repository.
+func isLocalPushTarget(targetRepo string) bool {
 	if targetRepo == "" {
 		return true
 	}
-	// An unqualified gh repository defaults to its configured forge. Never
-	// compare just owner/name when either side names a host explicitly.
+	if targetRepo == relocatedPushTarget {
+		return false
+	}
 	target := strings.TrimSuffix(strings.Trim(targetRepo, "/"), ".git")
 	if len(strings.Split(target, "/")) == 2 {
 		host := os.Getenv("GH_HOST")
@@ -440,6 +474,29 @@ func policeDirectMainAllowed(targetRepo string) bool {
 	}
 	local := pushRepoIdentity(gitIn("remote", "get-url", "origin"))
 	return local != "" && strings.EqualFold(local, target)
+}
+
+// policeDirectMainAllowed reports whether the repo the agent is standing in has
+// EXPLICITLY opted out of the protected-branch gate via police.direct_main in
+// .bravros/config.json, OR does not use a homolog branch workflow.
+//
+// The opt-out describes the local repo, so it may only excuse a command aimed
+// at that same repo. A command naming a DIFFERENT repo explicitly (gh pr merge
+// -R other/repo, gh api repos/other/repo/...) is never excused by local config
+// — otherwise standing in a direct-main scratch repo would unlock main
+// everywhere on the machine.
+//
+// Called only once the gate has already decided to block, so the config read
+// stays off the hot path that every Bash call pays.
+func policeDirectMainAllowed(targetRepo string) bool {
+	if !isLocalPushTarget(targetRepo) {
+		return false
+	}
+	if !repoUsesHomolog() {
+		return true
+	}
+	cfg, found := config.LoadBravrosConfig()
+	return found && cfg.Police != nil && cfg.Police.DirectMain
 }
 
 // gitIn runs a git command in this process's working directory and returns its

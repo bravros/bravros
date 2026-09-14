@@ -135,11 +135,13 @@ func TestBarePushOnProtectedBranch(t *testing.T) {
 	onMain := func(t *testing.T, withHook bool) string {
 		t.Helper()
 		dir := t.TempDir()
-		for _, a := range [][]string{
+		argsList := [][]string{
 			{"init", "-q", "-b", "main", "."},
 			{"remote", "add", "origin", "git@github.com:skaisser/scratch.git"},
 			{"commit", "-q", "--allow-empty", "-m", "seed"},
-		} {
+			{"branch", "homolog"},
+		}
+		for _, a := range argsList {
 			c := exec.Command("git", a...)
 			c.Dir = dir
 			c.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
@@ -206,11 +208,15 @@ func TestOptOutNeverExcusesARelocatedBarePush(t *testing.T) {
 	mk := func(t *testing.T, branch, slug string) string {
 		t.Helper()
 		dir := t.TempDir()
-		for _, a := range [][]string{
+		argsList := [][]string{
 			{"init", "-q", "-b", branch, "."},
 			{"remote", "add", "origin", "git@github.com:" + slug + ".git"},
 			{"commit", "-q", "--allow-empty", "-m", "seed"},
-		} {
+		}
+		if branch != "homolog" {
+			argsList = append(argsList, []string{"branch", "homolog"})
+		}
+		for _, a := range argsList {
 			c := exec.Command("git", a...)
 			c.Dir = dir
 			c.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
