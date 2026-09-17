@@ -38,7 +38,11 @@ if [ -z "$RUNNER" ]; then
     "$BASE_BR" "$(date "+%Y-%m-%dT%H:%M")" > "$PRE_FAIL_FILE"
 else
   git fetch origin "$BASE_BR" --quiet 2>/dev/null || true
-  BASE_SHA=$(git rev-parse "origin/$BASE_BR" 2>/dev/null || git rev-parse "$BASE_BR")
+  # `--verify --quiet` is mandatory: a bare `git rev-parse` prints the UNRESOLVED NAME to
+  # stdout before failing, so BASE_SHA would capture garbage, the baseline worktree would be
+  # built from nothing, and a red suite would read as green (the B-0338 failure).
+  BASE_SHA=$(git rev-parse --verify --quiet "origin/$BASE_BR" || git rev-parse --verify --quiet "$BASE_BR") || true
+  [ -n "$BASE_SHA" ] || { echo "❌ [verify-suite:0] cannot resolve base ref '$BASE_BR' — STOP; do not treat this run as verified."; exit 1; }
   BASE_WT=$(mktemp -d /tmp/verify-base-XXXXXX)
   BASE_OUT=$(mktemp /tmp/verify-base-out-XXXXXX.txt)
 

@@ -1436,12 +1436,22 @@ func mergeBlockMessage(v mergeVerdict, detail string) string {
 	if detail != "" {
 		head += " (" + detail + ")"
 	}
+	// Name the condition that actually produced the block. Blaming a missing
+	// config file when the real trigger is the staging branch sends the
+	// operator off to write one — which changes nothing, because
+	// policeDirectMainAllowed already clears main in a repo with no staging
+	// branch, config or not. The legacy pre-push gate this replaced had no
+	// config to blame and stated the rule plainly: it blocked direct pushes to
+	// main when a staging branch existed. Say the same thing here.
 	var hint string
 	switch {
-	case !found:
-		hint = "This repo has no " + config.ConfigFilename + ", so main is protected by default.\n"
-	case cfg.Police == nil || !cfg.Police.DirectMain:
+	case found && (cfg.Police == nil || !cfg.Police.DirectMain):
 		hint = "police.direct_main is not set in " + config.ConfigFilename + ".\n"
+	case repoUsesHomolog():
+		hint = "This repo has a " + staging + " branch, so main is PR-gated. That branch is the\n" +
+			"reason — not a missing " + config.ConfigFilename + "; writing one does not lift it.\n"
+	default:
+		hint = "The target repo's policy could not be read from here, so main is protected by default.\n"
 	}
 	return head + ".\n" + hint +
 		"If it is direct-to-main by design, ask the operator, then run: bravros police direct-main on  (commit it).\n" +

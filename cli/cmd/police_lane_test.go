@@ -344,12 +344,27 @@ func TestStagingLane_CwdCarveOut(t *testing.T) {
 func TestMergeBlockMessage_Hints(t *testing.T) {
 	rule52TestSetEnv(t)
 
+	// No config, but a homolog branch exists — the branch is the reason, and
+	// the hint must say so. Blaming the missing file sent operators off to
+	// write one, which changes nothing: with no staging branch the same repo
+	// is cleared outright by policeDirectMainAllowed.
 	laneRepo(t, "")
 	msg := mergeBlockMessage(mergeProtected, "pushing to a protected branch")
-	for _, want := range []string{"has no .bravros/config.json, so main is protected by default", "bravros police direct-main on", "open a PR from homolog", "bravros police unlock", "bravros promote unlock"} {
+	for _, want := range []string{"has a homolog branch, so main is PR-gated", "bravros police direct-main on", "open a PR from homolog", "bravros police unlock", "bravros promote unlock"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("no-config block missing %q: %q", want, msg)
 		}
+	}
+	if strings.Contains(msg, "so main is protected by default") {
+		t.Errorf("no-config block must not blame the missing config file: %q", msg)
+	}
+
+	// No config and no staging branch: this arm is only reachable for a target
+	// the gate could not clear from here, so it must not claim a local policy.
+	gitRepoWithoutHomolog(t, "git@github.com:paylog/ev.git", "")
+	msg = mergeBlockMessage(mergeProtected, "pushing to a protected branch")
+	if !strings.Contains(msg, "could not be read from here") || strings.Contains(msg, "has a homolog branch") {
+		t.Errorf("no-config no-staging block: %q", msg)
 	}
 
 	laneRepo(t, `{"staging_branch":"staging"}`)

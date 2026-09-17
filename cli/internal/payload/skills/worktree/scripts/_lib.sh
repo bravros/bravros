@@ -286,7 +286,7 @@ herd_secured_exists() {
 #     REDIS_PREFIX: "{name}_"
 #     APP_URL: "https://{name}.test"
 #   runtime_dirs: [vendor, node_modules, public/build, bootstrap/cache]
-#   restore_after_link: [.agents, .claude, boost.json, AGENTS.md, CLAUDE.md]
+#   restore_after_link: [.agents, .claude, .ai, boost.json, AGENTS.md, CLAUDE.md]
 #   mcp_site_path_rewrite: true
 #   db:
 #     clone_name: "{repo}_wt{n}"

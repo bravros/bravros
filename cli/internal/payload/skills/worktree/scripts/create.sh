@@ -289,7 +289,12 @@ if (( LARAVEL )); then
              "$WT_PATH/storage/framework/views" \
              "$WT_PATH/storage/framework/testing" \
              "$WT_PATH/storage/logs" 2>/dev/null || true
-    chmod -R 775 "$WT_PATH/storage" 2>/dev/null || true
+    # FIX (upstreamed from a workspace fork, 2026-09-12)
+    # chmod DIRECTORIES only. A recursive chmod also flips the exec bit
+    # on the tracked storage/**/.gitignore files, and git records mode changes —
+    # which left every afterpay worktree dirty with 10 phantom 644->755 diffs.
+    # (ev never showed it: its .gitignore files are already committed as 100755.)
+    find "$WT_PATH/storage" -type d -exec chmod 775 {} + 2>/dev/null || true
     ok "storage/ ready (fresh tree, no symlink)"
 fi
 
@@ -396,22 +401,93 @@ if (( LARAVEL )) && (( HERD_OK )); then
     # and strips hand-written sections), leaving a fresh worktree dirty before
     # any real work. Restore the tracked versions and drop the untracked ones so
     # the branch starts byte-clean.
+    # A `restore_after_link` key in .worktree.yml REPLACES this default outright —
+    # nothing merges. So a project that defines the key does NOT pick up paths added
+    # here later (`.ai` is the one that bit: added to the default long after the
+    # first configs were written, and every worktree in those projects stayed dirty
+    # until `.ai` was added to the CONFIG). Fresh worktree dirty? Grep .worktree.yml
+    # first — editing the default below changes nothing while the key is defined.
     RESTORE_PATHS=$(cfg_list restore_after_link)
-    [[ -z "$RESTORE_PATHS" ]] && RESTORE_PATHS=$'.agents\n.claude\nboost.json\nAGENTS.md\nCLAUDE.md'
+    [[ -z "$RESTORE_PATHS" ]] && RESTORE_PATHS=$'.agents\n.claude\n.ai\nboost.json\nAGENTS.md\nCLAUDE.md'
+    # FIX (upstreamed from a workspace fork, 2026-09-12)
+    # This was a straight-line block,
+    # run once immediately after `herd link`. It is a function now so the settle pass
+    # below can call it again — see that block for why a second pass is cheap insurance
+    # rather than a fix for a late write.
+    restore_link_churn() {
+        (
+            cd "$WT_PATH"
+            # One path at a time: `git checkout --` aborts the WHOLE invocation if
+            # any single pathspec is untracked, silently skipping the rest.
+            while IFS= read -r p; do
+                [[ -z "$p" ]] && continue
+                git checkout -- "$p" 2>/dev/null || true
+            done <<< "$RESTORE_PATHS"
+            git clean -fdq .agents .claude 2>/dev/null || true
+        )
+    }
     info "Restoring files the Herd link may have regenerated…"
-    (
-        cd "$WT_PATH"
-        # One path at a time: `git checkout --` aborts the WHOLE invocation if
-        # any single pathspec is untracked, silently skipping the rest.
-        while IFS= read -r p; do
-            [[ -z "$p" ]] && continue
-            git checkout -- "$p" 2>/dev/null || true
-        done <<< "$RESTORE_PATHS"
-        git clean -fdq .agents .claude 2>/dev/null || true
-    )
+    restore_link_churn
     ok "post-link churn reverted"
 elif (( LARAVEL )); then
     warn "Herd not found — skipping link/TLS. The worktree has no .test URL."
+fi
+
+# ─── Mode-only churn repair ───────────────────────────────────────────────────
+# FIX (upstreamed from a workspace fork, 2026-09-12)
+# Safety net for the whole class of problem above. `git diff --numstat`
+# reports 0 added / 0 removed lines only when a tracked file's CONTENT is identical
+# and just its mode changed. A mode flip is never real work, so restore those paths
+# and let the worktree start byte-clean no matter which step flipped them.
+#
+# Stack-agnostic on purpose: the Laravel/Herd steps above are one way to flip a bit,
+# not the only one, so this runs in EVERY repo. A function because the settle loop
+# below calls it too — a mode flip that lands after this point would otherwise keep
+# the tree "dirty" for the loop's whole 24s budget and end in a spurious warning.
+repair_mode_only_churn() {
+    git -C "$WT_PATH" rev-parse --git-dir >/dev/null 2>&1 || return 0
+    local mode_only p n=0
+    mode_only=$(git -C "$WT_PATH" diff --numstat | awk -F'\t' '$1=="0" && $2=="0" {print $3}')
+    [[ -z "$mode_only" ]] && return 0
+    while IFS= read -r p; do
+        [[ -z "$p" ]] && continue
+        git -C "$WT_PATH" checkout -- "$p" 2>/dev/null && n=$((n+1))
+    done <<< "$mode_only"
+    (( n > 0 )) && ok "reverted $n mode-only change(s) on tracked files"
+    return 0
+}
+repair_mode_only_churn
+
+# ─── Post-link settle + second restore ────────────────────────────────────────
+# FIX (upstreamed from a workspace fork, 2026-09-12)
+# Belt-and-braces second pass. This loop only
+# CONFIRMS the tree settled clean — it is not the fix for anything, and treating it as
+# one wastes 24s per worktree while hiding the real cause.
+#
+# `boost:update` is synchronous: it finishes before `herd link` returns, so a late
+# async write is never the explanation. When a worktree comes up dirty the cause is a
+# path nobody restored, and the fix is the `restore_after_link` list in .worktree.yml
+# (which REPLACES the script default — see the RESTORE_PATHS block above).
+# Breaks after 3 consecutive clean checks (~2s in practice), capped at 24s.
+if declare -f restore_link_churn >/dev/null 2>&1; then
+    info "Waiting for Laravel Boost to settle…"
+    clean_streak=0; waited=0
+    for _ in $(seq 1 24); do
+        restore_link_churn
+        repair_mode_only_churn
+        if [[ -z "$(git -C "$WT_PATH" status --porcelain 2>/dev/null)" ]]; then
+            clean_streak=$((clean_streak+1))
+            (( clean_streak >= 3 )) && break
+        else
+            clean_streak=0
+        fi
+        sleep 1; waited=$((waited+1))
+    done
+    if [[ -z "$(git -C "$WT_PATH" status --porcelain 2>/dev/null)" ]]; then
+        ok "tree clean after ${waited}s (Boost churn reverted)"
+    else
+        warn "tree still dirty after ${waited}s — see the change list below"
+    fi
 fi
 
 # ─── Drift check ──────────────────────────────────────────────────────────────

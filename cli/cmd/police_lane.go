@@ -434,7 +434,14 @@ func directMainStatus(cmd *cobra.Command) error {
 	if found {
 		fmt.Fprintf(w, "config: %s present\n", config.ConfigFilename)
 	} else {
-		fmt.Fprintf(w, "config: %s absent (main is protected by default)\n", config.ConfigFilename)
+		// Absent config does not by itself protect main: policeDirectMainAllowed
+		// clears main in a repo with no staging branch. Report which of the two
+		// the operator is actually in.
+		if repoUsesHomolog() {
+			fmt.Fprintf(w, "config: %s absent (main is PR-gated: a staging branch exists)\n", config.ConfigFilename)
+		} else {
+			fmt.Fprintf(w, "config: %s absent, no staging branch (main is not gated)\n", config.ConfigFilename)
+		}
 	}
 	cfg, _ := config.LoadBravrosConfig()
 	mode, reason := cfg.StagingLaneMode()

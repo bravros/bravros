@@ -20,8 +20,8 @@ body: |
   | `.bravros/hooks/commit-msg` | Overwrite with latest |
   | `.bravros/hooks/pre-push` | Overwrite with latest |
   | `.github/workflows/claude.yml` | Overwrite with latest |
-  | `sync-db.sh` | Overwrite if exists |
-  | `.db-sync.env.example` | Overwrite if exists |
+  | `sync-db.sh` | **Skip if exists** — may have diverged |
+  | `.db-sync.env.example` | **Skip if exists** — pairs with the script |
   | `CLAUDE.md` | **Skip** — project-specific |
   | `.gitignore` | Append missing entries only |
 
