@@ -132,8 +132,18 @@ func TestStagingLane_MergeStateGates(t *testing.T) {
 				t.Errorf("UNKNOWN wording: %q", d)
 			}
 			msg := mergeBlockMessage(v, d)
-			if strings.Contains(msg, "could not be determined") || !strings.Contains(msg, "re-run in a few seconds") || !strings.Contains(msg, "bravros police unlock") {
+			if strings.Contains(msg, "could not be determined") || !strings.Contains(msg, "re-run in a few seconds") {
 				t.Errorf("UNKNOWN block must use the retry wording, not the offline one: %q", msg)
+			}
+			// The token line is suppressed here on purpose. No token makes an
+			// uncomputed PR mergeable, so naming one only sends the operator to a
+			// second terminal to mint one that expires unused while the lane opens
+			// on its own (afterpay #395/#396; paylog #2092, 2026-09-21).
+			if strings.Contains(msg, "police unlock") || strings.Contains(msg, "promote unlock") {
+				t.Errorf("UNKNOWN block must not name a token — re-running is the only remedy: %q", msg)
+			}
+			if !strings.Contains(msg, "re-run the SAME") {
+				t.Errorf("UNKNOWN block must tell the agent to re-run the same command: %q", msg)
 			}
 		case mergeProtected:
 			if !strings.Contains(d, "mergeStateStatus is "+state) {
@@ -379,8 +389,24 @@ func TestMergeBlockMessage_Hints(t *testing.T) {
 		mergeBlockMessage(mergeIndeterminate, laneUnknownDetail),
 		mergeBlockMessage(mergeProtected, "merging a pull request into a protected branch ("+laneRefusedPrefix+"an autonomous lock is present (.planning/.auto-pr-lock))"),
 	} {
-		if !strings.HasPrefix(m, "✋🏽 Police Block:") || !strings.Contains(m, "bravros police unlock") {
-			t.Errorf("every block keeps the prefix and the fallback: %q", m)
+		if !strings.HasPrefix(m, "✋🏽 Police Block:") {
+			t.Errorf("every block keeps the prefix: %q", m)
+		}
+	}
+
+	// The token fallback rides every block EXCEPT the UNKNOWN one, which is
+	// absent from this list on purpose: no token makes an uncomputed PR
+	// mergeable, so naming one there only sends the operator to a second
+	// terminal to mint one that expires unused while the lane opens on its own
+	// (afterpay #395/#396; paylog #2092, 2026-09-21). Two loops rather than one,
+	// so the exemption reads as a decision instead of an oversight to "fix".
+	for _, m := range []string{
+		mergeBlockMessage(mergeUnenforced, "x"),
+		mergeBlockMessage(mergeIndeterminate, "merging a pull request"),
+		mergeBlockMessage(mergeProtected, "merging a pull request into a protected branch ("+laneRefusedPrefix+"an autonomous lock is present (.planning/.auto-pr-lock))"),
+	} {
+		if !strings.Contains(m, "bravros police unlock") {
+			t.Errorf("every block but UNKNOWN keeps the token fallback: %q", m)
 		}
 	}
 	lock := mergeBlockMessage(mergeProtected, "merging a pull request into a protected branch ("+laneRefusedPrefix+"an autonomous lock is present (.planning/.auto-pr-lock) — autonomous pipelines never merge to main)")

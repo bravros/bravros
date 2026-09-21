@@ -126,7 +126,7 @@ func TestMergeBlockMessage_DistinctWording(t *testing.T) {
 	}
 	for _, m := range []string{ind, prot} {
 		if !strings.Contains(m, "bravros police unlock") {
-			t.Errorf("every block must name the sanctioned path: %q", m)
+			t.Errorf("these two blocks must name the sanctioned path: %q", m)
 		}
 	}
 }

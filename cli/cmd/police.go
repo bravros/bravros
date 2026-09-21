@@ -1384,9 +1384,10 @@ func gateInputBlockMessage(kind gateInputKind, path string) string {
 // deliberate merge, but an unresolvable base usually means the forge could not
 // be reached, and re-running is the right first move.
 //
-// Every block ends with the same fallback line — the token — so the sanctioned
-// path is always visible, and names the exact failed condition above it so the
-// agent relays something actionable rather than "blocked".
+// Every block names the exact failed condition so the agent relays something
+// actionable rather than "blocked", and ends with the token fallback so the
+// sanctioned path stays visible — EXCEPT the UNKNOWN case, where no token
+// unblocks anything and naming one is actively harmful (see that branch).
 func mergeBlockMessage(v mergeVerdict, detail string) string {
 	const tokenLine = "If the merge is deliberate, ask the operator to mint a token outside Claude Code:\n" +
 		"  bravros police unlock   (bravros promote unlock also works)\n"
@@ -1400,9 +1401,20 @@ func mergeBlockMessage(v mergeVerdict, detail string) string {
 	if v == mergeIndeterminate {
 		switch detail {
 		case laneUnknownDetail:
+			// Deliberately NO tokenLine. A token authorizes a merge; it does not
+			// make an uncomputed PR mergeable, so minting one here changes
+			// nothing while the lane opens by itself seconds later. The cost is
+			// not theoretical: afterpay #395/#396 had a token minted mid-merge
+			// that expired unused, and paylog #2092 (2026-09-21) hit this block
+			// ~2 min after open with nothing merged in between. The only correct
+			// remedy is to re-run the same command; a persistent UNKNOWN is a
+			// different fault and belongs in a report, not in a token.
 			return "✋🏽 Police Block: " + detail + ".\n" +
 				"This PR is a staging-lane candidate; once GitHub reports mergeStateStatus CLEAN\n" +
-				"the same command merges without a token.\n" + tokenLine
+				"the same command merges without a token. Wait a few seconds and re-run the SAME\n" +
+				"command — no token opens this, and one minted now expires unused while GitHub\n" +
+				"finishes computing. Still UNKNOWN after several tries: stop and report it, that\n" +
+				"is no longer a mergeability delay.\n"
 		case prUnreadableDetail:
 			return "✋🏽 Police Block: " + detail + ".\n" +
 				"A $VAR PR argument is unreadable to the hook — put the literal PR number on the merge\n" +

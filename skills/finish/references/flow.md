@@ -148,7 +148,7 @@ gh pr view "$PR_NUMBER" --json mergeable,mergeStateStatus,reviewDecision \
 | `BLOCKED` | a required review or gate is unsatisfied | stop, report which |
 | `DIRTY` | conflicts | conflict path below |
 | `BEHIND` | base moved | update the branch, re-run Step 3 |
-| `UNKNOWN` | GitHub is still computing mergeability (~5 min after a push/open) | one bounded wait, then decide on `mergeable` alone — **never** a poll loop |
+| `UNKNOWN` | GitHub is still computing mergeability (~5 min after a push/open) | wait it out with the `until` form below, then gate on the status it resolves to — **never** on `mergeable` alone |
 
 ```bash
 until [ "$(gh pr view "$PR_NUMBER" --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ]; do sleep 5; done
@@ -204,8 +204,11 @@ fi
 
 Say out loud which condition suppressed the flag, so the leftover branch is not a surprise.
 
-Step 3b must have passed **and still hold** — re-read `mergeStateStatus` if anything pushed since,
-because the readiness fact expires the moment the branch or base moves:
+Step 3b must have passed **and still hold**. The readiness fact expires the moment the branch or
+base moves — **and also when nothing moves at all**: GitHub recomputes mergeability asynchronously
+and can report `UNKNOWN` again on a PR it called `CLEAN` seconds earlier. paylog #2092 (2026-09-21)
+read `CLEAN`, and the very next tool call was blocked as `UNKNOWN` with nothing merged in between.
+So the re-check belongs in the **same Bash call as the merge**, not in a step above it:
 
 Resolve the strategy first and read it off the output — the merge line below takes literals:
 
@@ -215,6 +218,10 @@ echo "pr=$PR_NUMBER strategy=--$STRATEGY delete_flag=${DELETE_FLAG:-none}"
 ```
 
 ```bash
+# Re-check readiness HERE, in the merge's own call — a CLEAN read from a previous tool
+# call has already expired across the round trip (see above). `gh pr view` takes "$PR_NUMBER"
+# safely; only the gated merge line needs the literal.
+until [ "$(gh pr view "$PR_NUMBER" --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ]; do sleep 5; done
 bravros merge-lock acquire --timeout 60s --ttl 10m --meta reason=finish --meta pr=1234
 # Substitute the LITERAL PR number, strategy and delete flag on the merge line — a $VAR or
 # backtick there is unreadable to the police hook (it reads raw command text; indeterminate
@@ -226,6 +233,11 @@ bravros merge-lock release
 cat /tmp/bravros-merge-1234.txt; echo "merge_rc=$MERGE_RC"
 [ "$MERGE_RC" = "0" ] || exit 1
 ```
+
+A `✋🏽 Police Block` naming `mergeStateStatus is UNKNOWN` is **not** a refusal and **not** a token
+problem: GitHub had not finished computing when the hook did its own lookup. Wait a few seconds and
+re-run the **same** command — the block message says so itself. Never mint a token for it (it opens
+nothing and expires unused) and never retarget or reshape the PR to get past it.
 
 `bravros config merge-strategy` reads `.bravros/config.json` (`merge_strategy.by_base[<base>]` →
 `into_main` → `default` → `merge`); the old `awk` over `.bravros.yml` read a legacy file and
@@ -430,6 +442,8 @@ echo "main_pr=$MAIN_PR strategy=--$MAIN_STRATEGY"
 ```
 
 ```bash
+# Same re-check as Step 4, same reason: the CLEAN read above expires across the round trip.
+until [ "$(gh pr view "$MAIN_PR" --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ]; do sleep 5; done
 bravros merge-lock acquire --timeout 60s --ttl 10m --meta reason=finish-main --meta pr=1234
 # Substitute the LITERAL main-PR number and strategy — a $VAR here is unreadable to the police
 # hook (raw command text; indeterminate target → blocked). These lines may share one Bash call;
