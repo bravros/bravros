@@ -19,7 +19,7 @@ body: |
   - PRs NEVER target `main` directly. Flow: `feature/* → homolog → main`. Only a PR *from*
     `homolog` targets `main`; a repo without a `homolog` branch falls back to `main`.
   - Title: `<emoji> <type>: <description>`, **under 70 characters** — detail goes in the body.
-  - NEVER add AI signatures to the PR title or body — repo policy overrides any harness default footer. Check `gh repo view --json isPrivate -q .isPrivate` and strip any attribution footer from the body file before creating (public repos especially).
+  - NEVER add AI signatures to the PR title or body — repo policy overrides any harness default footer. No `Generated with Claude Code`, `Co-Authored-By` or 🤖 line — don't write one, and never `sed`/`perl` the body file to strip one.
   - Never open a PR with uncommitted changes — `/ship` first.
 
   BASE BRANCH:
@@ -39,7 +39,7 @@ body: |
   scratchpad exists, deleted after the PR opens — `/recon` commits `.planning/` wholesale) with sections Summary / Changes /
   Technical Notes / Test Plan / References — context from the commits and the `.planning/` plan file,
   not from re-reading the codebase; (2) `gh pr create --base "$BASE" --title "<emoji> <type>: <title>"
-  --body-file <abs path>` as its own command. Never a heredoc or `cp … &&` in the same command — the
+  --body-file <the same literal abs path>` as its own command. The path is a literal absolute path — never `$VAR`, `~`, relative, or `cp`'d from a scratch file. Never a heredoc or `cp … &&` in the same command — the
   police hook validates the body file before the command runs and blocks an unreadable one. Show the URL.
 
   HANDOFF (the routing IS the contract):

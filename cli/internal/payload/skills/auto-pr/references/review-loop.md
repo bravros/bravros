@@ -8,6 +8,8 @@ gh api repos/{owner}/{repo}/actions/workflows --jq '.workflows[] | select(.name 
 
 ## 1. Trigger
 
+The body below is the **only** accepted form: `bravros police` blocks any `@claude … review` comment that does not open with the exact canonical sentence and end with the exact `Required:` block (and refuses `--body-file`/`-F`). Never paraphrase it ("@claude please review this PR…"), never add a focus-areas preamble; extra instructions may go only *between* the opening sentence and `Required:`.
+
 The trailing sentinel block is **load-bearing for the merge gate** — the `BRAVROS-VERDICT:`
 line is the only authoritative verdict input. It must be plain visible text: the @claude
 GitHub Action strips HTML comments from posted reviews, so the old
@@ -15,8 +17,8 @@ GitHub Action strips HTML comments from posted reviews, so the old
 lines byte-exact.
 
 ```bash
-PR_NUM=$(gh pr view --json number -q '.number')
-gh pr comment "$PR_NUM" --body "@claude review this PR and check if we are able to merge. Analyze the code changes for any issues, security concerns, or improvements needed.
+PR_NUM=$(gh pr view --json number -q '.number')  # then substitute the LITERAL number below — the hook reads raw command text
+gh pr comment 1234 --body "@claude review this PR and check if we are able to merge. Analyze the code changes for any issues, security concerns, or improvements needed.
 
 Required: end your review with EXACTLY ONE of these lines, as plain text, alone on its own line, as the final line:
 

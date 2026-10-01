@@ -15,7 +15,7 @@ INTENT: ship everything (`/ship`), open the PR against the right base, hand off 
 HARD CONSTRAINTS:
 - PRs NEVER target `main` directly (`feature/* → homolog → main`).
 - Title: `<emoji> <type>: <description>`, **under 70 characters**.
-- NEVER add AI signatures to title or body — check `gh repo view --json isPrivate -q .isPrivate` and strip any harness-added attribution footer from the body file before creating; on a public repo (`false`) this is a leak, not a style nit.
+- NEVER add AI signatures to title or body — no `Generated with Claude Code` line, no `Co-Authored-By`, no 🤖 footer. Don't write one; there is nothing to strip (no `sed -i`/`perl` cleanup of the body file — the police hook blocks the rewrite dance and the attribution is disabled in settings). On a public repo this would be a leak, not a style nit.
 - **NEVER write a bare `#N` in the body except for an issue/PR you mean to link.** GitHub
   autolinks it and stamps a cross-reference onto that issue's timeline; a "finding #3" reference
   silently spams an unrelated old issue. Write `finding 3` or backtick it.
@@ -30,8 +30,8 @@ BASE BRANCH:
 `homolog` if present (or `main` if current is `homolog` / missing `homolog`). Rebase if behind.
 
 CREATE — two steps, two tool calls, in this order:
-1. **Write the body with the Write tool** to an absolute path — the scratchpad (`<scratchpad>/pr-body-<branch>.md`) by default; `<repo>/.planning/pr-body-<branch>.md` only when no scratchpad exists, deleted after the PR opens (`/recon` commits `.planning/` wholesale) — with Summary, Changes, Technical Notes, Test Plan, References. Then re-read it and strip any AI-attribution footer.
-2. `gh pr create --base "$BASE" --title "<emoji> <type>: <title>" --body-file <abs path>` as its own command. **Never** a heredoc, `cat > f && gh pr create`, or `cp … && gh pr create --body-file` in the same command: the police hook validates the body file **before** the command runs and blocks an unreadable one (3 blocks in a row on paylog, 2026-09-11 06:53).
+1. **Write the body with the Write tool** to an absolute path — the scratchpad (`<scratchpad>/pr-body-<branch>.md`) by default; `<repo>/.planning/pr-body-<branch>.md` only when no scratchpad exists, deleted after the PR opens (`/recon` commits `.planning/` wholesale) — with Summary, Changes, Technical Notes, Test Plan, References. The path must be a **literal absolute path** — never `$S/…`, `$TMPDIR/…`, `~`, or a relative `./.pr-body.md`, and never produced by `cp`/`mv` from elsewhere (the hook reads raw command text: an unexpanded variable or a not-yet-existing file is blocked as "unreadable body").
+2. `gh pr create --base "$BASE" --title "<emoji> <type>: <title>" --body-file <the same literal abs path>` as its own command (no `S=… &&` prefix, no variables). **Never** a heredoc, `cat > f && gh pr create`, or `cp … && gh pr create --body-file` in the same command: the police hook validates the body file **before** the command runs and blocks an unreadable one (3 blocks in a row on paylog, 2026-09-11 06:53).
 
 HANDOFF (mandatory final step — the routing IS the contract):
 - **Autonomous**: Output `STATUS: pr-created. PR: #<n>. NEXT: review`. The pipeline owns the

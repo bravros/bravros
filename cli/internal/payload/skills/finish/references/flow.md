@@ -349,6 +349,17 @@ command is the plain form — no `-R`/URL/branch argument, no relocation (a lead
 is tolerated, anything else is not). Step 7 satisfies all of that by construction, so "no token
 needed" stays true.
 
+**Preflight before the merge line (run it, don't assume).** Two read-only checks, each its own call:
+
+```bash
+bravros police status                                   # exit code is always 0; text says "token is MISSING or INVALID" when absent
+gh pr view 1234 --json mergeStateStatus,headRefName     # literal number
+```
+
+- `mergeStateStatus` ≠ `CLEAN` (`UNSTABLE` = a check is failing, `BLOCKED`, `BEHIND`, `UNKNOWN`): report the failing check (`gh pr checks 1234`) and stop. The staging lane refuses it ("Staging lane refused: mergeStateStatus is UNSTABLE") — do not acquire the lock or attempt the merge. `UNKNOWN` alone → wait as in the table below.
+- Head is `homolog` and `CLEAN` → no token needed; proceed.
+- Head is anything else (or the lane is otherwise inapplicable) and `police status` says the token is MISSING → ask the operator **once**: "Run `bravros police unlock` in a separate terminal, then tell me" and wait. Merging to `main` is blocked for agents without it; retrying the merge just burns calls.
+
 **If the merge returns `✋🏽 Police Block`, the block names the failed condition.** Relay that
 reason in ONE line and act on it — never improvise:
 

@@ -53,7 +53,9 @@ Types: ✨ feat · 🐛 fix · 📚 docs · 💄 style · ♻️ refactor · ⚡
 
 - Keep the subject ≤ 50 chars (soft limit 72); move detail to the body after a blank line.
 - **No AI attribution.** Never add "🤖 Generated with Claude Code" or "Co-Authored-By: Claude"
-  to commit messages **or** PR bodies. Strip it if a spawned agent adds it.
+  to commit messages **or** PR bodies. Strip it if a spawned agent adds it. Claude Code's own
+  default attribution is disabled via `"attribution": {"commit": "", "pr": ""}` in
+  settings.json, so stripping via sed/perl is never needed.
 
 ## Model tiers
 
@@ -82,7 +84,10 @@ Every dispatched worker/subagent prompt carries these rules verbatim:
 - **Worktree step 0:** run `pwd && echo "$(git branch --show-current)"` before anything else,
   use absolute paths thereafter, and on mismatch with the dispatch prompt stop and report.
 - **Background by default; grep before big reads.** Long commands go to background — poll,
-  don't block. Locate content with grep/rg, then read targeted line ranges.
+  don't block (test suites, ssh deploy waits and polling loops use `run_in_background` — the
+  2-minute foreground limit timed out ×12). Locate content with grep/rg, then read targeted
+  line ranges: Read takes integer `offset` + `limit`, never a range (`"offset": 120, 300` → 34
+  InputValidationErrors).
 - **Transcript mining: fixed-string streaming ONLY.** Mining `*.jsonl` session transcripts
   means `grep -F` fixed-string shortlists, or line-by-line python that SKIPS lines >2MB.
   Bounded-context regexes (`.{0,N}` around a pattern) over transcripts are BANNED — a single
@@ -97,7 +102,8 @@ correct on the page. They apply to every skill, hook, and dispatched worker.
   failing CI check or test run reads as `rc=0`. Redirect to a file, capture `RC=$?` on its own
   line, then inspect the file separately. (`${pipestatus[1]}` works in zsh but not bash — don't
   rely on it in shared recipes.)
-- **`git <cmd> "$SHA:literal/path"` is a zsh parameter modifier.** `"$SHA:app/Foo.php"` expands
+- **`git <cmd> "$VAR:literal/path"` is a zsh parameter modifier** (SHAs and ref names alike —
+  `git show "$REF:tests/…"` lost its path to `:t`). `"$SHA:app/Foo.php"` expands
   the `:a` modifier (absolute path), eats the `a`, prepends cwd, and fails with
   `fatal: Not a valid object name /Users/…/<sha>pp/Foo.php`. Braces don't help. Any path whose
   first letter is `a c e h l p q r s t u x A P Q` is affected. **Put the path in a variable**
@@ -110,6 +116,13 @@ correct on the page. They apply to every skill, hook, and dispatched worker.
   or background the command. Chaining shorter sleeps to dodge the block is also blocked.
 - **`sed "s|^|$var |"` over a multi-line variable** dies with `unescaped newline inside
   substitute pattern`. Iterate `while IFS= read -r` and emit with `printf`.
+- **macOS has no `timeout`** (`command not found: timeout`, ×4). Use `gtimeout` (coreutils) or
+  background the command.
+- **BSD sed rejects GNU address forms** — `sed -n "$START,+35p"` / `"115,p"` fail with `invalid
+  command code ,` / `expected context address`. Compute the end line in shell, or use `awk` /
+  Read with `offset`+`limit`.
+- **`gh … | python3 -c 'json.load(sys.stdin)'`** blew up ×32 when `gh` failed or printed
+  non-JSON. Capture to a file, check the exit code, then parse — or use `gh --jq`.
 
 Array iteration under zsh (`for x in $VAR` does not word-split) is a fourth trap — recipe in
 this repo's `skills/CLAUDE.md` § Bash hygiene.

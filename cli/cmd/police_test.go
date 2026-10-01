@@ -309,22 +309,14 @@ func TestPolicePreToolUse_PermittedWithStandDownEnv(t *testing.T) {
 	}
 }
 
+// TestPolicePreToolUse_PermittedWithStandDownMarker: the machine-wide marker
+// suppresses the merge gate with NO agent session env at all.
 func TestPolicePreToolUse_PermittedWithStandDownMarker(t *testing.T) {
-	sessionID := "test-session-sd-1"
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
-	t.Setenv("CLAUDE_SESSION_ID", sessionID)
+	t.Setenv("CLAUDE_SESSION_ID", "")
 	t.Setenv("BRAVROS_POLICE_STANDDOWN", "")
 	t.Setenv("HOME", t.TempDir())
-
-	// Create valid standdown marker
-	sdPath := standDownPath(sessionID)
-	_ = os.MkdirAll(filepath.Dir(sdPath), 0755)
-	t.Cleanup(func() { os.RemoveAll(filepath.Dir(sdPath)) })
-
-	markerData := `{"session_id":"` + sessionID + `","expires_at":"` + time.Now().Add(1*time.Hour).Format(time.RFC3339) + `"}`
-	if err := os.WriteFile(sdPath, []byte(markerData), 0644); err != nil {
-		t.Fatal(err)
-	}
+	writeStandDownMarker(t, time.Now().Add(time.Hour))
 
 	payload := `{"tool_name":"bash","tool_input":{"command":"git push origin homolog"}}`
 	var out bytes.Buffer
@@ -381,58 +373,50 @@ func TestPolicePreToolUse_NonMainBash_Permitted(t *testing.T) {
 }
 
 func TestPoliceStandDown_FullLifecycle(t *testing.T) {
-	sessionID := "test-sd-lifecycle-session"
-	// resolveSession prefers CLAUDE_CODE_SESSION_ID; clear it so the test does
-	// not resolve to the ambient session when run inside Claude Code.
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
-	t.Setenv("CLAUDE_SESSION_ID", sessionID)
+	t.Setenv("CLAUDE_SESSION_ID", "")
 	t.Setenv("BRAVROS_POLICE_STANDDOWN", "")
+	t.Setenv("HOME", t.TempDir())
 
-	sdDir := filepath.Dir(standDownPath(sessionID))
-	t.Cleanup(func() { os.RemoveAll(sdDir) })
-
-	// 1. Initial status - inactive
-	var out bytes.Buffer
-	policeStandDownStatusCmd.SetOut(&out)
-	if err := policeStandDownStatusCmd.RunE(policeStandDownStatusCmd, nil); err != nil {
-		t.Fatalf("status: %v", err)
-	}
-	var st struct {
+	status := func() (st struct {
 		Active    bool   `json:"active"`
 		Source    string `json:"source"`
-		SessionID string `json:"session_id"`
+		Scope     string `json:"scope"`
+		Remaining string `json:"remaining"`
+		Reason    string `json:"reason"`
+	}) {
+		t.Helper()
+		var out bytes.Buffer
+		policeStandDownStatusCmd.SetOut(&out)
+		if err := policeStandDownStatusCmd.RunE(policeStandDownStatusCmd, nil); err != nil {
+			t.Fatalf("status: %v", err)
+		}
+		if err := json.Unmarshal(out.Bytes(), &st); err != nil {
+			t.Fatalf("unmarshal status: %v", err)
+		}
+		return st
 	}
-	if err := json.Unmarshal(out.Bytes(), &st); err != nil {
-		t.Fatalf("unmarshal status: %v", err)
-	}
-	if st.Active {
+
+	if status().Active {
 		t.Errorf("expected standdown to be initially inactive")
 	}
 
-	// 2. Enable standdown
-	out.Reset()
-	standDownTTLFlag = 2 * time.Hour
+	var out bytes.Buffer
+	standDownTTLFlag, standDownReasonFlag = "2h", "workflow run"
+	t.Cleanup(func() { standDownTTLFlag, standDownReasonFlag = "4h", "" })
 	policeStandDownOnCmd.SetOut(&out)
 	if err := policeStandDownOnCmd.RunE(policeStandDownOnCmd, nil); err != nil {
 		t.Fatalf("on: %v", err)
 	}
-	if !strings.Contains(out.String(), "Police stand-down ON") {
+	if !strings.Contains(out.String(), "Police stand-down ON machine-wide") {
 		t.Errorf("expected ON message, got %q", out.String())
 	}
 
-	// 3. Status should now be active from marker
-	out.Reset()
-	if err := policeStandDownStatusCmd.RunE(policeStandDownStatusCmd, nil); err != nil {
-		t.Fatalf("status: %v", err)
-	}
-	if err := json.Unmarshal(out.Bytes(), &st); err != nil {
-		t.Fatalf("unmarshal status: %v", err)
-	}
-	if !st.Active || st.Source != "marker" || st.SessionID != sessionID {
-		t.Errorf("status = %+v; want Active=true, Source=marker, SessionID=%s", st, sessionID)
+	st := status()
+	if !st.Active || st.Source != "marker" || st.Scope != "machine" || st.Reason != "workflow run" || st.Remaining == "" {
+		t.Errorf("status = %+v; want active machine marker with reason and remaining", st)
 	}
 
-	// 4. Disable standdown
 	out.Reset()
 	policeStandDownOffCmd.SetOut(&out)
 	if err := policeStandDownOffCmd.RunE(policeStandDownOffCmd, nil); err != nil {
@@ -441,71 +425,37 @@ func TestPoliceStandDown_FullLifecycle(t *testing.T) {
 	if !strings.Contains(out.String(), "marker cleared") {
 		t.Errorf("expected cleared message, got %q", out.String())
 	}
-
-	// 5. Status should be inactive again
-	out.Reset()
-	if err := policeStandDownStatusCmd.RunE(policeStandDownStatusCmd, nil); err != nil {
-		t.Fatalf("status: %v", err)
-	}
-	if err := json.Unmarshal(out.Bytes(), &st); err != nil {
-		t.Fatalf("unmarshal status: %v", err)
-	}
-	if st.Active {
+	if status().Active {
 		t.Errorf("expected standdown to be inactive after off")
 	}
 }
 
 func TestPoliceStandDown_ExpiredMarker_AutoCleaned(t *testing.T) {
-	sessionID := "test-sd-expired"
-	// resolveSession prefers CLAUDE_CODE_SESSION_ID; clear it so the test does
-	// not resolve to the ambient session when run inside Claude Code.
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
-	t.Setenv("CLAUDE_SESSION_ID", sessionID)
+	t.Setenv("CLAUDE_SESSION_ID", "")
 	t.Setenv("BRAVROS_POLICE_STANDDOWN", "")
+	t.Setenv("HOME", t.TempDir())
+	writeStandDownMarker(t, time.Now().Add(-time.Hour))
 
-	sdPath := standDownPath(sessionID)
-	_ = os.MkdirAll(filepath.Dir(sdPath), 0755)
-	t.Cleanup(func() { os.RemoveAll(filepath.Dir(sdPath)) })
-
-	// Marker expired 1 hour ago
-	markerData := `{"session_id":"` + sessionID + `","expires_at":"` + time.Now().Add(-1*time.Hour).Format(time.RFC3339) + `"}`
-	if err := os.WriteFile(sdPath, []byte(markerData), 0644); err != nil {
-		t.Fatal(err)
+	if isStandDownActive() {
+		t.Errorf("expected expired standdown to be inactive")
 	}
-
-	var out bytes.Buffer
-	policeStandDownStatusCmd.SetOut(&out)
-	if err := policeStandDownStatusCmd.RunE(policeStandDownStatusCmd, nil); err != nil {
-		t.Fatalf("status: %v", err)
-	}
-
-	var st struct {
-		Active bool `json:"active"`
-	}
-	if err := json.Unmarshal(out.Bytes(), &st); err != nil {
-		t.Fatalf("unmarshal status: %v", err)
-	}
-	if st.Active {
-		t.Errorf("expected expired standdown to report active=false")
-	}
-
-	// File should be removed
-	if _, err := os.Stat(sdPath); !os.IsNotExist(err) {
+	if _, err := os.Stat(standDownPath()); !os.IsNotExist(err) {
 		t.Errorf("expired standdown file was not cleaned up")
 	}
 }
 
-func TestPoliceStandDown_On_NoSession_Warns(t *testing.T) {
-	t.Setenv("CLAUDE_SESSION_ID", "")
-	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
-
-	var errBuf bytes.Buffer
-	policeStandDownOnCmd.SetErr(&errBuf)
-	if err := policeStandDownOnCmd.RunE(policeStandDownOnCmd, nil); err != nil {
-		t.Fatalf("expected nil return on no session, got %v", err)
+// writeStandDownMarker writes a machine-wide marker expiring at exp under the
+// current HOME.
+func writeStandDownMarker(t *testing.T, exp time.Time) {
+	t.Helper()
+	path := standDownPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(errBuf.String(), "no agent session detected") {
-		t.Errorf("expected warning on stderr, got %q", errBuf.String())
+	data := `{"scope":"machine","expires_at":"` + exp.UTC().Format(time.RFC3339) + `"}`
+	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 

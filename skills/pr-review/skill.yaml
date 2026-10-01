@@ -17,7 +17,7 @@ body: |
 
   1. **Determine PR Number**: Use `$ARGUMENTS` if numeric, else `gh pr view --json number -q .number`. If none, STOP ("create one with /pr first").
   2. **Branch Check**: If behind base branch, rebase and `git push --force-with-lease` first. If conflicts occur in interactive mode ask; in autonomous mode proceed and note it.
-  3. **Post Comment**: Execute the byte-exact `gh pr comment` command containing `@claude review this PR...` and the mandatory visible sentinel lines (`BRAVROS-VERDICT: approved` / `BRAVROS-VERDICT: changes-requested`).
+  3. **Post Comment**: Copy the canonical body from the briefing byte-for-byte (never a paraphrase like "@claude please review… Focus areas" — police blocks it; focus lines only between the opening sentence and `Required:`) and execute the byte-exact `gh pr comment` command containing `@claude review this PR...` and the mandatory visible sentinel lines (`BRAVROS-VERDICT: approved` / `BRAVROS-VERDICT: changes-requested`).
   4. **Post-Action**:
      - Autonomous (`.planning/.auto-*-lock` matches): print `STATUS: review-triggered. NEXT: wait for stamp` and return.
      - Interactive: announce and instruct the user to run `/address-pr` when review finishes.

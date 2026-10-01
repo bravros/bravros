@@ -42,6 +42,29 @@ staging branch — that is why the reservation above commits there. Everything e
 - `--worktree` is the only path that creates anything, and it creates the worktree + branch together
   via [`worktree-extension.md`](worktree-extension.md), never a bare branch in this checkout.
 
+## Investigation arms
+
+SKILL.md § 2 makes parallel fan-out the default. The dispatch, all arms in ONE message:
+
+```
+spawn subagent:  name="arm-billing"  description="Recon arm: billing flow"
+                 subagent_type="Explore"  model="sonnet"  prompt="<brief>"
+```
+
+- `description` is required on every `Agent` call — omitting it fails validation.
+- `name` only when you are the top-level lead. Running as a teammate yourself (your brief came in
+  as a `teammate-message`) → omit `name`; teammates cannot spawn teammates and the call is refused.
+- The brief carries: the arm's bounded scope (named paths/globs, never "the codebase"); the
+  deliverable (findings with a `Confidence:` tag and `file:line` each, candidate `Implicates:`
+  paths, open questions); the stop rule ("past ~40 tool calls or nothing new twice running → stop
+  and return what you have"); "long commands — test runs, log tails, polling — use
+  `run_in_background`"; and verbatim: "Your FINAL MESSAGE is your report — it is returned to the
+  lead automatically. Do not call SendMessage or ToolSearch; they are unavailable to you."
+- A schema'd return inlines the exact JSON shape plus one minimal correct example.
+- Watchdog: an arm silent ~15 min or ~100k tokens → SendMessage it for partials; nothing useful by
+  your next turn → TaskStop and fold in the partials. Never summarise what a pending arm "probably
+  found". TaskStop each arm once folded; sweep ListAgents before the hand-off.
+
 ## Recording state
 
 Two appends — the events ARE the state change — then one commit:

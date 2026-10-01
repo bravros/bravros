@@ -55,7 +55,14 @@ write phases, ordering or tiers, because those are decided better with the whole
 4. **Dispatching**: name every agent; set `model:` explicitly on EVERY dispatch and make it match
    the phase marker (`[H]`→haiku, `[S]`→sonnet, `[O]`→opus). Omitting it does not pick a tier — it
    silently inherits your session model, so phases written `[S]`/`[H]` all run on the orchestrator's
-   model. Spawn a whole wave in ONE message. Never two writers on one file. graphify before broad greps.
+   model. Spawn a whole wave in ONE message — ≥2 independent units always fan out, one worker each;
+   never implement a unit yourself. Never two writers on one file. graphify before broad greps.
+   Every `Agent` call carries `description` (required — omitting it fails validation); only the
+   top-level lead passes `name` — a teammate spawning with `name` is refused, so nested spawns omit
+   it. Every worker brief says: "Your FINAL MESSAGE is your report — it is returned to the lead
+   automatically. Do not call SendMessage or ToolSearch; they are unavailable to you", and "long
+   commands (test suites, deploy waits, polling loops) use `run_in_background`". Schema'd returns
+   inline the exact JSON shape + one example. Full dispatch contract: briefing.md § Dispatch.
 
 5. **Per-unit loop**: dispatch → haiku verifier runs ONLY targeted tests → review the diff yourself →
    `bravros commit` → mark done. A correction goes to the SAME agent via SendMessage; resume beats

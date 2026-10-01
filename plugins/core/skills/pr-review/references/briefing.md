@@ -20,6 +20,8 @@ BRAVROS-VERDICT: changes-requested
 Do NOT wrap the line in an HTML comment, code fence, blockquote, or list item — plain visible text only. Emit approved only if you would merge this PR as-is. A finding you consider non-blocking does not prevent approved. Any blocking finding requires changes-requested."
 ```
 
+**Build the body only from this template — never from memory or a paraphrase.** Opening sentence and `Required:` block are fixed; the only customisable part is optional focus-area lines inserted between them. A comment opening "@claude please review…" or lacking the closing block is blocked (`does not start with the exact canonical opening sentence` / `does not end with the exact canonical BRAVROS-VERDICT closing block`); on that block, re-send the template echoed in the message, don't hand-edit. Use the literal PR number, not `$PR`.
+
 The sentinel lines must stay plain visible text — the Action strips HTML comments, which is why
 the old `<!-- bravros-verdict -->` form never survived. Comment fails → STOP and report.
 

@@ -202,7 +202,8 @@ HARD CONSTRAINTS:
   `git add && git commit`. The verb runs the project formatter (pint / prettier / ruff /
   gofmt / cargo fmt) before committing, and the commit-msg hook enforces the format.
 - Name files explicitly — never blanket-stage. Never stage `.env`, `.env.*`, credentials, or API keys.
-- NEVER add AI signatures (`Co-Authored-By: Claude`, "Generated with…") — the hook rejects them.
+- NEVER add AI signatures — **no `Co-Authored-By:` trailer of any kind** (not `Claude`, not `Claude Sonnet …`), no "Generated with…" line. The harness may append one by default: omit it from the message; the hook rejects it ("AI signature detected!").
+- **Stale-hook error:** if the commit-msg hook rejects a message that matches the format above (e.g. `✨ feat(orders): …` → `Invalid commit message format … Required format: <emoji> <type>: <description>`), the repo's hook is stale (older than the `(scope)` template). Do NOT silently retry without the scope or hand-edit the hook — report it and run `/update-hooks`, then recommit with the original message.
 - Subject ≤ 50 chars (hard 72), present tense, lowercase, why over what; detail goes in the body.
 - No branch gate here — that lives in `/push` and `/ship`. Committing on `main` is normal in a direct-main repo — `bravros config get police.direct_main` prints `true` (`/git-this` personal repos); anything else (empty, an error, an older CLI reporting an unknown key) means PR-gated: branch first, then commit. `staging_branch` is never the discriminator — it never prints empty.
 
@@ -290,7 +291,8 @@ INTENT: land this feature — merge the PR into its base, record completion in `
 5. **Sync & Clean**: Fast-forward local branches and sweep review stamps.
 6. **Main Route**: Route the homolog→main decision with operator confirmation — the main PR repeats step 3 in full. Ask it under a **`Main merge`** header with all three options, and **never use the word "promote" toward the operator here**: this path merges through its own PR gate and needs no token — the police **staging lane** lets a `CLEAN` homolog→main PR merge — but the word sends them off to mint one (afterpay #395/#396 — minted mid-merge, expired unused). `/promote` belongs only in the *defer* option, where it is the real next path. A `✋🏽 Police Block` names its reason: relay it in one line and follow the table in `references/flow.md` Step 7 (UNKNOWN → wait, then retry the same command) — never `gh api`/raw HTTP (B-0036), never `/promote`.
 7. **Merge hygiene**: the merge line carries the **literal** PR number (`gh pr merge 1234 --merge`) — the police hook reads raw command text, so a `$VAR` or backtick in the PR argument is unreadable → blocked; no `cd … &&` unless it targets the exact session cwd, never `| tail`; redirect to a file, capture `RC`, inspect. Lock-acquire / merge / `RC` / lock-release may share one Bash call.
-8. **Last line, always**: `main @ <sha>` or `homolog only — production pending` — the operator asks "merged to main?" after every run.
+8. **Main-merge preflight (before ANY `gh pr merge` into `main`)**: run `bravros police status` (read-only; always exits 0 — read the text: `Police token is MISSING or INVALID` = no token) and `gh pr view 1234 --json mergeStateStatus -q .mergeStateStatus` with the literal number. `CLEAN` + head `homolog` ⇒ the staging lane passes without a token. Not CLEAN (e.g. `UNSTABLE`) ⇒ name the failing check and stop — never attempt the merge. Head is not `homolog` (feature → main) and the token is missing ⇒ ONE ask: "run `bravros police unlock` in a separate terminal, then tell me"; wait — never run `merge-lock acquire … ; gh pr merge` hoping it passes.
+9. **Last line, always**: `main @ <sha>` or `homolog only — production pending` — the operator asks "merged to main?" after every run.
 
 Refer to [`references/flow.md`](references/flow.md) for full shell script flow details. Its bash
 is copy-paste code, not illustration: a shell-trap table, the stamp-freshness block, the CI and
@@ -417,7 +419,7 @@ INTENT: ship an urgent production fix now, bypassing the plan workflow. Flow: co
 0. **Confirm repo identity** before anything: `git remote get-url origin` + `basename "$(git rev-parse --show-toplevel)"` — a hotfix in the wrong checkout is the worst possible mistake.
 1. Refuse on `main`/`master`. Strip issue ref for PR title / `Closes #42`.
 2. Format files → `bravros commit "🩹 hotfix: <description>" <changed files only>`.
-3. Push & merge to `homolog` → `gh pr create --base main --head homolog --title "🩹 hotfix: <description>"` (body via `--body-file` written in a previous step).
+3. Push & merge to `homolog` → `gh pr create --base main --head homolog --title "🩹 hotfix: <description>"` (body written with the Write tool to a **literal absolute path** in a previous step, then `--body-file <that path>` as its own call — never `$VAR`, `cp`, or a relative path; no attribution lines).
 4. **Wait for mergeability**, or the first merge hits the `UNKNOWN` block: `until [ "$(gh pr view "$PR_NUMBER" --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ]; do sleep 2; done`.
 5. Check autopr gate → `gh pr merge 1234 --merge > /tmp/bravros-merge-1234.txt 2>&1` (substitute the literal number — a `$VAR` here is unreadable to the hook; no `cd … &&`, no `| tail`) → verify state == `MERGED`. A `✋🏽 Police Block` names its reason — relay it in one line; never `gh api`/raw HTTP, never `/promote`.
 6. Sync `homolog` from `main` (`git checkout homolog && git pull && git fetch origin main && git merge ...`).
@@ -1065,7 +1067,14 @@ write phases, ordering or tiers, because those are decided better with the whole
 4. **Dispatching**: name every agent; set `model:` explicitly on EVERY dispatch and make it match
    the phase marker (`[H]`→haiku, `[S]`→sonnet, `[O]`→opus). Omitting it does not pick a tier — it
    silently inherits your session model, so phases written `[S]`/`[H]` all run on the orchestrator's
-   model. Spawn a whole wave in ONE message. Never two writers on one file. graphify before broad greps.
+   model. Spawn a whole wave in ONE message — ≥2 independent units always fan out, one worker each;
+   never implement a unit yourself. Never two writers on one file. graphify before broad greps.
+   Every `Agent` call carries `description` (required — omitting it fails validation); only the
+   top-level lead passes `name` — a teammate spawning with `name` is refused, so nested spawns omit
+   it. Every worker brief says: "Your FINAL MESSAGE is your report — it is returned to the lead
+   automatically. Do not call SendMessage or ToolSearch; they are unavailable to you", and "long
+   commands (test suites, deploy waits, polling loops) use `run_in_background`". Schema'd returns
+   inline the exact JSON shape + one example. Full dispatch contract: briefing.md § Dispatch.
 
 5. **Per-unit loop**: dispatch → haiku verifier runs ONLY targeted tests → review the diff yourself →
    `bravros commit` → mark done. A correction goes to the SAME agent via SendMessage; resume beats
@@ -1095,7 +1104,7 @@ INTENT: ship everything (`/ship`), open the PR against the right base, hand off 
 HARD CONSTRAINTS:
 - PRs NEVER target `main` directly (`feature/* → homolog → main`).
 - Title: `<emoji> <type>: <description>`, **under 70 characters**.
-- NEVER add AI signatures to title or body — check `gh repo view --json isPrivate -q .isPrivate` and strip any harness-added attribution footer from the body file before creating; on a public repo (`false`) this is a leak, not a style nit.
+- NEVER add AI signatures to title or body — no `Generated with Claude Code` line, no `Co-Authored-By`, no 🤖 footer. Don't write one; there is nothing to strip (no `sed -i`/`perl` cleanup of the body file — the police hook blocks the rewrite dance and the attribution is disabled in settings). On a public repo this would be a leak, not a style nit.
 - **NEVER write a bare `#N` in the body except for an issue/PR you mean to link.** GitHub
   autolinks it and stamps a cross-reference onto that issue's timeline; a "finding #3" reference
   silently spams an unrelated old issue. Write `finding 3` or backtick it.
@@ -1110,8 +1119,8 @@ BASE BRANCH:
 `homolog` if present (or `main` if current is `homolog` / missing `homolog`). Rebase if behind.
 
 CREATE — two steps, two tool calls, in this order:
-1. **Write the body with the Write tool** to an absolute path — the scratchpad (`<scratchpad>/pr-body-<branch>.md`) by default; `<repo>/.planning/pr-body-<branch>.md` only when no scratchpad exists, deleted after the PR opens (`/recon` commits `.planning/` wholesale) — with Summary, Changes, Technical Notes, Test Plan, References. Then re-read it and strip any AI-attribution footer.
-2. `gh pr create --base "$BASE" --title "<emoji> <type>: <title>" --body-file <abs path>` as its own command. **Never** a heredoc, `cat > f && gh pr create`, or `cp … && gh pr create --body-file` in the same command: the police hook validates the body file **before** the command runs and blocks an unreadable one (3 blocks in a row on paylog, 2026-09-11 06:53).
+1. **Write the body with the Write tool** to an absolute path — the scratchpad (`<scratchpad>/pr-body-<branch>.md`) by default; `<repo>/.planning/pr-body-<branch>.md` only when no scratchpad exists, deleted after the PR opens (`/recon` commits `.planning/` wholesale) — with Summary, Changes, Technical Notes, Test Plan, References. The path must be a **literal absolute path** — never `$S/…`, `$TMPDIR/…`, `~`, or a relative `./.pr-body.md`, and never produced by `cp`/`mv` from elsewhere (the hook reads raw command text: an unexpanded variable or a not-yet-existing file is blocked as "unreadable body").
+2. `gh pr create --base "$BASE" --title "<emoji> <type>: <title>" --body-file <the same literal abs path>` as its own command (no `S=… &&` prefix, no variables). **Never** a heredoc, `cat > f && gh pr create`, or `cp … && gh pr create --body-file` in the same command: the police hook validates the body file **before** the command runs and blocks an unreadable one (3 blocks in a row on paylog, 2026-09-11 06:53).
 
 HANDOFF (mandatory final step — the routing IS the contract):
 - **Autonomous**: Output `STATUS: pr-created. PR: #<n>. NEXT: review`. The pipeline owns the
@@ -1136,7 +1145,7 @@ and posts back to the PR. This skill never reviews, never polls, never merges.
 
 1. **Determine PR Number**: Use `$ARGUMENTS` if numeric, else `gh pr view --json number -q .number`. If none, STOP ("create one with /pr first").
 2. **Branch Sync**: If behind base branch, rebase and `git push --force-with-lease` first. Handle conflicts according to mode (ask in interactive / note & proceed in autonomous).
-3. **Post Comment**: Send verbatim `@claude` comment with visible sentinel verdict lines (`BRAVROS-VERDICT: approved` / `BRAVROS-VERDICT: changes-requested`).
+3. **Post Comment**: Copy the canonical body from [briefing.md](references/briefing.md) § *The comment* **byte-for-byte** and send it inline with the literal PR number. Never compose your own ("@claude please review this PR. Focus areas…" is blocked: wrong opening sentence, no closing block). Focus areas are allowed only as extra lines *between* the opening sentence and the `Required:` block. Send verbatim `@claude` comment with visible sentinel verdict lines (`BRAVROS-VERDICT: approved` / `BRAVROS-VERDICT: changes-requested`).
    - **NEVER write a bare `#N` for a review-finding number.** GitHub autolinks `#N` in every
      issue/PR body — it cannot be disabled, and it also writes a cross-reference event onto that
      issue's timeline, so referring to "finding #3" silently spams an unrelated old issue and
@@ -1305,6 +1314,14 @@ need instead.
 - **graphify first when the project has it** (`.graphify` or `graphify-out/graph.json`):
   `graphify query "<question>"`, then open the file it names. The graph is a map, not the territory —
   code wins, and a stale label reads exactly like a fresh one.
+- **Fan out, don't walk.** Split the question into independent investigation arms (per subsystem,
+  per issue, per evidence source) and launch every arm as a read-only subagent (`Explore` at breadth
+  "medium", or `scout`) in ONE message — the lead synthesises, it does not read file after file
+  itself. Serial solo reading is how a recon hit 47 minutes with the operator asking "where are
+  the subagents?". Each arm gets a bounded scope, a concrete deliverable, a stop rule, the
+  reporting line, and a 15-min watchdog — brief shape in
+  [briefing.md § Investigation arms](references/briefing.md#investigation-arms). One arm is enough
+  only when the whole question lives in one or two files.
 - **Defect** → hand the hunt to `/scout`: it certifies a root cause with runtime proof, never edits
   code. Fold its `diagnosis.md` in as `02-diagnosis.md`. `UNCERTIFIED` is a valid outcome — then the
   dossier documents the next investigation, not a fix.
@@ -1417,7 +1434,7 @@ HARD CONSTRAINTS:
 - Refuse on `main`/`master` **in a PR-gated repo** — there those branches move only via PR (`homolog → main`).
   Every other branch, including `homolog`, is shippable directly.
 - **Direct-main repos ship on `main` by design.** `.bravros/config.json` with `police.direct_main: true` (`bravros police direct-main on`, or a `/git-this` personal repo) has no staging branch — commit and push `main` there without ceremony. The gate is a pure binary: `bravros config get police.direct_main` prints `true` → direct-main, ship allowed; anything else (empty, an error, an older CLI reporting an unknown key) → PR-gated, refuse and point to a PR. `staging_branch` is never the discriminator — `config get staging_branch` never prints empty.
-- `/commit`'s rules apply in full: emoji format, no secrets staged, no AI signatures.
+- `/commit`'s rules apply in full: emoji format, no secrets staged, no AI signatures (no `Co-Authored-By` trailer). A `Invalid commit message format … Required format: <emoji> <type>: <description>` rejection of a valid scoped message means a stale repo hook → tell the operator and suggest `/update-hooks`; never drop the scope silently to get past it.
 
 Run `/commit`, then `Skill({skill: "push"})` — `/push` is the canonical push primitive.
 

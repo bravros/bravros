@@ -14,6 +14,10 @@
 #              `say` so the message is still heard.
 #       away → local macOS `say -v ${BRAVROS_SAY_VOICE:-Luciana}` (pt-BR).
 #   - BRAVROS_ANNOUNCE_DEBUG=1 prints the chosen route and exits WITHOUT speaking.
+#   - Presence/unlock gate: the operator is at the desk, so the Echo route ALWAYS passes
+#     `--force` to `bravros ha say` (skipping its Mac-unlock check) — callers no longer need
+#     to. Idempotent: a caller-supplied --force is not doubled. BRAVROS_PRESENCE_GATE=1 opts
+#     back in to the old behavior (gate applies unless the caller passes --force).
 #   - Any failure (op unavailable, HA unreachable, CLI missing) is non-fatal — exits 0 so
 #     calling skills are never blocked by an audio nicety.
 #
@@ -64,10 +68,12 @@
 # Usage:
 #   announce.sh "<message>" [device]            # chime + speech (default)
 #   announce.sh --tts "<message>" [device]      # silent prefix, no chime
-#   announce.sh --force "<message>" [device]    # bypass Mac-unlock gate (studio only)
+#   announce.sh --force "<message>" [device]    # bypass Mac-unlock gate (now the default; no-op)
 #   announce.sh --agent "Grok Bot" "<message>"  # sign as that agent (also --agent=NAME)
 #
 # Tunables:
+#   BRAVROS_PRESENCE_GATE     1 restores the presence/unlock gate (no implicit --force);
+#                             unset/0 (default) always forces past it.
 #   BRAVROS_ANNOUNCE_AGENT    agent signature appended as the last words (see above);
 #                             set to "" to disable even the auto-detected one.
 #   BRAVROS_ANNOUNCE_PREFIX   opener prepended to every message (default "Chefe, ");
@@ -99,6 +105,14 @@ while [ "${1:0:2}" = "--" ]; do
 done
 MSG="$1"
 DEVICE="${2:-studio}"
+
+# Presence/unlock gate skipped by default (operator is at the desk): ensure --force is passed
+# through exactly once. BRAVROS_PRESENCE_GATE=1 opts back in to the gate.
+if [ "$BRAVROS_PRESENCE_GATE" != "1" ]; then
+  _has_force=0
+  for _f in "${PASS_FLAGS[@]}"; do [ "$_f" = "--force" ] && _has_force=1; done
+  [ "$_has_force" = "1" ] || PASS_FLAGS+=("--force")
+fi
 
 # --- agent signature ---
 # Resolution: --agent flag > BRAVROS_ANNOUNCE_AGENT (explicit empty disables) > auto-detect.
@@ -289,7 +303,7 @@ PRESENCE=home;    [ "$AWAY" = "1" ] && PRESENCE=away
 [ "$MUTED" = "1" ] && ROUTE="muted"
 
 if [ "$BRAVROS_ANNOUNCE_DEBUG" = "1" ]; then
-  echo "announce route=$ROUTE host=$HOSTKIND link=$LINK presence=$PRESENCE($PRESENCE_SRC) gw=$(current_gateway_mac 2>/dev/null) device=$DEVICE($ROOM_SRC) muted=$MUTED${MUTE_UNTIL:+(until $MUTE_UNTIL)} agent=${ANNOUNCE_AGENT:-none} voice=${BRAVROS_SAY_VOICE:-Luciana} chime=${BRAVROS_SAY_CHIME-/System/Library/Sounds/Ping.aiff} msg=$MSG"
+  echo "announce route=$ROUTE host=$HOSTKIND link=$LINK presence=$PRESENCE($PRESENCE_SRC) gw=$(current_gateway_mac 2>/dev/null) device=$DEVICE($ROOM_SRC) muted=$MUTED${MUTE_UNTIL:+(until $MUTE_UNTIL)} agent=${ANNOUNCE_AGENT:-none} voice=${BRAVROS_SAY_VOICE:-Luciana} chime=${BRAVROS_SAY_CHIME-/System/Library/Sounds/Ping.aiff} flags=${PASS_FLAGS[*]:-none} msg=$MSG"
   exit 0
 fi
 

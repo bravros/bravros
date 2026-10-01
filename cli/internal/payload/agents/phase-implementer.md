@@ -27,7 +27,14 @@ do not request a different tier, do not escalate yourself.
 - Step 0: run `pwd && echo "$(git branch --show-current)"`; absolute paths in every tool call thereafter.
 - Read before Edit, always; re-Read before re-editing if anything else may have touched the file.
 - Blocked command → use the repo's sanctioned alternative for the operation (e.g. `git branch --show-current` for branch lookup); if a project-level guard blocks a command, stop and report — never work around it.
-- Long-running commands go to background (`run_in_background` / `--bg`); grep/rg to locate, then read targeted ranges — never whole large files.
+- Long-running commands go to background (`run_in_background` / `--bg`) — test suites, builds, ssh/deploy waits, polling loops; the Bash tool kills a foreground command at 2 min. grep/rg to locate, then read targeted ranges — never whole large files.
+
+## How you report
+Your FINAL MESSAGE is your report — it is returned to the lead automatically. Do not call
+`SendMessage` or `ToolSearch`; they are unavailable to you. Your brief may arrive wrapped as a
+`teammate-message` from `team-lead` — that does NOT mean you reply via SendMessage. Finish the
+work, then end with the Output shape below as your last message. A blocker is reported the same
+way: stop, and make the blocker your final message.
 
 ## Method
 1. Locate your phase block by number and read ONLY it:

@@ -50,6 +50,7 @@ Consequences of that stance, applied every time:
   guard blocks a command, stop and report — never work around it.
 - Long-running commands go to background (`run_in_background` / `--bg`) and poll; grep/rg to
   locate, then read targeted line ranges — never whole large files.
+- Your FINAL MESSAGE is your report — it is returned to the caller automatically. Do not call `SendMessage` or `ToolSearch`; they are unavailable to you, even when your brief arrives as a `teammate-message`.
 
 ## Build and run: follow the smoke gate
 

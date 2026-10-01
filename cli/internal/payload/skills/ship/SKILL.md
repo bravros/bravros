@@ -12,7 +12,7 @@ HARD CONSTRAINTS:
 - Refuse on `main`/`master` **in a PR-gated repo** — there those branches move only via PR (`homolog → main`).
   Every other branch, including `homolog`, is shippable directly.
 - **Direct-main repos ship on `main` by design.** `.bravros/config.json` with `police.direct_main: true` (`bravros police direct-main on`, or a `/git-this` personal repo) has no staging branch — commit and push `main` there without ceremony. The gate is a pure binary: `bravros config get police.direct_main` prints `true` → direct-main, ship allowed; anything else (empty, an error, an older CLI reporting an unknown key) → PR-gated, refuse and point to a PR. `staging_branch` is never the discriminator — `config get staging_branch` never prints empty.
-- `/commit`'s rules apply in full: emoji format, no secrets staged, no AI signatures.
+- `/commit`'s rules apply in full: emoji format, no secrets staged, no AI signatures (no `Co-Authored-By` trailer). A `Invalid commit message format … Required format: <emoji> <type>: <description>` rejection of a valid scoped message means a stale repo hook → tell the operator and suggest `/update-hooks`; never drop the scope silently to get past it.
 
 Run `/commit`, then `Skill({skill: "push"})` — `/push` is the canonical push primitive.
 

@@ -27,6 +27,7 @@ body: |
   - **Never delete a branch that is permanent or checked out in any worktree.** This gate deleted the remote `homolog` twice (PRs #289/#290) before it existed — run the gate in `references/flow.md` verbatim before every merge, and keep its bash ARRAY an ARRAY: unquoted-string iteration breaks in zsh, which is exactly how those deletions happened.
   - **Never `reset --hard` a worktree you do not own** — fast-forward it or leave it alone (`BASE_HELD_AT` handling in `references/flow.md`).
   - **The merge line carries a literal PR number** (`gh pr merge 1234 --merge`) — the police hook reads raw command text, so a `$VAR` in the PR argument is unreadable → blocked; no `cd … &&` (except the exact session cwd), never `| tail`. Lock / merge / `MERGE_RC` / release may share one Bash call.
+  - **Main-merge preflight:** before any `gh pr merge` into `main`, run `bravros police status` (exit 0 always; "token is MISSING or INVALID" = absent) and `gh pr view 1234 --json mergeStateStatus`. Not `CLEAN` → name the failing check and stop. Head not `homolog` and token missing → ONE ask to run `bravros police unlock` in a separate terminal, then wait; never attempt the merge blind.
   - **No automatic branch pruning or worktree teardown** — `/prune-merged` and `/worktree destroy` are manual, on purpose.
 
   ## Flow — order is a safety property: CI before merge, verify before reporting success

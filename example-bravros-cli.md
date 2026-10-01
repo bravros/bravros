@@ -256,7 +256,7 @@ bravros police pretooluse              # hook entry point (stdin: the tool paylo
 bravros police unlock                  # mint the human-presence token
 bravros police revoke
 bravros police status
-bravros police standdown on [--ttl 4h] # suspend the gate for this session
+bravros police standdown on [--ttl 4h|6] [--reason …] # suspend the gate machine-wide, all agents
 bravros police standdown off
 bravros police standdown status        # JSON
 bravros police direct-main on|off|status  # declare a direct-to-main repo (.bravros/config.json police.direct_main)
@@ -314,12 +314,13 @@ unreadable to the hook: put the literal PR number on the merge line. The token (
 and self-deletes on the next read — it buys one merge, not one session. Same shape as
 `bravros promote unlock` and `bravros destructive unlock`.
 
-`standdown on` suppresses the gate for the whole session (marker at
-`${TMPDIR}/agent-audit-<session>/standdown.json`, default TTL 4h; `BRAVROS_POLICE_STANDDOWN=1` forces
-it on where there is no session id). It is broader and longer-lived than the token — prefer the token.
+`standdown on` suppresses the gate machine-wide for every agent until it expires (marker at
+`~/.claude/state/police-standdown.json`, default TTL 4h, bare integer = hours, max 72h; suppressed
+commands logged to `police-standdown-audit.log`; `BRAVROS_POLICE_STANDDOWN=1` forces it for one process
+tree). Use it before a workflow; for a single merge prefer the token. The safety floor never stands down.
 
 **`police status` reports only the two tokens (police, promote)**, never stand-down state nor the
-lane/`direct_main`; ask `police standdown status` / `police direct-main status` for those, which emits `active`, `source` (`env` / `marker`), `session_id` and `expires_at`.
+lane/`direct_main`; ask `police standdown status` / `police direct-main status` for those, which emits `active`, `source` (`env` / `marker`), `scope`, `expires_at`, `remaining` and `reason`.
 
 **The same hook also polices `@claude review` PR comments.** Any `gh pr comment` body containing
 both `@claude` and `review` (case-insensitive) must start with the exact canonical opening

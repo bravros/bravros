@@ -18,7 +18,8 @@ body: |
     `git add && git commit`. The verb runs the project formatter (pint / prettier / ruff /
     gofmt / cargo fmt) before committing, and the commit-msg hook enforces the format.
   - Name files explicitly — never blanket-stage. Never stage `.env`, `.env.*`, credentials, or API keys.
-  - NEVER add AI signatures (`Co-Authored-By: Claude`, "Generated with…") — the hook rejects them.
+  - NEVER add AI signatures — no `Co-Authored-By:` trailer of any kind, no "Generated with…" line. The harness may append one by default: omit it; the hook rejects it ("AI signature detected!").
+  - Stale-hook error: if the commit-msg hook rejects a message matching the format above (e.g. `✨ feat(orders): …` → `Invalid commit message format … Required format: <emoji> <type>: <description>`), the repo's hook is stale. Do NOT silently retry without the scope — report it and run `/update-hooks`, then recommit.
   - Subject ≤ 50 chars (hard 72), present tense, lowercase, why over what; detail goes in the body.
   - No branch gate here — that lives in `/push` and `/ship`. Committing on `main` is normal in a direct-main repo — `bravros config get police.direct_main` prints `true` (`/git-this` personal repos); anything else (empty, an error, an older CLI reporting an unknown key) means PR-gated: branch first, then commit. `staging_branch` is never the discriminator — it never prints empty.
 

@@ -166,12 +166,42 @@ Every dispatch prompt carries, verbatim in spirit:
   otherwise" (workers are the last guard when the orchestrator slipped);
 - "Read before Edit, always; re-read before re-editing if another step may have touched
   the file";
-- "graphify before broad greps".
+- "graphify before broad greps";
+- "Long commands — test suites, builds, ssh/deploy waits, polling loops — run with
+  `run_in_background`, never foreground: the Bash tool kills foreground commands at 2 min";
+- **how to report** — "Your FINAL MESSAGE is your report — it is returned to the lead
+  automatically. Do not call SendMessage or ToolSearch; they are unavailable to you." Workers get
+  the brief wrapped as a `teammate-message` from `team-lead` and assume they must reply with
+  `SendMessage` — 206 sessions audited hit `No such tool available: SendMessage` (19 more tried
+  `ToolSearch select:SendMessage`) and burned turns before falling back. SendMessage is the
+  **lead's** channel (corrections, watchdog pings) — never the worker's;
+- a schema'd return (`schema:` set) inlines the exact JSON shape **plus one minimal correct
+  example**; on a validation failure, feed the validator error verbatim into exactly one retry.
+
+Dispatch shape — `description` is required (omitting it is an `InputValidationError`), `name` and
+`model` always set:
+
+```
+spawn subagent:  name="p2-billing-api"  description="Phase 2 billing API"
+                 subagent_type="phase-implementer"  model="sonnet"  prompt="…"
+```
+
+**Only the top-level lead names agents.** The roster is flat: a teammate that calls `Agent` with a
+`name` gets "Teammates cannot spawn other teammates". If you are yourself running as a teammate
+(your brief arrived as a `teammate-message`), or a worker legitimately needs a helper, omit `name`
+— the spawn becomes a plain subagent whose final message returns to its caller.
 
 Name every agent (`name:` is its address). **A wave is the unit of concurrency**: spawn every unit
 in a wave in ONE message so they run in parallel, and start the next wave only when the current
 one's units are verified and committed — or, for rolling waves, as soon as a unit's dependants are
 all satisfied. Never two writers on the same files: partition by ownership.
+
+**Parallel fan-out is the default, not an optimisation.** ≥2 independent units → they go out
+together, one worker each, in one message; a 10-unit wave is 10 workers, not one worker walking
+10 files. You never implement a unit yourself "because it is small" — per-file work in the lead's
+own loop is exactly what the operator called "the slowest implementation ever… why dont spin like
+5, 10 subagents in paralell, instead of doing one file at a time?". Serialise only on a real edge
+(shared file, declared dependency) and write that edge into `orchestration-log.md`.
 
 ## Per-phase loop
 

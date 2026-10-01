@@ -15,7 +15,7 @@ and posts back to the PR. This skill never reviews, never polls, never merges.
 
 1. **Determine PR Number**: Use `$ARGUMENTS` if numeric, else `gh pr view --json number -q .number`. If none, STOP ("create one with /pr first").
 2. **Branch Sync**: If behind base branch, rebase and `git push --force-with-lease` first. Handle conflicts according to mode (ask in interactive / note & proceed in autonomous).
-3. **Post Comment**: Send verbatim `@claude` comment with visible sentinel verdict lines (`BRAVROS-VERDICT: approved` / `BRAVROS-VERDICT: changes-requested`).
+3. **Post Comment**: Copy the canonical body from [briefing.md](references/briefing.md) § *The comment* **byte-for-byte** and send it inline with the literal PR number. Never compose your own ("@claude please review this PR. Focus areas…" is blocked: wrong opening sentence, no closing block). Focus areas are allowed only as extra lines *between* the opening sentence and the `Required:` block. Send verbatim `@claude` comment with visible sentinel verdict lines (`BRAVROS-VERDICT: approved` / `BRAVROS-VERDICT: changes-requested`).
    - **NEVER write a bare `#N` for a review-finding number.** GitHub autolinks `#N` in every
      issue/PR body — it cannot be disabled, and it also writes a cross-reference event onto that
      issue's timeline, so referring to "finding #3" silently spams an unrelated old issue and

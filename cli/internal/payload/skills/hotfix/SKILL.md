@@ -25,7 +25,7 @@ INTENT: ship an urgent production fix now, bypassing the plan workflow. Flow: co
 0. **Confirm repo identity** before anything: `git remote get-url origin` + `basename "$(git rev-parse --show-toplevel)"` — a hotfix in the wrong checkout is the worst possible mistake.
 1. Refuse on `main`/`master`. Strip issue ref for PR title / `Closes #42`.
 2. Format files → `bravros commit "🩹 hotfix: <description>" <changed files only>`.
-3. Push & merge to `homolog` → `gh pr create --base main --head homolog --title "🩹 hotfix: <description>"` (body via `--body-file` written in a previous step).
+3. Push & merge to `homolog` → `gh pr create --base main --head homolog --title "🩹 hotfix: <description>"` (body written with the Write tool to a **literal absolute path** in a previous step, then `--body-file <that path>` as its own call — never `$VAR`, `cp`, or a relative path; no attribution lines).
 4. **Wait for mergeability**, or the first merge hits the `UNKNOWN` block: `until [ "$(gh pr view "$PR_NUMBER" --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ]; do sleep 2; done`.
 5. Check autopr gate → `gh pr merge 1234 --merge > /tmp/bravros-merge-1234.txt 2>&1` (substitute the literal number — a `$VAR` here is unreadable to the hook; no `cd … &&`, no `| tail`) → verify state == `MERGED`. A `✋🏽 Police Block` names its reason — relay it in one line; never `gh api`/raw HTTP, never `/promote`.
 6. Sync `homolog` from `main` (`git checkout homolog && git pull && git fetch origin main && git merge ...`).

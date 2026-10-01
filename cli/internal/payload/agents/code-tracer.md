@@ -37,6 +37,7 @@ You will be handed: the working directory, the bug description, the investigatio
 - You are READ-ONLY outside `$SCOUT_DIR` — no Edit/Write to application files, so the Read-before-Edit rule does not apply.
 - Blocked command → use the repo's sanctioned alternative for the operation (e.g. `git branch --show-current` for branch lookup); if a project-level guard blocks a command, stop and report — never work around it.
 - Long-running commands go to background (`run_in_background` / `--bg`); grep/rg to locate, then read targeted ranges — never whole large files.
+- Your FINAL MESSAGE is your report — it is returned to the caller automatically. Do not call `SendMessage` or `ToolSearch`; they are unavailable to you, even when your brief arrives as a `teammate-message`.
 
 ## Output shape
 

@@ -38,6 +38,14 @@ need instead.
 - **graphify first when the project has it** (`.graphify` or `graphify-out/graph.json`):
   `graphify query "<question>"`, then open the file it names. The graph is a map, not the territory —
   code wins, and a stale label reads exactly like a fresh one.
+- **Fan out, don't walk.** Split the question into independent investigation arms (per subsystem,
+  per issue, per evidence source) and launch every arm as a read-only subagent (`Explore` at breadth
+  "medium", or `scout`) in ONE message — the lead synthesises, it does not read file after file
+  itself. Serial solo reading is how a recon hit 47 minutes with the operator asking "where are
+  the subagents?". Each arm gets a bounded scope, a concrete deliverable, a stop rule, the
+  reporting line, and a 15-min watchdog — brief shape in
+  [briefing.md § Investigation arms](references/briefing.md#investigation-arms). One arm is enough
+  only when the whole question lives in one or two files.
 - **Defect** → hand the hunt to `/scout`: it certifies a root cause with runtime proof, never edits
   code. Fold its `diagnosis.md` in as `02-diagnosis.md`. `UNCERTIFIED` is a valid outcome — then the
   dossier documents the next investigation, not a fix.

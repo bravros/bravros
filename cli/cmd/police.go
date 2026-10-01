@@ -32,6 +32,12 @@ Per-repo knob: police.staging_lane = open (default) | reviewed | off.
 
 Direct-to-main repos declare it with: bravros police direct-main on.
 
+Stand-down: bravros police standdown on [--ttl 4h|6] [--reason "..."] suspends the
+suppressible rules (merge gate, review-comment template) for EVERY agent and
+session on this machine until the TTL expires — any agent may run it itself
+before a long workflow. Suppressed commands are logged to
+~/.claude/state/police-standdown-audit.log. See: bravros police standdown --help.
+
 Safety floor — never suppressible by stand-down, no token lifts it:
   rule 52          irreversible content loss (git checkout/restore/reset --hard/
                    clean/stash drop, recursive rm over never-committed content)
@@ -137,16 +143,20 @@ var policePreToolUseCmd = &cobra.Command{
 			laneAudit = detail
 		default:
 			if isStandDownActive() {
+				// Machine-wide stand-down (police_standdown.go): let it through,
+				// but leave a trail of what the merge gate would have blocked.
+				auditStandDown("merge-gate: "+detail, command)
 				return nil
 			}
 			if !hasValidMergeToken() {
 				return writePoliceDeny(cmd.OutOrStdout(), mergeBlockMessage(verdict, detail))
 			}
 		}
-		if !isStandDownActive() {
-			if msg := checkPrCommentBody(command); msg != "" {
+		if msg := checkPrCommentBody(command); msg != "" {
+			if !isStandDownActive() {
 				return writePoliceDeny(cmd.OutOrStdout(), msg)
 			}
+			auditStandDown("pr-comment-template", command)
 		}
 		if laneAudit != "" {
 			auditLaneMerge(laneAudit)
@@ -196,14 +206,18 @@ func evaluateMergeGateIn(cmd, cwd string) (mergeVerdict, string) {
 
 	// Expand before anything reads the segments: every scan below walks tokens,
 	// and a quoted payload is one token until it is re-tokenized.
-	segs := expandInlineScripts(commandSegments(cmd), 4)
+	// Quoted-heredoc bodies fed to a non-shell consumer are data, not commands:
+	// a Python script or a markdown doc spelling `git push origin main` pushes
+	// nothing (see police_heredoc.go).
+	pc := parseHeredocs(cmd)
+	segs := expandInlineScripts(pc.execSegments(), 4)
 
 	// Every scan below anchors on the words `gh` and `git`. A shell function or
 	// alias of that name rebinds the word for the rest of the line, so nothing
 	// the anchors see is what runs: `gh(){ command gh "$@" -R o/r; }; gh pr
 	// merge 5` merged into ANOTHER repo through the same-repo lane (adversarial
 	// review, blocker 1). Not modelled — refused outright.
-	if redefinesGitOrGH(cmd, codePayloads(segs)) {
+	if redefinesGitOrGH(pc.execText(), codePayloads(segs)) {
 		return mergeIndeterminate, redefinesDetail
 	}
 
@@ -316,13 +330,18 @@ func evaluateMergeGateIn(cmd, cwd string) (mergeVerdict, string) {
 	if verdict == mergeAllowed {
 		// A merge route reached over plain HTTP carries no git or gh token, so
 		// none of the command scans above can see it.
-		if route, found := httpMergeRoute(segs); found {
+		// Interpreter heredoc bodies are not command segments (they are data to
+		// every other scan), but they are code: read them here as `-c` is read.
+		if route, found := httpMergeRoute(append(segs[:len(segs):len(segs)], pc.interpBodySegments()...)); found {
 			return mergeIndeterminate, "a request to " + route
 		}
 		// Last resort: nothing matched as a command, but a payload this gate
 		// hands to an interpreter spells one out. Not parseable, not clearable.
 		if marker, found := embeddedMergeMarker(segs); found {
 			return mergeIndeterminate, "code passed to an interpreter that spells out `" + marker + "`"
+		}
+		if marker, found := heredocMergeMarker(pc.interpCodeDocs()); found {
+			return mergeIndeterminate, "a heredoc passed to an interpreter that spells out `" + marker + "`"
 		}
 		if len(lane) > 0 {
 			return mergeStagingLane, strings.Join(lane, "; ")
@@ -922,12 +941,23 @@ const (
 // on the unquoted token, so `~/`, `$HOME/`, `./`, absolute and quoted spellings
 // all match; the bare token file names match too, so `cd ~/.claude/state &&
 // touch police-token` cannot split the path across segments.
+//
+// Under the state dir only the token files are gate inputs — `<gate>-token`
+// (police, promote, destructive, review-stamp; see token.Gate.path) — plus the
+// directory itself, which a copy or a glob can land a token in. Everything
+// else there (setup.json, the merge audit log, jev-audit/ caches) is read by
+// no gate: matching the whole tree blocked `cp audit/* ~/.claude/state/jev-audit/`
+// and a `sed` whose EXPRESSION merely spelled a state path (session audit).
 func gateInputRef(tok string) gateInputKind {
 	t := strings.TrimRight(unquote(tok), "/")
 	switch {
-	case strings.Contains(t, ".claude/state/"), strings.Contains(t, ".agent_config/state/"),
-		strings.HasSuffix(t, ".claude/state"), strings.HasSuffix(t, ".agent_config/state"):
+	case strings.HasSuffix(t, ".claude/state"), strings.HasSuffix(t, ".agent_config/state"):
 		return gateInputToken
+	case strings.Contains(t, ".claude/state/"), strings.Contains(t, ".agent_config/state/"):
+		if stateTokenPath(gateInputPath(t)) {
+			return gateInputToken
+		}
+		return gateInputNone
 	case strings.Contains(t, ".review-stamp-"):
 		return gateInputStamp
 	case strings.Contains(t, ".bravros/config.json"):
@@ -942,6 +972,58 @@ func gateInputRef(tok string) gateInputKind {
 		return gateInputToken
 	}
 	return gateInputNone
+}
+
+// stateTokenPath reports whether p, a path under a state dir, is a gate token
+// file — or a glob/brace directly in the state dir that could expand to one.
+func stateTokenPath(p string) bool {
+	p = strings.TrimRight(p, "/")
+	base := filepathBase(p)
+	if strings.Contains(base, "-token") {
+		return true
+	}
+	dir := strings.TrimRight(strings.TrimSuffix(p, base), "/")
+	inStateDir := strings.HasSuffix(dir, ".claude/state") || strings.HasSuffix(dir, ".agent_config/state")
+	return inStateDir && strings.ContainsAny(base, "*?[{")
+}
+
+// gateReaderPrograms only ever read their path arguments. A reference to a gate
+// input in one of their segments is a read — their redirects are still caught
+// by segmentWritesGateInput, which runs first.
+var gateReaderPrograms = map[string]bool{
+	"cat": true, "ls": true, "stat": true, "head": true, "tail": true, "grep": true,
+	"egrep": true, "fgrep": true, "rg": true, "wc": true, "jq": true, "less": true,
+	"more": true, "file": true, "diff": true, "echo": true, "printf": true, "test": true,
+	"[": true, "readlink": true, "realpath": true, "du": true, "md5": true, "shasum": true,
+	"sha256sum": true, "bat": true, "tree": true,
+}
+
+// sedFileOperands returns the tokens of a sed invocation (bare[0] == "sed")
+// that are FILES — what `-i` rewrites — as opposed to the script. The script
+// is the value of each -e/--expression (or -f/--file), else the first
+// positional; a path spelled inside the script is text, not a target.
+func sedFileOperands(bare []string) []string {
+	var files []string
+	scriptGiven := false
+	for i := 1; i < len(bare); i++ {
+		t := unquote(bare[i])
+		switch {
+		case t == "-e" || t == "--expression" || t == "-f" || t == "--file":
+			scriptGiven = true
+			i++
+		case strings.HasPrefix(t, "--expression=") || strings.HasPrefix(t, "--file="):
+			scriptGiven = true
+		case t == "-i" && i+1 < len(bare) && unquote(bare[i+1]) == "":
+			i++ // BSD `sed -i ''`: the empty suffix
+		case strings.HasPrefix(t, "-") && len(t) > 1:
+			// other flags (-i, -n, -E, -i.bak, --in-place=…)
+		case !scriptGiven:
+			scriptGiven = true // first positional is the script
+		default:
+			files = append(files, bare[i])
+		}
+	}
+	return files
 }
 
 // gateInputPathRE pulls the gate path out of a token that carries more than
@@ -992,7 +1074,11 @@ func checkGateInputWrite(command string) string {
 		!strings.Contains(command, "config.json") && !strings.Contains(command, "-token") {
 		return ""
 	}
-	segs := expandInlineScripts(commandSegments(command), 4)
+	// A quoted heredoc written to a file (`cat > notes.md <<'MD'`) is data: a
+	// doc that names .bravros/config.json writes nothing to it. A body fed to an
+	// interpreter is code, so its gate references still count below.
+	pc := parseHeredocs(command)
+	segs := expandInlineScripts(pc.execSegments(), 4)
 	interpreter := false
 	refKind, refPath := gateInputNone, ""
 	for _, seg := range segs {
@@ -1002,9 +1088,30 @@ func checkGateInputWrite(command string) string {
 		if segmentRunsInterpreter(seg) {
 			interpreter = true
 		}
+		// A pure reader (`cat .bravros/config.json`, `ls ~/.claude/state/`)
+		// names a gate input without being able to write it. Its reference
+		// must not arm the interpreter check for an unrelated `python3 -c` on
+		// the same line (usdt-gateway session: `cat .bravros/config.json; …;
+		// python3 -c "print(json.dumps(…))"` was blocked as a config write).
+		if _, prog := gateProgram(seg); gateReaderPrograms[prog] {
+			continue
+		}
 		if refKind == gateInputNone {
 			if refs := gateRefsIn(seg); len(refs) > 0 {
 				refKind, refPath = refs[0].kind, refs[0].path
+			}
+		}
+	}
+	if refKind == gateInputNone {
+		for _, body := range pc.interpBodies() {
+			for _, tok := range strings.Fields(body) {
+				if kind := gateInputRef(tok); kind != gateInputNone {
+					refKind, refPath = kind, gateInputPath(tok)
+					break
+				}
+			}
+			if refKind != gateInputNone {
+				break
 			}
 		}
 	}
@@ -1344,11 +1451,22 @@ func segmentWritesGateInput(seg []string) (gateInputKind, string) {
 				}
 			}
 		case "sed":
+			inPlace := false
 			for _, later := range bare[i+1:] {
 				f := unquote(later)
 				if f == "--in-place" || strings.HasPrefix(f, "--in-place=") ||
 					(strings.HasPrefix(f, "-") && !strings.HasPrefix(f, "--") && strings.ContainsRune(f, 'i')) {
-					return refs[0].kind, refs[0].path
+					inPlace = true
+				}
+			}
+			if !inPlace {
+				break
+			}
+			// Only a FILE operand is rewritten; a gate path inside the sed
+			// script (`s#~/.claude/state/x#…#`) is replacement text.
+			for _, f := range sedFileOperands(bare[i:]) {
+				if kind := gateInputRef(f); kind != gateInputNone {
+					return kind, gateInputPath(f)
 				}
 			}
 		}
@@ -1360,23 +1478,27 @@ func segmentWritesGateInput(seg []string) (gateInputKind, string) {
 // writer for its kind.
 func gateInputBlockMessage(kind gateInputKind, path string) string {
 	head := "✋🏽 Police Block: this command writes the gate's own input (" + path + ").\n"
-	var body string
+	var body, alt string
 	switch kind {
 	case gateInputToken:
-		body = "Merge and destructive tokens under ~/.claude/state are minted only OUTSIDE Claude Code —\n" +
+		body = "Merge and destructive tokens (~/.claude/state/*-token) are minted only OUTSIDE Claude Code —\n" +
 			"bravros police unlock, bravros promote unlock, bravros destructive unlock — by the operator.\n" +
 			"Read-only access is fine (bravros police status, bravros promote status, cat/ls/stat), and so\n" +
-			"is revoking (bravros police revoke, bravros promote revoke). Writing one from Bash is never.\n"
+			"is revoking (bravros police revoke, bravros promote revoke). Writing one from Bash is never.\n" +
+			"Other files under ~/.claude/state (setup.json, audit logs, caches) are not gate inputs.\n"
+		alt = "Run instead: ask the operator to run `bravros police unlock` in a separate terminal.\n"
 	case gateInputStamp:
 		body = "Review stamps (.planning/.review-stamp-<N>.json) are written only by\n" +
 			"  bravros pr-review <N> --write-stamp\n" +
 			"which keys them to the reviewed commit. A hand-written stamp is a forged review.\n"
+		alt = "Run instead: bravros pr-review <N> --write-stamp\n"
 	case gateInputConfig:
 		body = ".bravros/config.json declares the merge gate's per-repo policy (staging_lane, direct_main,\n" +
 			"staging_branch). Edit it with the Write tool or bravros police direct-main / bravros init,\n" +
 			"and commit it — the key is a commit-visible declaration, reviewed like code.\n"
+		alt = "Run instead: bravros police direct-main on  (or edit the file with the Write tool).\n"
 	}
-	return head + body + "This is the safety floor — it fires even under stand-down, and no token lifts it.\n"
+	return head + body + "This is the safety floor — it fires even under stand-down, and no token lifts it.\n" + alt
 }
 
 // mergeBlockMessage renders the block for each verdict. The indeterminate case
@@ -2623,169 +2745,4 @@ func init() {
 	policeCmd.AddCommand(policeRevokeCmd)
 	policeCmd.AddCommand(policeStatusCmd)
 	rootCmd.AddCommand(policeCmd)
-}
-
-var policeStandDownCmd = &cobra.Command{
-	Use:   "standdown",
-	Short: "Manage Police stand-down state",
-	Run: func(cmd *cobra.Command, args []string) {
-		cmd.Help()
-	},
-}
-
-var standDownTTLFlag time.Duration
-
-var policeStandDownOnCmd = &cobra.Command{
-	Use:   "on",
-	Short: "Enable Police stand-down for this session",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		sessionID := resolveSession()
-		if sessionID == "" {
-			fmt.Fprintln(cmd.ErrOrStderr(), "police standdown on: no agent session detected. (Use env BRAVROS_POLICE_STANDDOWN=1 outside Claude)")
-			return nil
-		}
-		ttl := standDownTTLFlag
-		if ttl <= 0 {
-			ttl = 4 * time.Hour
-		}
-
-		path := standDownPath(sessionID)
-		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-			return err
-		}
-
-		now := time.Now().UTC()
-		type marker struct {
-			SessionID string    `json:"session_id"`
-			ExpiresAt time.Time `json:"expires_at"`
-			CreatedAt time.Time `json:"created_at"`
-			TTL       string    `json:"ttl"`
-		}
-		m := marker{
-			SessionID: sessionID,
-			ExpiresAt: now.Add(ttl),
-			CreatedAt: now,
-			TTL:       ttl.String(),
-		}
-		data, _ := json.MarshalIndent(m, "", "  ")
-
-		// write via temp file
-		tmpPath := path + ".tmp"
-		if err := os.WriteFile(tmpPath, data, 0644); err != nil {
-			return err
-		}
-		if err := os.Rename(tmpPath, path); err != nil {
-			return err
-		}
-
-		fmt.Fprintf(cmd.OutOrStdout(), "✓ Police stand-down ON for this session (TTL %s), expires %s.\nSafety floor stays active: irreversible content loss (rule 52).\n", ttl, m.ExpiresAt.Format(time.RFC3339))
-		return nil
-	},
-}
-
-var policeStandDownOffCmd = &cobra.Command{
-	Use:   "off",
-	Short: "Disable Police stand-down for this session",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		sessionID := resolveSession()
-		if sessionID == "" {
-			return nil
-		}
-		path := standDownPath(sessionID)
-		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-		fmt.Fprintln(cmd.OutOrStdout(), "✓ Police stand-down marker cleared.")
-		return nil
-	},
-}
-
-var policeStandDownStatusCmd = &cobra.Command{
-	Use:   "status",
-	Short: "Report Police stand-down status",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		out := struct {
-			Active      bool   `json:"active"`
-			Source      string `json:"source"`
-			SessionID   string `json:"session_id"`
-			ExpiresAt   string `json:"expires_at,omitempty"`
-			SafetyFloor string `json:"safety_floor"`
-		}{
-			SessionID:   resolveSession(),
-			SafetyFloor: "Safety floor stays active: irreversible content loss (rule 52).",
-		}
-
-		if os.Getenv("BRAVROS_POLICE_STANDDOWN") == "1" {
-			out.Active = true
-			out.Source = "env"
-			emitStandDownStatus(cmd.OutOrStdout(), out)
-			return nil
-		}
-
-		sessionID := resolveSession()
-		if sessionID != "" {
-			path := standDownPath(sessionID)
-			data, err := os.ReadFile(path)
-			if err == nil {
-				var m struct {
-					SessionID string    `json:"session_id"`
-					ExpiresAt time.Time `json:"expires_at"`
-				}
-				if json.Unmarshal(data, &m) == nil && m.SessionID == sessionID {
-					if !m.ExpiresAt.IsZero() && time.Now().Before(m.ExpiresAt) {
-						out.Active = true
-						out.Source = "marker"
-						out.ExpiresAt = m.ExpiresAt.Format(time.RFC3339)
-					} else {
-						os.Remove(path) // auto-clean expired
-					}
-				}
-			}
-		}
-
-		emitStandDownStatus(cmd.OutOrStdout(), out)
-		return nil
-	},
-}
-
-func emitStandDownStatus(out io.Writer, v interface{}) {
-	data, _ := json.MarshalIndent(v, "", "  ")
-	fmt.Fprintln(out, string(data))
-}
-
-func standDownPath(sessionID string) string {
-	tmpDir := os.TempDir()
-	return filepath.Join(tmpDir, "agent-audit-"+sessionID, "standdown.json")
-}
-
-func isStandDownActive() bool {
-	if os.Getenv("BRAVROS_POLICE_STANDDOWN") == "1" {
-		return true
-	}
-	sessionID := resolveSession()
-	if sessionID == "" {
-		return false
-	}
-	data, err := os.ReadFile(standDownPath(sessionID))
-	if err != nil {
-		return false
-	}
-	var m struct {
-		SessionID string    `json:"session_id"`
-		ExpiresAt time.Time `json:"expires_at"`
-	}
-	if json.Unmarshal(data, &m) == nil && m.SessionID == sessionID {
-		if !m.ExpiresAt.IsZero() && time.Now().Before(m.ExpiresAt) {
-			return true
-		}
-	}
-	return false
-}
-
-func init() {
-	policeStandDownOnCmd.Flags().DurationVar(&standDownTTLFlag, "ttl", 4*time.Hour, "Stand-down marker TTL")
-	policeStandDownCmd.AddCommand(policeStandDownOnCmd)
-	policeStandDownCmd.AddCommand(policeStandDownOffCmd)
-	policeStandDownCmd.AddCommand(policeStandDownStatusCmd)
-	policeCmd.AddCommand(policeStandDownCmd)
 }

@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"os"
 	"regexp"
 	"strings"
 )
@@ -98,9 +97,12 @@ const aiSignatureBlock = "✋🏽 Police Block: AI signature detected in a git o
 const aiSignatureOpaque = "✋🏽 Police Block: this command supplies a body the hook cannot read, " +
 	"so it cannot be checked for AI attribution.\n" +
 	"Seen: %s\n" +
-	"Write the body to a real file first and pass that path, or use inline --body \"...\".\n" +
-	"Stdin (-), process substitution and here-docs are refused for the same reason " +
-	"`gh pr comment` refuses --body-file: unreadable content cannot be validated."
+	"Readable shapes: a literal path, a variable assigned a literal path earlier on the same line " +
+	"(S=/tmp/x; … --body-file $S/body.md), or a file written on the same line by a quoted heredoc " +
+	"(cat > body.md <<'EOF' … EOF) or copied from a readable file. Stdin (-) is read only from a quoted " +
+	"heredoc; process substitution and variables set by $(…) are never readable.\n" +
+	"Run instead: write the body with the Write tool, then pass its literal path " +
+	"(gh pr create … --body-file /literal/path/body.md), or use inline --body \"...\"."
 
 // checkAiSignature inspects the text-carrying flags of git and gh commands that
 // write commit messages, PR titles, PR bodies, issue bodies and release notes.
@@ -111,8 +113,26 @@ const aiSignatureOpaque = "✋🏽 Police Block: this command supplies a body th
 // made `--body-file <(printf 'Made with Cursor')`, `--body-file -`, and a file
 // written later in the same command into silent bypasses.
 func checkAiSignature(command string) string {
-	for _, seg := range commandSegments(command) {
-		texts, opaque := scanTargets(seg)
+	// Heredoc bodies written to files are data until a --body-file names that
+	// file; bodyFiles then hands the body text back for checking.
+	pc := parseHeredocs(command)
+	files := newBodyFiles(pc.docs)
+	// An unquoted heredoc body's substitutions run when its operator line
+	// does — before any later segment — yet execSegments lists body lines
+	// last. Judge them up front.
+	for _, d := range pc.docs {
+		if !d.quoted && !d.shell && !textSubstitutionsSafe(d.body, substitutionDepth) {
+			files.taint()
+		}
+	}
+	for _, seg := range pc.execSegments() {
+		// A substitution in this very segment (`--title "$(…)"`) runs before
+		// the body file is read.
+		if !segmentSubstitutionsSafe(seg, substitutionDepth) {
+			files.taint()
+		}
+		texts, opaque := scanTargets(seg, files)
+		files.observe(seg)
 		if opaque != "" {
 			return strings.Replace(aiSignatureOpaque, "%s", opaque, 1)
 		}
@@ -131,25 +151,25 @@ func checkAiSignature(command string) string {
 // scanTargets returns the texts to scan for one command segment, plus a
 // non-empty "opaque" reason when the segment routes a body through something
 // unreadable.
-func scanTargets(seg []string) (texts []string, opaque string) {
+func scanTargets(seg []string, files *bodyFiles) (texts []string, opaque string) {
 	switch {
 	case startsWith(seg, "gh", "pr", "create"), startsWith(seg, "gh", "pr", "edit"),
 		startsWith(seg, "gh", "pr", "comment"), startsWith(seg, "gh", "pr", "merge"),
 		startsWith(seg, "gh", "issue", "create"), startsWith(seg, "gh", "issue", "edit"),
 		startsWith(seg, "gh", "issue", "comment"):
 		texts = append(texts, inlineValues(seg, "--title", "-t", "--body", "-b", "--subject")...)
-		fileTexts, reason := fileValues(seg, "--body-file", "-F")
+		fileTexts, reason := fileValues(seg, files, "--body-file", "-F")
 		return append(texts, fileTexts...), reason
 
 	case startsWith(seg, "gh", "release", "create"), startsWith(seg, "gh", "release", "edit"):
 		texts = append(texts, inlineValues(seg, "--title", "-t", "--notes", "-n")...)
-		fileTexts, reason := fileValues(seg, "--notes-file", "-F")
+		fileTexts, reason := fileValues(seg, files, "--notes-file", "-F")
 		return append(texts, fileTexts...), reason
 
 	case startsWith(seg, "git", "commit"), startsWith(seg, "git", "tag"),
 		startsWith(seg, "git", "merge"), startsWith(seg, "git", "notes"):
 		texts = append(texts, inlineValues(seg, "--message", "-m")...)
-		fileTexts, reason := fileValues(seg, "--file", "-F", "--template")
+		fileTexts, reason := fileValues(seg, files, "--file", "-F", "--template")
 		return append(texts, fileTexts...), reason
 
 	default:
@@ -159,16 +179,18 @@ func scanTargets(seg []string) (texts []string, opaque string) {
 
 // fileValues reads each path-valued flag. An unreadable path is reported as
 // opaque rather than skipped — see checkAiSignature's fail-closed note.
-func fileValues(seg []string, names ...string) (texts []string, opaque string) {
+//
+// A path is resolved against the command line itself first (see
+// police_bodyfile.go): a literal `VAR=/path` set earlier, a file a quoted
+// heredoc writes, a `cp` of a readable file. What stays unresolvable is still
+// refused.
+func fileValues(seg []string, files *bodyFiles, names ...string) (texts []string, opaque string) {
 	for _, path := range inlineValues(seg, names...) {
-		if path == "" || path == "-" || strings.ContainsAny(path, "<>$") {
-			return nil, describeOpaquePath(path)
+		text, reason := files.resolve(path, seg)
+		if reason != "" {
+			return nil, reason
 		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil, describeOpaquePath(path)
-		}
-		texts = append(texts, string(data))
+		texts = append(texts, text)
 	}
 	return texts, ""
 }

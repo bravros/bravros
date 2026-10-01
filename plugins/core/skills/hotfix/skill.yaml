@@ -30,7 +30,7 @@ body: |
   0. Confirm repo identity first: `git remote get-url origin` + `basename "$(git rev-parse --show-toplevel)"`.
   1. Refuse on `main`/`master`. Strip issue ref (`#42`) for description, carry as `Closes #42` in PR.
   2. Format changed files → `bravros commit "🩹 hotfix: <description>" <changed files only>`.
-  3. Push; merge to `homolog` & push if not on homolog → `gh pr create --base main --head homolog --title "🩹 hotfix: <description>"` (body via `--body-file` written in a previous step).
+  3. Push; merge to `homolog` & push if not on homolog → `gh pr create --base main --head homolog --title "🩹 hotfix: <description>"` (body via `--body-file <literal abs path>` (no `$VAR`/`cp`; no attribution lines) written in a previous step).
   4. Wait for mergeability: `until [ "$(gh pr view "$PR_NUMBER" --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ]; do sleep 2; done` — otherwise the first merge hits the `UNKNOWN` police block.
   5. Autopr gate → `gh pr merge 1234 --merge > /tmp/bravros-merge-1234.txt 2>&1` (substitute the literal number — a `$VAR` here is unreadable to the hook; no `cd … &&`, no `| tail`) → verify state == `MERGED`. A `✋🏽 Police Block` names its reason — relay it in one line; never `gh api`/raw HTTP, never `/promote`.
   6. Sync `homolog` from `main` (`git checkout homolog && git pull && git fetch origin main && git merge --ff-only origin/main`).
