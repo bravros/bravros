@@ -15,7 +15,7 @@ Options:
 | | |
 |---|---|
 | `--json` | machine-readable rows instead of the table |
-| `--depth N` | walk depth per root (default 3) |
+| `--depth N` | walk depth per root (default 4) |
 | `--no-prompt` | skip auto-generating labelling prompts for degraded projects |
 | `<root> ...` | scan specific roots instead of the defaults (`~/Code`, plus `~/Sites` if present) |
 
@@ -96,7 +96,7 @@ uv run ~/.agent_config/skills/graphify-status/scripts/merge-missing-labels.py \
 
 ### Can this be fully automated?
 
-Yes — with **graphifyy ≥ 0.9** installed (the machine-wide pin, `[mcp]` extra), `graphify label . --missing-only --no-viz --backend claude-cli` is the one-command gap-fill (**always `--no-viz`** — we keep only the searchable `graph.json`, no HTML). The prompt round-trip above remains useful when you'd rather spend someone else's tokens (Antigravity / Gemini) on a large gap.
+Yes — with **graphifyy ≥ 0.9.28** installed (earlier releases reuse stale labels across rebuilds) (the machine-wide pin, `[mcp]` extra), `graphify label . --missing-only --no-viz --backend claude-cli` is the one-command gap-fill (**always `--no-viz`** — we keep only the searchable `graph.json`, no HTML). The prompt round-trip above remains useful when you'd rather spend someone else's tokens (Antigravity / Gemini) on a large gap.
 
 But `--missing-only` is *only* a gap-fill. It never revisits an existing name, so it cannot repair labels that drifted onto the wrong clusters after a re-cluster. That still needs a full relabel.
 

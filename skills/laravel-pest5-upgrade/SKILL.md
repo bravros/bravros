@@ -1,9 +1,13 @@
 ---
 name: laravel-pest5-upgrade
-description: Upgrade a PHP/Laravel repo from Pest 4 to Pest 5 and turn on Test Impact Analysis (TIA) so local full runs only re-execute the tests a change can reach. Use this whenever someone mentions upgrading Pest, moving to Pest 5, `pestphp/pest ^5`, Test Impact Analysis, `--tia`, "why is my test suite so slow", speeding up a slow PHP test suite, `Tia mode requires Pest tests`, `WorkerCrashedException` after enabling TIA, converting PHPUnit class-style tests to Pest, or setting up a TIA baseline — even if they don't say "Pest 5" outright. Also use it when a Pest/PHPUnit dependency bump has broken tests and they need help attributing the fallout.
+description: Upgrade a PHP/Laravel repo from Pest 4 to Pest 5 and enable Test Impact Analysis locally. Use on /laravel-pest5-upgrade, or when a Pest bump or `Tia mode requires Pest tests` breaks tests.
 ---
 
 # Pest 4 → 5 + Test Impact Analysis
+
+Also use it for: `pestphp/pest ^5`, `--tia`, "why is my test suite so slow", speeding up a slow
+PHP suite, `WorkerCrashedException` after enabling TIA, converting PHPUnit class-style tests to
+Pest, a TIA baseline, or a Pest/PHPUnit dependency bump that broke tests (attributing the fallout).
 
 Turn a full local run into one that executes only the tests the current diff can reach. Measured
 on a real 18,594-test Laravel suite: **655 s cold → 5.83 s** for a one-file change.
@@ -16,11 +20,20 @@ diagnosable.
 graph) is out of scope — it was attempted, three bugs were found in the upstream recipe, and it
 was parked. If asked for it, read `references/ci-baseline.md` first.
 
+## 0. Early exit — already on Pest 5?
+
+`vendor/bin/pest --version` reports 5.x (the starter kit ships it) ⇒ skip steps 2–3's install work:
+check only that TIA is configured (step 4) and the gate is documented (step 5), then stop.
+
 ## 1. Preconditions
 
 Needs PHP 8.4+ (`pest@5` requires `^8.4`, pulls `phpunit ^13.3`), a **coverage driver** (pcov or
 Xdebug — TIA records its graph through it and cannot run without one; prefer pcov, several times
-faster), and a **green full suite** to attribute fallout against.
+faster), and a **green full suite** to attribute fallout against. **Never run the full suite yourself in an
+interactive session** — hand the operator the exact command (`cd <repo> && vendor/bin/pest --parallel
+--no-tia`) for a separate tab and wait; background it yourself only when AFK/autonomous. Targeted
+runs (paths, `--filter`) are fine. The working tree must be clean (`git status --porcelain` empty) —
+hard gate before step 2.
 
 Then count the real work, because it sets the schedule — two class-style tests is an afternoon,
 fifty is a different project:
@@ -54,6 +67,9 @@ Encountered PHPUnit class Tests\Feature\...  (EnsureTiaIsRunningPestTestsOnly.ph
 ```
 
 Anyone who hasn't seen this starts debugging a file that is fine.
+
+Many files? Fan out one worker per `tests/` subfolder (disjoint files, so no write collisions)
+instead of converting serially; re-run the grep afterwards to catch stragglers.
 
 **Checkpoint:** the step-1 grep returns nothing, and each converted file passes with the same
 assertion count as before. Patterns, the helper-name collision trap, and dataset merges:

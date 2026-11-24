@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bravros/bravros/cli/internal/deploy"
 	"github.com/bravros/bravros/cli/internal/payload"
 	"github.com/spf13/cobra"
 )
@@ -1013,5 +1014,50 @@ func TestSetupResultTableAllRequestedComponentsSkippedNeverShowsFalseSuccess(t *
 		if strings.Contains(row, string(setupStatusChanged)) || strings.Contains(row, string(setupStatusCorrect)) {
 			t.Errorf("%s row carries a non-skip status alongside SKIPPED: %q", id, row)
 		}
+	}
+}
+
+// Retired skills (I-11 / D3): setup removes them with no previous run, no
+// ownership record and no byte-identity check — a renamed skill can never match
+// the current embed — and moves them to .trash instead of deleting.
+func TestSetupRetiresRetiredSkills(t *testing.T) {
+	root := setupTestRoot(t)
+	isolatePreserveConfig(t, "") // no stray preserve list from cwd or ~
+	old := filepath.Join(root, "skills", "pest5-upgrade")
+	if err := os.MkdirAll(old, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(old, "SKILL.md"), []byte("stale copy\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := runSetupForTest(t, setupFlags{components: "claude-skills", yes: true})
+	if err != nil {
+		t.Fatalf("setup: %v\n%s", err, out)
+	}
+	if _, err := os.Lstat(old); !os.IsNotExist(err) {
+		t.Errorf("retired pest5-upgrade still installed (err=%v)\n%s", err, out)
+	}
+	matches, _ := filepath.Glob(filepath.Join(root, ".trash", "*-"+deploy.RetiredTrashSlug, "pest5-upgrade", "SKILL.md"))
+	if len(matches) != 1 {
+		t.Errorf("want one recoverable copy in .trash, got %v", matches)
+	}
+	if !strings.Contains(out, "skills/pest5-upgrade") {
+		t.Errorf("plan did not list the retired skill:\n%s", out)
+	}
+}
+
+func TestSetupRetirePreserveWins(t *testing.T) {
+	root := setupTestRoot(t)
+	isolatePreserveConfig(t, "skills:\n  preserve:\n    - pest5-upgrade\n")
+	old := filepath.Join(root, "skills", "pest5-upgrade")
+	if err := os.MkdirAll(old, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := runSetupForTest(t, setupFlags{components: "claude-skills", yes: true}); err != nil {
+		t.Fatalf("setup: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(old); err != nil {
+		t.Errorf("preserved retired skill was removed: %v", err)
 	}
 }

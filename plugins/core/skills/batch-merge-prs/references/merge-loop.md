@@ -4,10 +4,10 @@ Detail for SKILL.md Flow step 2. Lock/merge/verify sequence itself: `skills/shar
 
 ## Conflict at a PR's turn
 
-FREE TREE ONLY — under a live operator suite, recover in an isolated worktree or PARK the PR
-(record it) and continue the chain.
+Never recover in the primary checkout. Use a throwaway worktree (or PARK the PR and continue):
 
 ```bash
+WT=$(mktemp -d)/pr-<n> && git worktree add --detach "$WT" origin/"$STAGING" && cd "$WT"
 gh pr checkout <n>
 git merge origin/"$STAGING"        # bring staging INTO the PR branch
 ```
@@ -16,7 +16,7 @@ git merge origin/"$STAGING"        # bring staging INTO the PR branch
   re-run the touched area's tests with the project's own runner.
 - If it cannot be cleanly resolved and greened, the tree MUST be left clean before the next
   PR: git refuses to switch branches mid-merge, so an un-aborted merge strands the whole
-  batch. `git merge --abort && git checkout "$STAGING"`, PARK the PR, move on.
+  batch. `git merge --abort`, leave the worktree (`git worktree remove --force "$WT"`), PARK the PR, move on.
 - Push only on a clean, green resolution — `git push origin HEAD`, no `--force` (a fork PR's
   head lives on the fork remote, not origin).
 - `.planning/`-only conflicts → `--theirs` (base wins — metadata, not code). This is the one

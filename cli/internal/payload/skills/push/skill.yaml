@@ -3,13 +3,13 @@ icon: upload
 metadata:
   en:
     name: push
-    description: Push current branch to remote with branch safety checks.
+    description: Push the current branch to origin with branch safety checks, never committing. Use on /push when commits already exist and only the push is missing.
   br:
     name: push
-    description: Envia a branch atual para o repositório remoto com verificações de segurança de branch.
+    description: Use em /push para enviar a branch atual ao origin com verificações de segurança, sem commitar.
   es:
     name: push
-    description: Envía la rama actual al repositorio remoto con verificaciones de seguridad de rama.
+    description: Usa /push para enviar la rama actual a origin con verificaciones de seguridad, sin commitear.
 body: |
   INTENT: push the current branch to origin. Push only — no committing, no PR creation.
 
@@ -17,4 +17,4 @@ body: |
   - Never push `main`/`master` directly **in a PR-gated repo** — refuse and point to a PR from homolog. `homolog` itself IS directly pushable (plan commits, hotfixes).
   - **Direct-main repos are the exception, by design.** A repo whose `.bravros/config.json` declares `police.direct_main: true` (set by `bravros police direct-main on`, or scaffolded by `/git-this` for personal/scratch repos) has no staging branch and works on `main`; pushing `main` there is the normal flow. The gate is a pure binary: `bravros config get police.direct_main` prints `true` → direct-main, push allowed; anything else (empty, an error, an older CLI reporting an unknown key) → PR-gated, refuse. `staging_branch` is never the discriminator — `config get staging_branch` never prints empty.
   - No force push unless the operator explicitly asked for one.
-  - Dirty working tree → stop and point to `/ship` or `/commit` first — committing is their job, not this skill's.
+  - Dirty working tree → stop and point to `/commit-push` or `/commit` first — committing is their job, not this skill's.

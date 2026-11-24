@@ -14,8 +14,8 @@ HARD CONSTRAINTS
 - A `blocked` verdict is a full stop — hand to the operator, never auto-merge it.
 
 FLOW
-1. **Verify (parallel, read-only).** `mkdir -p .claude/workflows && cp -f
-   ~/.bravros/skills/batch-merge-prs/scripts/verify-prs.js .claude/workflows/` then
+1. **Verify (parallel, read-only).** `STAGING=$(bravros config get staging_branch)`; materialise the script with `cmp -s` guard — copy
+   `~/.bravros/skills/batch-merge-prs/scripts/verify-prs.js` to `.claude/workflows/verify-prs.js` only when not byte-identical; then
    `Workflow({name:'verify-prs', args:{staging_branch, bot:'claude', guards:[…], prs:[…]}})`.
    `bot:'claude'` is load-bearing — the @claude Action posts as bare login `claude`, not
    `claude[bot]`; a bot-suffix filter alone silently matches nothing. Verdicts: clean → queue ·

@@ -167,6 +167,19 @@ fix_applied() {
     return 0
 }
 
+# trash_move PATH — preserve-before-delete: move PATH into a per-run trash dir
+# under ~/.agent_config/.trash/<stamp>-verify-install/<name> and print the restore path.
+TRASH_DIR=""
+trash_move() {
+    local src="$1" name
+    name="$(basename "$src")"
+    [ -n "$TRASH_DIR" ] || TRASH_DIR="$HOME/.claude/.trash/$(date +%Y%m%d-%H%M%S)-verify-install"
+    mkdir -p "$TRASH_DIR" || return 1
+    mv "$src" "$TRASH_DIR/$name" || return 1
+    [ "$QUIET" = false ] && echo -e "     ${DIM}moved to $TRASH_DIR/$name (restore: mv \"$TRASH_DIR/$name\" \"$src\")${RESET}"
+    return 0
+}
+
 md5_of() {
     if command -v md5sum &>/dev/null; then md5sum "$1" 2>/dev/null | awk '{print $1}'
     elif command -v md5 &>/dev/null; then md5 -q "$1" 2>/dev/null
@@ -284,6 +297,23 @@ elif [ ! -d "$PORTABLE_REPO/skills" ]; then
     # absence is informational, never a failure.
     pass "source repo" "none — embed model; integrity owned by bravros selfupdate (clone bravros/bravros only for dev diffing)"
 else
+    # Source-of-truth guard: a checkout that is not on its staging branch (or is
+    # dirty) is not a trustworthy reference — --fix from it would redeploy stale
+    # content and prune skills that exist only upstream. Report mode is unchanged.
+    SOURCE_TRUSTED=true
+    if git -C "$PORTABLE_REPO" rev-parse --git-dir >/dev/null 2>&1; then
+        _src_branch=$(git -C "$PORTABLE_REPO" branch --show-current 2>/dev/null)
+        _src_dirty=$(git -C "$PORTABLE_REPO" status --porcelain --untracked-files=no 2>/dev/null)
+        case "$_src_branch" in homolog) ;; *) SOURCE_TRUSTED=false ;; esac
+        [ -n "$_src_dirty" ] && SOURCE_TRUSTED=false
+        if [ "$SOURCE_TRUSTED" = false ] && [ "$FIX_MODE" = true ]; then
+            warn "source repo" "$PORTABLE_REPO is on '${_src_branch:-detached}'${_src_dirty:+, dirty} — not a trusted source" \
+                "--fix redeploy/prune refused; checkout homolog clean, or run bravros selfupdate"
+            auto_line "SOURCE_UNTRUSTED: $PORTABLE_REPO on '${_src_branch:-detached}' — --fix redeploy/prune refused"
+        fi
+    fi
+    src_fix_ok() { [ "$SOURCE_TRUSTED" = true ]; }
+
     # The manifest is what `bravros deploy` consults to skip unchanged skills.
     # Its absence forces a full redeploy — worth surfacing, not a blocker here.
     if [ -f "$MANIFEST_PATH" ]; then
@@ -305,7 +335,7 @@ else
             fail "$skill_name" "MISSING (not deployed)" "bravros deploy --force --filter $skill_name"
             auto_line "SKILL_MISSING: $skill_name — bravros deploy --force --filter $skill_name"
             SKILLS_MISSING=$((SKILLS_MISSING + 1))
-            should_fix && redeploy_skill "$skill_name" && fix_applied "Deployed $skill_name"
+            should_fix && src_fix_ok && redeploy_skill "$skill_name" && fix_applied "Deployed $skill_name"
             continue
         fi
 
@@ -342,7 +372,7 @@ except Exception:
                 "bravros deploy --force --filter $skill_name"
             auto_line "SKILL_DRIFT: $skill_name — bravros deploy --force --filter $skill_name"
             SKILLS_DRIFT=$((SKILLS_DRIFT + 1))
-            should_fix && redeploy_skill "$skill_name" && fix_applied "Re-deployed $skill_name"
+            should_fix && src_fix_ok && redeploy_skill "$skill_name" && fix_applied "Re-deployed $skill_name"
         fi
     done
 
@@ -353,21 +383,42 @@ except Exception:
         skill_name=$(basename "$dep_skill_dir")
         case "$skill_name" in
             shared|_shared)
-                fail "$skill_name" "MUST NOT BE DEPLOYED (repo-only shared material)" "rm -rf $dep_skill_dir"
+                fail "$skill_name" "MUST NOT BE DEPLOYED (repo-only shared material)" "mv $dep_skill_dir to ~/.agent_config/.trash/ (--fix does this)"
                 auto_line "SHARED_LEAK: $dep_skill_dir"
                 SKILLS_ORPHANED=$((SKILLS_ORPHANED + 1))
-                should_fix && rm -rf "$dep_skill_dir" && fix_applied "Removed deployed shared material"
+                should_fix && trash_move "$dep_skill_dir" && fix_applied "Moved deployed shared material to trash"
                 continue ;;
         esac
         if [ ! -d "$PORTABLE_REPO/skills/$skill_name" ]; then
             warn "$skill_name" "ORPHANED (retired from source)" "run --fix to prune"
             auto_line "SKILL_ORPHAN: $skill_name"
             SKILLS_ORPHANED=$((SKILLS_ORPHANED + 1))
-            should_fix && rm -rf "$dep_skill_dir" && fix_applied "Pruned orphan: $skill_name"
+            should_fix && src_fix_ok && trash_move "$dep_skill_dir" && fix_applied "Pruned orphan (to trash): $skill_name"
         fi
     done
 
     [ "$QUIET" = false ] && echo -e "  ${DIM}Skills: $SKILLS_MATCH match, $SKILLS_DRIFT drift, $SKILLS_MISSING missing, $SKILLS_ORPHANED orphaned${RESET}"
+fi
+
+# Retired skills — works WITHOUT a source checkout. Names come from the CLI's
+# embedded catalog (`bravros skills retired`, contract C2). Older binaries lack the
+# verb: no output / non-zero exit means no finding and no error. Read-only — safe
+# for --auto. One name per line is expected; extra columns (tab/space/|) are ignored.
+if [ -n "$BRAVROS_BIN" ] && [ -d "$DEPLOYED_DIR/skills" ]; then
+    _RETIRED_OUT=$("$BRAVROS_BIN" skills retired 2>/dev/null) || _RETIRED_OUT=""
+    while IFS= read -r _rline; do
+        _rname=$(printf '%s' "$_rline" | awk '{print $1}' | tr -d '|,')
+        case "$_rname" in ""|\#*|*/*|.*|shared|_shared) continue ;; esac
+        # Already reported as ORPHANED by the source-repo pass → don't double-report.
+        if [ -d "$PORTABLE_REPO/skills" ] && [ ! -d "$PORTABLE_REPO/skills/$_rname" ]; then
+            [ -d "$DEPLOYED_DIR/skills/$_rname" ] && continue
+        fi
+        if [ -d "$DEPLOYED_DIR/skills/$_rname" ]; then
+            warn "$_rname" "RETIRED (still installed under $DEPLOYED_DIR/skills)" \
+                "move to ~/.agent_config/.trash/ or run bravros selfupdate/setup"
+            auto_line "RETIRED: $_rname — $DEPLOYED_DIR/skills/$_rname still installed"
+        fi
+    done <<< "$_RETIRED_OUT"
 fi
 
 # ============================================================================

@@ -3,7 +3,7 @@ icon: git-merge
 metadata:
   en:
     name: after-merge
-    description: Generate an after-merge.md operational deploy checklist for homolog-to-main aggregate releases. Use when the user mentions deploying multiple PRs to production, needs a post-merge runbook, or asks what to do after merging to main.
+    description: Use after a homolog-to-main release, or when asked for a post-merge runbook or what to deploy after merging to main. Generates a gitignored after-merge.md operational deploy checklist covering all merged PRs.
   br:
     name: after-merge
     description: Gera um checklist operacional de deploy após merge (after-merge.md) para releases agregadas de homolog para main. Use quando o usuário mencionar implantar múltiplos PRs em produção, precisar de um runbook pós-merge ou perguntar o que fazer após o merge na main.
@@ -32,7 +32,7 @@ body: |
   ## Flow
 
   1. **Resolve the PR set.** Range `$(git describe --tags --abbrev=0 origin/main)..origin/main`; no tags → `origin/homolog..origin/main` (avoids full history). Extract `#N` from merge commits; `--pr <N>` overrides. Empty set → exit cleanly, mentioning the last tag and the `--pr` escape hatch. List the PRs before pulling context.
-  2. **Per-PR context, in parallel.** One Sonnet sub-agent per PR from the template in `references/extraction-prompts.md` — echo its JSON schema + one-shot example into each prompt; on validation failure, one retry with the validator error verbatim. Sources: `gh pr view <N> --json body,title,number,mergedAt`; plan file via `grep -r "#<N>" .planning/ --include="*.md"`; review thread via `gh pr view <N> --json reviews --jq '.reviews[].body'`.
+  2. **Per-PR context, in parallel.** One Sonnet sub-agent per PR from the template in `references/extraction-prompts.md` — echo its JSON schema + one-shot example into each prompt; on validation failure, one retry with the validator error verbatim. Sources: `gh pr view <N> --json body,title,number,mergedAt`; plan file via `grep -rwF "#<N>" .planning/ --include="*.md"`; review thread via `gh pr view <N> --json reviews --jq '.reviews[].body'`.
   3. **Bucket** into the 5 sections. Blast radius per PR when the repo has a graph: `mcp_graphify__get_pr_impact {pr_number: <N>}` — a community the PR touches that no reviewer mentioned is a monitoring item; the graph is a HINT, never a substitute for a documented rollback command. Detect the stack from `.bravros/config.json`'s cached `stack` object (fall back to project markers) and emit the matching deploy block from `references/checklist-template.md`.
   4. **Render** `references/checklist-template.md` as-is to `${OUTPUT_PATH:-./after-merge.md}`.
   5. **Verify the gitignore guard still holds**, then summarize: output path, per-bucket counts (highlight ⚠️ CANDIDATE items), next steps.

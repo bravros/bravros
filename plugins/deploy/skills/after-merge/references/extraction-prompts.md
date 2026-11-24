@@ -11,7 +11,7 @@ Pull and parse three sources, then return structured output.
 1. PR body — gh pr view <N> --json body,title,number,mergedAt,headRefName
    Sections: Test Plan / Deployment notes / Post-deploy / References; any mention of
    migration, backfill, seed, cache:clear, queue:restart, artisan, "after deploy".
-2. Linked plan — grep -r "#<N>" .planning/ --include="*.md" -l (also `pr: <N>`); read it;
+2. Linked plan — grep -rwF "#<N>" .planning/ --include="*.md" -l (also `pr: <N>`); read it;
    flag data-touching tasks and schema changes.
 3. Review thread — gh pr view <N> --json reviews --jq '.reviews[] | .body'
    Reviewer observations that did NOT block merge ("Note:", "Consider:", "Watch for:",

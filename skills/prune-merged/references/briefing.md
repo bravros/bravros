@@ -24,7 +24,7 @@ Safely delete branches already merged to the base branch. Dual-signal merge-trut
 1. **Dry-run:** `bravros branch prune --base <detected-base>` — lists candidates with source attribution (git/pr/pr-verified/rejected). Dry-run is the default; only `--apply` deletes.
 2. **User review — MANDATORY.** Show the full output — the `[CANDIDATE]` lines (`source=rejected` ones included, they are deletions too), every `SKIPPED-WORKTREE` line, and the skip reasons — then ask "Proceed with deletion?". Never continue without an explicit yes.
 3. **Apply:** `bravros branch prune --apply --base <detected-base>`. Add `--exclude-rejected` only if the user asked to hold rejected-PR branches back.
-4. **Report:** deleted count (the summary breaks out rejected-PR deletions), log location (`~/.bravros/logs/branch-prune.log`), recovery instructions.
+4. **Report:** deleted count (the summary breaks out rejected-PR deletions), log location (`~/.agent_config/logs/branch-prune.log`), recovery instructions.
 
 ## Tombstone Recovery & GC
 

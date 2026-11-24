@@ -2,6 +2,7 @@ package deploy
 
 import (
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -1157,5 +1158,293 @@ func TestResolvePruneSubtrees(t *testing.T) {
 				break
 			}
 		}
+	}
+}
+
+// ─── retired-skill prune (I-11 / D3, P-0027) ───────────────────────────────
+
+// handmadeSkill writes a skill dir under <target>/skills that bravros never
+// deployed — the pest5-upgrade shape: no manifest entry, no setup record.
+func handmadeSkill(t *testing.T, target, name string) string {
+	t.Helper()
+	dir := filepath.Join(target, "skills", name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("old copy, maybe edited\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// retiredTrashCopy returns the path of name inside the single
+// .trash/*-retired-skills entry, failing when it is not exactly one entry.
+func retiredTrashCopy(t *testing.T, target, name string) string {
+	t.Helper()
+	matches, _ := filepath.Glob(filepath.Join(target, ".trash", "*-"+RetiredTrashSlug, name))
+	if len(matches) != 1 {
+		t.Fatalf("want exactly one trashed copy of %s, got %v", name, matches)
+	}
+	return matches[0]
+}
+
+// The real update lane: selfupdate always deploys with FilterMode and a
+// scoped PruneSubtrees. A retired skill must go whether the manifest owns it
+// (ship) or nobody does (pest5-upgrade), and land recoverably in .trash.
+func TestRetiredSkillsMovedUnderFilterMode(t *testing.T) {
+	src := setupTestRepo(t)
+	target := filepath.Join(t.TempDir(), ".claude")
+	deployThenOrphan(t, src, target, "ship")  // owned
+	handmadeSkill(t, target, "pest5-upgrade") // unowned
+
+	res, err := Deploy(DeployOpts{
+		SourceDir:     src,
+		TargetDir:     target,
+		FilterMode:    true,
+		EnabledSkills: []string{"commit"},
+		PruneSubtrees: []string{"skills", "templates", "agents"},
+	})
+	if err != nil {
+		t.Fatalf("deploy: %v", err)
+	}
+	for _, name := range []string{"ship", "pest5-upgrade"} {
+		if _, err := os.Lstat(filepath.Join(target, "skills", name)); !os.IsNotExist(err) {
+			t.Errorf("retired %s still in skills/ (err=%v)", name, err)
+		}
+		if _, err := os.Stat(filepath.Join(retiredTrashCopy(t, target, name), "SKILL.md")); err != nil {
+			t.Errorf("trashed %s lost its content: %v", name, err)
+		}
+	}
+	if strings.Join(res.RetiredSkills, ",") != "pest5-upgrade,ship" {
+		t.Errorf("RetiredSkills = %v", res.RetiredSkills)
+	}
+	m, err := LoadManifest(filepath.Join(target, "skills", manifestFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := m.Skills["ship"]; ok {
+		t.Error("ship still recorded in the deploy manifest")
+	}
+	if _, ok := m.Skills["commit"]; !ok {
+		t.Error("live skill commit dropped from the manifest")
+	}
+	if _, err := os.Stat(filepath.Join(target, ".gitignore")); !os.IsNotExist(err) {
+		t.Error("retired prune must not write a .gitignore into the host config dir")
+	}
+}
+
+func TestRetiredSkillPreserveWins(t *testing.T) {
+	src := setupTestRepo(t)
+	target := filepath.Join(t.TempDir(), ".claude")
+	dir := handmadeSkill(t, target, "pest5-upgrade")
+	res, err := Deploy(DeployOpts{SourceDir: src, TargetDir: target, FilterMode: true, PreserveSkills: []string{"pest5-upgrade"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "SKILL.md")); err != nil {
+		t.Errorf("preserved retired skill was removed: %v", err)
+	}
+	if len(res.RetiredSkills) != 0 {
+		t.Errorf("RetiredSkills = %v, want none", res.RetiredSkills)
+	}
+}
+
+// A retired name the source still ships is live again — never touched.
+func TestRetiredSkillStillShippedIsKept(t *testing.T) {
+	src := setupTestRepo(t)
+	if err := os.MkdirAll(filepath.Join(src, "skills", "context"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "skills", "context", "SKILL.md"), []byte("live\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), ".claude")
+	res, err := Deploy(DeployOpts{SourceDir: src, TargetDir: target})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(target, "skills", "context", "SKILL.md")); err != nil {
+		t.Errorf("shipped skill named like a retired one was removed: %v", err)
+	}
+	if len(res.RetiredSkills) != 0 {
+		t.Errorf("RetiredSkills = %v, want none", res.RetiredSkills)
+	}
+}
+
+func TestRetiredSkillDryRunAndNoPruneLeaveTreeAlone(t *testing.T) {
+	src := setupTestRepo(t)
+	target := filepath.Join(t.TempDir(), ".claude")
+	dir := handmadeSkill(t, target, "pest5-upgrade")
+
+	res, err := Deploy(DeployOpts{SourceDir: src, TargetDir: target, DryRun: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(res.RetiredSkills, ",") != "pest5-upgrade" {
+		t.Errorf("dry-run RetiredSkills = %v", res.RetiredSkills)
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Errorf("dry-run moved the retired skill: %v", err)
+	}
+
+	res, err = Deploy(DeployOpts{SourceDir: src, TargetDir: target, NoPrune: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.RetiredSkills) != 0 {
+		t.Errorf("--no-prune RetiredSkills = %v", res.RetiredSkills)
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Errorf("--no-prune moved the retired skill: %v", err)
+	}
+}
+
+// Plugin copies live under plugins/ — never the skills/ prune's business.
+func TestRetiredSkillPluginCopyUntouched(t *testing.T) {
+	src := setupTestRepo(t)
+	target := filepath.Join(t.TempDir(), ".claude")
+	plug := filepath.Join(target, "plugins", "cache", "bravros", "core", "skills", "ship")
+	if err := os.MkdirAll(plug, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(plug, "SKILL.md"), []byte("plugin\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Deploy(DeployOpts{SourceDir: src, TargetDir: target, FilterMode: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(plug, "SKILL.md")); err != nil {
+		t.Errorf("plugin-managed copy was touched: %v", err)
+	}
+}
+
+// Dev symlink mode: a per-skill symlink loses only the link; a symlinked
+// skills/ dir (whole tree points into a checkout) is left entirely alone.
+func TestRetiredSkillSymlinks(t *testing.T) {
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "SKILL.md"), []byte("checkout\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	target := filepath.Join(t.TempDir(), ".claude")
+	if err := os.MkdirAll(filepath.Join(target, "skills"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(target, "skills", "ship")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatal(err)
+	}
+	names := RetiredSkillCandidates(target, nil, nil)
+	if strings.Join(names, ",") != "ship" {
+		t.Fatalf("candidates = %v", names)
+	}
+	if _, err := RetireSkills(target, names, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(link); !os.IsNotExist(err) {
+		t.Error("symlink not removed")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "SKILL.md")); err != nil {
+		t.Errorf("symlink target was touched: %v", err)
+	}
+
+	// skills/ itself a symlink into a checkout that holds a retired dir.
+	checkout := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(checkout, "pest5-upgrade"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target2 := filepath.Join(t.TempDir(), ".claude")
+	if err := os.MkdirAll(target2, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(checkout, filepath.Join(target2, "skills")); err != nil {
+		t.Fatal(err)
+	}
+	if got := RetiredSkillCandidates(target2, nil, nil); len(got) != 0 {
+		t.Errorf("symlinked skills/ yielded candidates %v", got)
+	}
+}
+
+// A per-skill failure (here: a read-only dir that cannot be moved to a new
+// parent) is logged and skipped; the other retired skills are still moved and
+// the failure comes back as a *RetireError naming only the stuck skill.
+func TestRetireSkillsContinuesPastPerSkillFailure(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory write permissions")
+	}
+	target := filepath.Join(t.TempDir(), ".claude")
+	for _, name := range []string{"ship", "context"} {
+		if err := os.MkdirAll(filepath.Join(target, "skills", name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(target, "skills", name, "SKILL.md"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stuck := filepath.Join(target, "skills", "ship")
+	if err := os.Chmod(stuck, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(stuck, 0o755) })
+
+	var log strings.Builder
+	dests, err := RetireSkills(target, []string{"ship", "context"}, &log)
+	var rerr *RetireError
+	if !errors.As(err, &rerr) {
+		t.Fatalf("err = %v, want *RetireError", err)
+	}
+	if strings.Join(rerr.Failed, ",") != "ship" {
+		t.Errorf("Failed = %v, want [ship]", rerr.Failed)
+	}
+	if len(dests) != 2 || dests[0] != "" || dests[1] == "" {
+		t.Errorf("dests = %q, want [\"\" <moved>]", dests)
+	}
+	if _, err := os.Stat(stuck); err != nil {
+		t.Errorf("stuck skill should stay in place: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(target, "skills", "context")); !os.IsNotExist(err) {
+		t.Error("context should have been moved despite the earlier failure")
+	}
+	if !strings.Contains(log.String(), "retired skill ship left in place") {
+		t.Errorf("log missing warning: %q", log.String())
+	}
+}
+
+// Review regression (PR 105): in an UNFILTERED deploy a retired skill whose
+// move to .trash fails is still a manifest entry missing from the source, so
+// the manifest prune and the orphan prune would RemoveAll it — a hard delete
+// that bypasses .trash. It must survive in place and stay in the manifest so
+// the next run retries.
+func TestRetireFailureNeverHardDeletedByUnfilteredPrune(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory write permissions")
+	}
+	src := setupTestRepo(t)
+	target := filepath.Join(t.TempDir(), ".claude")
+	deployThenOrphan(t, src, target, "ship") // manifest-owned, gone from source
+	stuck := filepath.Join(target, "skills", "ship")
+	if err := os.Chmod(stuck, 0o555); err != nil { // dir cannot move to a new parent
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(stuck, 0o755) })
+
+	res, err := Deploy(DeployOpts{SourceDir: src, TargetDir: target})
+	if err != nil {
+		t.Fatalf("deploy: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(stuck, "SKILL.md")); err != nil {
+		t.Fatalf("failed retirement was hard-deleted: %v", err)
+	}
+	for _, p := range res.Pruned {
+		if filepath.ToSlash(p) == "skills/ship" {
+			t.Errorf("ship reported as pruned: %v", res.Pruned)
+		}
+	}
+	m, err := LoadManifest(filepath.Join(target, "skills", manifestFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := m.Skills["ship"]; !ok {
+		t.Error("ship dropped from the manifest — the next run would not retry it")
 	}
 }

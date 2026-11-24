@@ -54,10 +54,13 @@ conflicts → step 3. `BEHIND` = update the branch first. `UNKNOWN` = GitHub sti
 (~5 min, see R-0003 below) → one bounded wait, then decide on `mergeable` alone:
 
 ```bash
-until [ "$(gh pr view <PR> --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ]; do sleep 5; done
+for _ in {1..24}; do [ "$(gh pr view <PR> --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ] && break; sleep 5; done
+[ "$(gh pr view <PR> --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ] || { echo "⚠️  mergeability still UNKNOWN after ~2 min — report and stop"; exit 1; }
 ```
 
-Never `sleep N; <check>` — the Bash tool blocks bare foreground sleeps; always the `until` form.
+Never `sleep N; <check>` — the Bash tool blocks bare foreground sleeps. Always the bounded loop
+(24 tries × 5s ≈ 2 min), then a re-check that reports and stops if still `UNKNOWN`; never an
+open-ended `until`.
 `mergeable=MERGEABLE` alone is **not** the gate: PR #1922 was `MERGEABLE`+`UNSTABLE` and got
 merged with its main-branch protection check still pending.
 

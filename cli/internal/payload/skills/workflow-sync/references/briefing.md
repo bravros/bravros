@@ -17,7 +17,7 @@ Sync an existing project with the latest workflow setup — hooks, GitHub Action
 |------|--------|
 | `.bravros/hooks/commit-msg` | Overwrite with latest |
 | `.bravros/hooks/pre-push` | Overwrite with latest |
-| `.github/workflows/claude.yml` | Overwrite with latest |
+| `.github/workflows/claude.yml` | Overwrite with `templates/claude.yml` (diff shown, `.bak` kept) |
 | `sync-db.sh` | **Skip if exists** — may have diverged |
 | `.db-sync.env.example` | **Skip if exists** — pairs with the script |
 | `CLAUDE.md` | **Skip** — project-specific |
@@ -30,14 +30,21 @@ Verify git repository and `.bravros/hooks/` exists.
 
 ### 2. Update Git Hooks
 ```bash
-bravros init --skip-staging-branch --skip-workflows
+bravros init
 ```
+
+**Preserve graphify delegators.** If the repo has `.graphify` or `graphify-out/graph.json`, the `post-{merge,commit,checkout}` hooks are graphify refresh delegators — back them up first (`cp` to a temp dir) and restore them after the refresh; never overwrite them.
 
 ### 3. Update GitHub Action
 ```bash
 mkdir -p .github/workflows
-cp ~/.bravros/templates/.github/workflows/claude.yml .github/workflows/claude.yml
+T=~/.bravros/templates/claude.yml   # single source of truth
+if [ -f .github/workflows/claude.yml ] && ! diff -u .github/workflows/claude.yml "$T"; then
+  cp .github/workflows/claude.yml .github/workflows/claude.yml.bak   # backup before overwrite
+fi
+cp "$T" .github/workflows/claude.yml
 ```
+Show the diff to the user; the `.bak` is the rollback. Never read the workflow from any other template path.
 
 ### 4. sync-db.sh — do NOT overwrite
 Copy it only when the project has **no** `sync-db.sh` yet. A project that already
@@ -54,7 +61,7 @@ diff ~/.bravros/templates/sync-db.sh sync-db.sh
 Append missing entries only.
 
 ## Rules
-- Always overwrite hook files
+- Overwrite bravros hook files, never graphify's `post-*` delegators
 - Never overwrite CLAUDE.md
 - Never auto-commit — let user review
 - Never overwrite an existing sync-db.sh or .db-sync.env.example — copy only when absent, and diff to adopt template changes

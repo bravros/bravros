@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/bravros/bravros/cli/internal/skillsretired"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -92,7 +93,34 @@ var skillsDepsCmd = &cobra.Command{
 	},
 }
 
+var skillsRetiredJSON bool
+
+var skillsRetiredCmd = &cobra.Command{
+	Use:   "retired",
+	Short: "List retired skill names (renamed or removed) that setup/deploy/update prune",
+	Long: `Print every skill name the toolkit used to ship and no longer does, one per line.
+
+bravros setup, deploy and update move any of these found in the host skills dir
+to <host>/.trash/<stamp>-retired-skills/ unless skills.preserve lists it.
+--json adds the replacement and the first release without it.`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		out := cmd.OutOrStdout()
+		if skillsRetiredJSON {
+			enc := json.NewEncoder(out)
+			enc.SetIndent("", "  ")
+			return enc.Encode(skillsretired.All())
+		}
+		for _, name := range skillsretired.Names() {
+			fmt.Fprintln(out, name)
+		}
+		return nil
+	},
+}
+
 func init() {
+	skillsRetiredCmd.Flags().BoolVar(&skillsRetiredJSON, "json", false, "Emit name, replacement and retired_in as JSON")
+	skillsCmd.AddCommand(skillsRetiredCmd)
 	skillsDepsCmd.Flags().StringVarP(&skillsDepsFormat, "format", "f", "plain", "Output format (plain, json)")
 	skillsDepsCmd.Flags().StringVar(&skillsDepsDir, "skills-dir", "", "Directory to scan (default: ~/.claude/skills)")
 	skillsCmd.AddCommand(skillsDepsCmd)

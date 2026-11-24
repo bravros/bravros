@@ -24,11 +24,11 @@ INTENT: ship an urgent production fix now, bypassing the plan workflow. Flow: co
 
 0. **Confirm repo identity** before anything: `git remote get-url origin` + `basename "$(git rev-parse --show-toplevel)"` — a hotfix in the wrong checkout is the worst possible mistake.
 1. Refuse on `main`/`master`. Strip issue ref for PR title / `Closes #42`.
-2. Format files → `bravros commit "🩹 hotfix: <description>" <changed files only>`.
+2. `bravros commit "🩹 hotfix: <description>" <changed files only>`.
 3. Push & merge to `homolog` → `gh pr create --base main --head homolog --title "🩹 hotfix: <description>"` (body written with the Write tool to a **literal absolute path** in a previous step, then `--body-file <that path>` as its own call — never `$VAR`, `cp`, or a relative path; no attribution lines).
-4. **Wait for mergeability**, or the first merge hits the `UNKNOWN` block: `until [ "$(gh pr view "$PR_NUMBER" --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ]; do sleep 2; done`.
+4. **Wait for mergeability**, or the first merge hits the `UNKNOWN` block: `for _ in {1..24}; do [ "$(gh pr view "$PR_NUMBER" --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ] && break; sleep 2; done` (24 tries max, then report — never an open-ended loop).
 5. Check autopr gate → `gh pr merge 1234 --merge > /tmp/bravros-merge-1234.txt 2>&1` (substitute the literal number — a `$VAR` here is unreadable to the hook; no `cd … &&`, no `| tail`) → verify state == `MERGED`. A `✋🏽 Police Block` names its reason — relay it in one line; never `gh api`/raw HTTP, never `/promote`.
-6. Sync `homolog` from `main` (`git checkout homolog && git pull && git fetch origin main && git merge ...`).
+6. Sync `homolog` from `main` without checking anything out: `git fetch origin main homolog && git push origin origin/main:homolog` (plain fast-forward push; rejected → report, never force).
 7. Close plan if applicable (`.planning/events.jsonl`) → `bravros commit`.
 8. **Deploy status line, explicit**: `merged main @ <sha> · deploy: <auto-triggered / manual / none> · built+restarted: <yes / no / n-a> · verified: <how / not yet>`. Compiled or infra targets (Go binaries, containers, homelab) must say whether a rebuild + restart on the server is still required.
 9. Announce via `bash ~/.agent_config/scripts/announce.sh --force "<PT-BR>" studio || true` (template in briefing).

@@ -21,7 +21,7 @@ whether it's stamp-grade. Human-readable form: `bravros pr-review "$PR" --latest
 
 **Local** — newest `.planning/pr-reviews/${PR}-*.md` (written by `/local-review`; earlier files are historical). Frontmatter schema, merge/dedupe rules, fix priorities: `references/fetch-review-data.md`.
 
-**Stale-review race:** if the latest review predates your last `address PR #` fix commit, the re-review is likely still running — interactive: ask (wait / force re-analyze); autonomous (`.planning/.auto-*-lock`): warn and proceed with the stale one. Both sources empty → ask ("run /pr-review or /local-review first?") and STOP.
+**Stale-review race:** if the latest review predates your last `address PR` fix commit, the re-review is likely still running — interactive: ask (wait / force re-analyze); autonomous (`.planning/.auto-*-lock`): warn and proceed with the stale one. Both sources empty → ask ("run /pr-review or /local-review first?") and STOP.
 
 ## Fix
 
@@ -37,13 +37,15 @@ gh gotcha: `gh pr diff` has NO `--stat` — use `--name-only` or `gh pr view --j
 
 ## Push, verify, stamp
 
-`/ship` with `🐛 fix: address PR #XX review feedback`, then wait on CI — redirected, never piped,
+`/commit-push` with `🐛 fix: address PR <n> review feedback` (the number plain — never a bare `#<n>`, which GitHub autolinks and cross-references), then wait on CI — in the background (`run_in_background`), redirected, never piped,
 because `| tail` returns the pipe's status and a red build then reads as success:
 
 ```bash
 gh pr checks "$PR" --watch --fail-fast > /tmp/bravros-checks-$PR.txt 2>&1
-RC=$?; tail -8 /tmp/bravros-checks-$PR.txt; echo "checks_rc=$RC"
+echo $? > /tmp/bravros-checks-$PR.rc
 ```
+
+When the background job exits, read the RC file (`cat /tmp/bravros-checks-$PR.rc`) and `tail -8 /tmp/bravros-checks-$PR.txt` separately.
 
 `bravros pr-review "$PR" --write-stamp` is the ONE stamp authority, and it is commit-sha-keyed:
 same HEAD as the existing stamp → skip (no-op); different HEAD → refresh the stamp in place. Safe

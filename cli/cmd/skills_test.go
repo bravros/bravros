@@ -191,3 +191,35 @@ func TestSkillsDeps_IgnoresNonSkillsAndInvalidFrontmatter(t *testing.T) {
 		t.Errorf("expected empty output for files without dependencies, got %q", out.String())
 	}
 }
+
+func TestSkillsRetired_Plain(t *testing.T) {
+	skillsRetiredJSON = false
+	var out bytes.Buffer
+	skillsRetiredCmd.SetOut(&out)
+	if err := skillsRetiredCmd.RunE(skillsRetiredCmd, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := out.String(); got != "pest5-upgrade\nship\ncontext\n" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestSkillsRetired_JSON(t *testing.T) {
+	skillsRetiredJSON = true
+	defer func() { skillsRetiredJSON = false }()
+	var out bytes.Buffer
+	skillsRetiredCmd.SetOut(&out)
+	if err := skillsRetiredCmd.RunE(skillsRetiredCmd, nil); err != nil {
+		t.Fatal(err)
+	}
+	var got []struct {
+		Name, Replacement string
+		RetiredIn         string `json:"retired_in"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out.String())
+	}
+	if len(got) != 3 || got[1].Name != "ship" || got[1].Replacement != "commit-push" || got[0].RetiredIn == "" {
+		t.Errorf("got %+v", got)
+	}
+}

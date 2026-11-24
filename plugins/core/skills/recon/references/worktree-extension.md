@@ -38,7 +38,7 @@ Non-zero exit → STOP and report; do not improvise the worktree by hand.
 
 Then `cd "$WORKTREE_PATH"`, write the dossier folder THERE (not in the main repo), append the
 `created` + `reviewed` events there, and commit inside the worktree
-(`bravros commit "📋 plan: add P-NNNN <slug>" .planning/`). The main repo stays untouched.
+(`bravros commit "📋 plan: add P-NNNN <slug>" .planning/P-NNNN-<slug>/ .planning/events.jsonl`). The main repo stays untouched.
 `/orchestrate` then runs from inside that worktree.
 
 ## Environment setup (only on request / `--full`)

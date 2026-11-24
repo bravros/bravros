@@ -22,12 +22,12 @@ Print the table verbatim. Do not re-measure by hand or re-format it — the scri
 
 Options:
 - `--json`: machine-readable rows instead of table
-- `--depth N`: walk depth per root (default 3)
+- `--depth N`: walk depth per root (default 4)
 - `--no-prompt`: skip auto-generating labelling prompts
 - `<root> ...`: scan specific roots instead of the defaults (`~/Code`, plus `~/Sites` if present)
 
 ## Key Rules
 
 - **Degraded graphs**: If a run reports degraded coverage, follow the prompt verdict in `/tmp/graphify-label/<project>-relabel-prompt-N.md`.
-- **Merge results**: Merge completed label JSONs using `merge-missing-labels.py` (additive, never overwrites without `--force`).
+- **Merge results**: Merge completed label JSONs with `uv run ~/.agent_config/skills/graphify-status/scripts/merge-missing-labels.py <project> <results.json> [...] [--dry-run] [--force]` (additive, never overwrites without `--force`).
 - **Never use `collate-labels.py`** for partial relabels.

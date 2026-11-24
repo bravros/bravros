@@ -1,6 +1,6 @@
 ---
 name: quick
-description: Quick task execution without a full plan — just do it and commit.
+description: Do a small task without a full plan — implement, verify, commit. Use on /quick for small, well-scoped changes that need no dossier.
 ---
 
 # Quick: Fast Task Execution

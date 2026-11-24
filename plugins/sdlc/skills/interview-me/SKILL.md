@@ -1,6 +1,6 @@
 ---
 name: interview-me
-description: Stress-test a plan or design via a round-by-round interview — ask the whole frontier of independent questions each round until every branch of the decision tree is locked. Use on `/interview-me`, "interview me", or when the user signals doubt about a plan.
+description: Use on `/interview-me`, "interview me", or when the user doubts a plan. Stress-tests a plan or design round by round, asking each round's whole frontier of independent questions until every decision branch is locked.
 ---
 
 # Interview Me

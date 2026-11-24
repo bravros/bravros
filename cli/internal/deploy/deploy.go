@@ -12,8 +12,11 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/bravros/bravros/cli/internal/payload"
+	"github.com/bravros/bravros/cli/internal/skillsretired"
+	"github.com/bravros/bravros/cli/internal/trash"
 )
 
 // DeployOpts configures the deploy operation.
@@ -50,6 +53,7 @@ type DeployResult struct {
 	SkillsDeployed []string `json:"skills_deployed,omitempty"` // skill names deployed via SHA manifest
 	SkillsSkipped  []string `json:"skills_skipped,omitempty"`  // skill names skipped (SHA unchanged)
 	LockedSkipped  []string `json:"locked_skipped,omitempty"`  // destinations the operator froze (uchg / chattr +i / read-only)
+	RetiredSkills  []string `json:"retired_skills,omitempty"`  // retired skill names moved to <target>/.trash (or would be, in dry-run)
 	// ClaudeMdReconcileSkipped names why the managed-global CLAUDE.md block
 	// reconcile did not run this deploy (see the claudeMdSkip* reasons next to
 	// reconcileGlobalClaudeMd). Non-fatal — the deploy still succeeds — but this
@@ -69,8 +73,8 @@ type DeployResult struct {
 //   - state/      (promote-token, locks)
 //   - settings.local.json (user-local overrides)
 //   - CLAUDE.md   (managed-global block reconciled from home/CLAUDE.md — see
-//                  reconcileGlobalClaudeMd; NEVER whole-file copied, which would
-//                  clobber the user's personal content outside the markers)
+//     reconcileGlobalClaudeMd; NEVER whole-file copied, which would
+//     clobber the user's personal content outside the markers)
 //   - mcp.json    (machine-specific)
 var pruneSubtrees = []string{"skills", "templates", "hooks", "agents"}
 
@@ -510,6 +514,50 @@ func Deploy(opts DeployOpts) (*DeployResult, error) {
 		}
 	}
 
+	// Retired-skill prune (I-11 / D3). A skill the toolkit renamed or removed
+	// (skillsretired list) is moved out of <target>/skills whether or not this
+	// manifest — or setup, or nobody — recorded it, and regardless of
+	// FilterMode: selfupdate always runs filtered, and an unowned leftover
+	// (pest5-upgrade) is invisible to both the manifest pass and detectOrphans.
+	// skills.preserve, plugin-managed paths and a name the source still ships
+	// all win. --no-prune opts out like every other prune.
+	// Retired skills that could not be moved to .trash this run. They stay in the
+	// manifest (so the next run retries) and MUST be excluded from every later
+	// RemoveAll path — the manifest prune and the orphan prune below would
+	// otherwise hard-delete them, bypassing .trash.
+	retireFailed := map[string]struct{}{}
+	if !opts.NoPrune {
+		retired := RetiredSkillCandidates(opts.TargetDir, opts.PreserveSkills, func(name string) bool {
+			_, err := os.Stat(filepath.Join(srcSkillsDir, name))
+			return err == nil
+		})
+		if len(retired) > 0 && !opts.DryRun {
+			if _, err := RetireSkills(opts.TargetDir, retired, os.Stderr); err != nil {
+				var rerr *RetireError
+				if !errors.As(err, &rerr) {
+					return nil, err
+				}
+				// Per-skill failures were already logged; keep deploying and
+				// keep the failed names in the manifest so the next run retries.
+				for _, n := range rerr.Failed {
+					retireFailed[n] = struct{}{}
+				}
+				kept := retired[:0:0]
+				for _, n := range retired {
+					if _, ok := retireFailed[n]; !ok {
+						kept = append(kept, n)
+					}
+				}
+				retired = kept
+			}
+		}
+		for _, name := range retired {
+			delete(manifest.Skills, name)
+			result.RetiredSkills = append(result.RetiredSkills, name)
+			result.Pruned = append(result.Pruned, filepath.Join("skills", name))
+		}
+	}
+
 	// Prune manifest entries for skills no longer in enabled source.
 	// These are skills that WERE deployed (exist in manifest) but are now
 	// disabled or removed from source.
@@ -522,6 +570,9 @@ func Deploy(opts DeployOpts) (*DeployResult, error) {
 	// (i.e. FilterMode is false — either no EnabledSkills or config-level allowlist).
 	var manifestToPrune []string
 	for name := range manifest.Skills {
+		if _, failed := retireFailed[name]; failed {
+			continue // retirement failed this run — leave it in place for a retry
+		}
 		if _, ok := enabledSourceSkills[name]; !ok {
 			if opts.FilterMode {
 				// Filtered deploy: this skill was not in the filter scope.
@@ -584,6 +635,11 @@ func Deploy(opts DeployOpts) (*DeployResult, error) {
 			existing[p] = struct{}{}
 		}
 		for _, o := range orphans {
+			if name, isSkill := strings.CutPrefix(filepath.ToSlash(o), "skills/"); isSkill {
+				if _, failed := retireFailed[name]; failed {
+					continue // retirement failed this run — never hard-delete it as an orphan
+				}
+			}
 			if _, dup := existing[o]; !dup {
 				result.Pruned = append(result.Pruned, o)
 			}
@@ -1288,4 +1344,155 @@ func NonRuntimeSkillDir(name string) bool {
 
 func isNonRuntimeSkillPath(rel string) bool {
 	return rel == filepath.Join("skills", "shared") || rel == filepath.Join("skills", "_shared")
+}
+
+// RetiredTrashSlug names the .trash entry that retired skills are moved into:
+// <target>/.trash/<UTC-stamp>-retired-skills/<name>.
+const RetiredTrashSlug = "retired-skills"
+
+// RetiredSkillCandidates returns the retired skill names (skillsretired list)
+// present under <targetDir>/skills that may be removed. A name is skipped when
+// it is in preserve (skills.preserve), plugin-managed, still shipped (shipped
+// reports true — a retired name re-used upstream is live again), or not a
+// directory/symlink. Dev symlink mode — <targetDir>/skills itself a symlink
+// into a source checkout — yields nothing: moving an entry there would move
+// the checkout's own files.
+func RetiredSkillCandidates(targetDir string, preserve []string, shipped func(name string) bool) []string {
+	skillsDir := filepath.Join(targetDir, "skills")
+	if fi, err := os.Lstat(skillsDir); err != nil || fi.Mode()&os.ModeSymlink != 0 || !fi.IsDir() {
+		return nil
+	}
+	keep := make(map[string]struct{}, len(preserve))
+	for _, p := range preserve {
+		keep[p] = struct{}{}
+	}
+	var out []string
+	for _, name := range skillsretired.Names() {
+		if _, ok := keep[name]; ok {
+			continue
+		}
+		if IsPluginManaged(filepath.Join("skills", name)) {
+			continue
+		}
+		if shipped != nil && shipped(name) {
+			continue
+		}
+		fi, err := os.Lstat(filepath.Join(skillsDir, name))
+		if err != nil {
+			continue
+		}
+		if fi.Mode()&os.ModeSymlink == 0 && !fi.IsDir() {
+			continue
+		}
+		out = append(out, name)
+	}
+	return out
+}
+
+// RetireSkills removes each named entry from <targetDir>/skills, recoverably:
+// a directory is moved into one shared <targetDir>/.trash/<stamp>-retired-skills/
+// entry; a symlink (dev symlink mode) has only the link removed, never its
+// target. One line per skill goes to log (nil = silent). Returns the
+// destination of each moved directory ("" for a removed link or a skill that
+// could not be retired), aligned with names. Callers filter names through
+// RetiredSkillCandidates first.
+//
+// A per-skill failure (e.g. os.Rename across filesystems) is logged and the
+// loop continues with the next skill; the failures come back together as a
+// *RetireError so callers can keep going and skip only the failed names —
+// including a failure to create the shared trash entry, which never aborts.
+func RetireSkills(targetDir string, names []string, log io.Writer) ([]string, error) {
+	var entryDir string
+	var failed []string
+	var errs []error
+	fail := func(name string, err error) {
+		failed = append(failed, name)
+		errs = append(errs, err)
+		if log != nil {
+			fmt.Fprintf(log, "⚠️  retired skill %s left in place: %v\n", name, err)
+		}
+	}
+	dests := make([]string, 0, len(names))
+	for _, name := range names {
+		src := filepath.Join(targetDir, "skills", name)
+		fi, err := os.Lstat(src)
+		if err != nil {
+			dests = append(dests, "")
+			continue
+		}
+		repl := ""
+		if s, ok := skillsretired.Lookup(name); ok && s.Replacement != "" {
+			repl = " (replaced by " + s.Replacement + ")"
+		}
+		if fi.Mode()&os.ModeSymlink != 0 {
+			dests = append(dests, "")
+			if err := os.Remove(src); err != nil {
+				fail(name, fmt.Errorf("remove retired skill link %s: %w", name, err))
+				continue
+			}
+			if log != nil {
+				fmt.Fprintf(log, "🧹 retired skill %s%s — symlink removed\n", name, repl)
+			}
+			continue
+		}
+		if entryDir == "" {
+			entryDir, err = newRetiredTrashEntry(targetDir)
+			if err != nil {
+				entryDir = "" // retried for the next directory
+				dests = append(dests, "")
+				fail(name, fmt.Errorf("create retired-skills trash entry: %w", err))
+				continue
+			}
+		}
+		dst := filepath.Join(entryDir, name)
+		if err := os.Rename(src, dst); err != nil {
+			dests = append(dests, "")
+			fail(name, fmt.Errorf("move retired skill %s to %s: %w", name, dst, err))
+			continue
+		}
+		dests = append(dests, dst)
+		if log != nil {
+			fmt.Fprintf(log, "🧹 retired skill %s%s — moved to %s\n", name, repl, dst)
+		}
+	}
+	if len(failed) > 0 {
+		return dests, &RetireError{Failed: failed, Err: errors.Join(errs...)}
+	}
+	return dests, nil
+}
+
+// RetireError reports retired skills RetireSkills could not move or unlink.
+// Every other name in the call was handled; Failed lists the ones still in place.
+type RetireError struct {
+	Failed []string
+	Err    error
+}
+
+func (e *RetireError) Error() string {
+	return fmt.Sprintf("%d retired skill(s) left in place (%s): %v", len(e.Failed), strings.Join(e.Failed, ", "), e.Err)
+}
+
+func (e *RetireError) Unwrap() error { return e.Err }
+
+// newRetiredTrashEntry creates a collision-safe <targetDir>/.trash/<stamp>-retired-skills[-N]/.
+// Not trash.NewEntryDir: that one also appends .trash/ to a .gitignore at the
+// root, which must never be written into a host config dir like ~/.claude.
+// Same stamp layout as the repo-local preserve area.
+func newRetiredTrashEntry(targetDir string) (string, error) {
+	root := filepath.Join(targetDir, trash.DirName)
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return "", err
+	}
+	base := filepath.Join(root, time.Now().UTC().Format("20060102T150405Z")+"-"+RetiredTrashSlug)
+	dir := base
+	for n := 2; ; n++ {
+		err := os.Mkdir(dir, 0o755)
+		if err == nil {
+			return dir, nil
+		}
+		if !os.IsExist(err) {
+			return "", err
+		}
+		dir = fmt.Sprintf("%s-%d", base, n)
+	}
 }

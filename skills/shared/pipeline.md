@@ -6,15 +6,15 @@ Core SDLC stage sequence shared by `/auto-pr` (including `--worktree`).
 
 | # | Stage | Skill Delegated | What it Does |
 |---|-------|-----------------|--------------|
-| 1 | **Plan** | `/plan` | Create a `.planning/P-NNNN-<slug>/` dossier folder AND review it inline — phases, `[H]/[S]/[O]` tier markers, `## Acceptance` — ready for `/orchestrate` with zero translation |
-| 2 | **Execute** | `/orchestrate` | Dispatch subagents by model tier per phase, verify diffs, commit per phase |
+| 1 | **Recon** | `/recon` | Document findings in a `.planning/P-NNNN-<slug>/` dossier folder (issues, evidence, acceptance) — no phases or tiers |
+| 2 | **Execute** | `/orchestrate` | Plan phases + `[H]/[S]/[O]` tiers into `execution-plan.md`, dispatch subagents by tier, verify diffs, commit per phase |
 | 3 | **PR** | `/pr` | Create and push PR to base branch |
 | 4 | **Review Loop** | `/address-pr` (async) | Poll for review feedback, dispatch fixes, loop max 3x |
 | 5 | **Report** | (coordinator) | Post final report comment, output summary |
 
-`/plan-review`, `/plan-approved`, and `/plan-check` were retired — `/plan` now reviews its own
-output in the same run (no second skill, no second session), and `/orchestrate` folds
-dispatch, diff verification, and acceptance-checking into one continuous pass.
+The old plan-review, plan-approved, and plan-check skills were retired — `/recon` documents findings
+and `/orchestrate` plans the execution, then folds dispatch, diff verification, and
+acceptance-checking into one continuous pass.
 
 ## Entry Point Detection
 
@@ -23,14 +23,14 @@ state), not by re-planning:
 
 | Condition | Start Stage |
 |-----------|-------------|
-| No dossier folder exists | **Stage 1** — /plan |
+| No dossier folder exists | **Stage 1** — /recon |
 | Dossier folder exists, not yet executed | **Stage 2** — /orchestrate (resume from last incomplete phase via the task list) |
 | Dossier folder suffixed `-complete` / carries a `SHIPPED.md` | **Stage 3** — /pr (create only if no open PR on branch) |
 | `--from <stage>` flag provided | Jump directly to that stage |
 
 ## Git Integration
 
-- Feature branches: `feat/<description-slug>` (created by `/plan`; `--worktree` wraps it
+- Feature branches: `feature/p-NNNN-<slug>` (cut by `/orchestrate`; `--worktree` wraps it
   in `git worktree add` — see `worktree-setup.md`)
 - Base branch: `homolog` if it exists, else `main`
 - Each merge is a separate PR — never direct commits to `main`

@@ -15,10 +15,9 @@ The standard /doctor checkup, plus a workspace audit for the 6 then & now shifts
 
 ## Workflow
 
-### Part 1 - the standard checkup
+### Part 1 - built-in checkup (not run here)
 
-1. Run `claude doctor` via Bash with a 60s timeout. If it completes, summarize its findings.
-2. If it hangs or needs an interactive screen, note "run /doctor in your session for the built-in half" and move on. Never block on it.
+Do not run `claude doctor` (interactive; hangs under Bash). Tell the user to run the built-in `/doctor` in their session for the installation/config half, then continue with Part 2.
 
 ### Part 2 - the 6 shift checks
 Scope: whatever the workspace actually loads as context - guidance files (CLAUDE.md and kin), skills, rules, memory indexes. Map that set first; don't assume the workspace's layout. Always exclude version-control internals, sync backups, node_modules, caches, temp folders, and generated output.

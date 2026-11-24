@@ -1,14 +1,14 @@
 # verify-install — Briefing & Detailed Instructions
 
-INTENT: prove the deployed runtime (`~/.bravros`) still matches the source repo, and repair it on request. One script owns every check.
+INTENT: prove the deployed runtime (`~/.agent_config`) still matches the source repo, and repair it on request. One script owns every check.
 
 ```bash
-S=~/.bravros/skills/verify-install/scripts/verify.sh
+S=~/.agent_config/skills/verify-install/scripts/verify.sh
 bash $S            # report          bash $S --auto   # SessionStart: silent when healthy
 bash $S --fix      # report + repair bash $S --json   # machine-readable
 ```
 
-Source repo resolves `$PORTABLE_REPO` → `~/Code/monorepos/bravros/bravros` → `~/bravros`. Check list, `--auto` line shapes, and what this deliberately does NOT check: [`references/checks.md`](checks.md).
+Source repo resolves `$PORTABLE_REPO` → `~/Code/monorepos/bravros/private` → `~/Code/monorepos/bravros/bravros` → `~/bravros`. `--fix` redeploy/prune only trusts a checkout that is on `homolog` and clean; deletes move to `~/.agent_config/.trash/<stamp>-verify-install/`. Check list, `--auto` line shapes, and what this deliberately does NOT check: [`references/checks.md`](checks.md).
 
 ## Hard constraints
 

@@ -27,21 +27,29 @@ The prefix keeps it beside its sibling skill.
 **A green suite, unfiltered.** This rewrites hundreds of test files at once; without a known-good
 baseline you cannot attribute a single failure afterwards.
 
-```bash
-./vendor/bin/pest --parallel --no-tia
+**Never run the full suite yourself in an interactive session** — it pins the operator's machine for
+minutes. Hand over the exact command and wait for the result:
+
 ```
+Suíte completa, rode numa aba separada:
+! cd <repo> && ./vendor/bin/pest --parallel --no-tia
+```
+
+Only when the operator is AFK / the run is autonomous may you background it yourself. Targeted runs
+(paths, `--filter`) are always fine.
 
 `--no-tia` matters even here. If the repo followed `/laravel-pest5-upgrade`, `pest()->tia()->locally()`
 makes a bare `--parallel` run impact-filtered — a green that proves nothing about the files Rector
 is about to touch. **Every suite run in this skill is `--no-tia`.**
 
-Working tree clean before step 4 — Rector rewrites in place with no backup, and a dirty tree makes
-its diff unreviewable.
+**Hard gate — clean working tree before step 4.** Check `git status --porcelain`; any output ⇒ stop
+and ask the operator to commit or stash. Rector rewrites in place with no backup, and a dirty tree
+makes its diff unreviewable and its undo impossible.
 
 ## 2. Install
 
 ```bash
-composer require pestphp/pest-plugin-rector --dev
+composer require pestphp/pest-plugin-rector:^5.0.2 --dev
 composer require rector/rector --dev
 ```
 
@@ -49,11 +57,10 @@ The plugin already depends on `rector/rector ^2.6.1`, so `vendor/bin/rector` arr
 The second line is what the docs prescribe and it pins Rector at top level — worth having when the
 plugin's own constraint later widens.
 
-**Require v5.0.2 or newer.** v5.0.0–v5.0.1 shipped a `ChainExpectCallsRector` bug that collapsed
+**Require v5.0.2 or newer — the constraint above enforces it at install time.** v5.0.0–v5.0.1 shipped a `ChainExpectCallsRector` bug that collapsed
 two `expect()` calls on an AST-equal *side-effectful* subject into a single chain, silently dropping
 the second evaluation and turning passing tests red. Fixed in v5.0.2 by an `isSideEffectFree()`
-guard. `composer require` takes the latest by default — confirm with
-`composer show pestphp/pest-plugin-rector`.
+guard. Confirm the resolved version with `composer show pestphp/pest-plugin-rector`.
 
 Not this plugin's job: converting PHPUnit class-style tests to Pest. That is
 `pestphp/pest-plugin-drift`, a separate package — and `/laravel-pest5-upgrade` step 3.
@@ -145,11 +152,8 @@ it off only if you dislike the shape:
 
 ## 5. Prove no regression
 
-```bash
-./vendor/bin/pest --parallel --no-tia
-```
-
-Same command as step 1, same expected result. **`--no-tia` is not optional here** — Rector just
+Hand the operator the same command as step 1 (`./vendor/bin/pest --parallel --no-tia`, separate tab;
+background it yourself only when AFK) — same expected result. **`--no-tia` is not optional here** — Rector just
 rewrote a large share of the suite, and a filtered run would grade its own homework.
 
 Failures are almost always a rewritten assertion that changed meaning. Fix the test, do not revert

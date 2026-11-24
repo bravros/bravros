@@ -14,7 +14,7 @@ Scout the codebase with graphify and grep, trace references to pinpoint the bug,
 
 ## Detailed Workflow Steps
 
-1. Materialize the engine: `mkdir -p .bravros/workflows && cp -f ~/.bravros/skills/scout/scripts/scout-investigate.js .bravros/workflows/scout-investigate.js`
+1. Materialize the engine: `mkdir -p .claude/workflows && cp -f ~/.bravros/skills/scout/scripts/scout-investigate.js .claude/workflows/scout-investigate.js`
 2. **Before reserving anything**, scan `.planning/scout/` and `.planning/` (plans, backlog, events) for a prior investigation of the same symptom — match by behavior, not id. On a hit, link it and continue there instead of opening a duplicate `S-NNNN`; ask only when it is unclear whether the prior finding still holds. Then reserve the dir (never hand-`mkdir` — reservation prevents ID collisions across worktrees):
    ```bash
    SLUG=$(echo "$ARGUMENTS" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/-\+/-/g' | cut -c1-40 | sed 's/-$//')

@@ -14,7 +14,7 @@ to avoid them — **run them as written, do not "simplify"**.
 | `git show "$SHA:app/..."` | zsh expands `:a` as a **parameter modifier** (absolute-path) — the `a` is eaten and cwd is prepended: `fatal: Not a valid object name /…/<sha>pp/...`. Fires on any literal path whose first letter is a modifier (`a c e h l p q r s t u x A P Q`). Braces do NOT help. | Put the path in a variable: `git cat-file blob "$SHA:$f"`. The char after `:` is then `$`, never a modifier. |
 | `git rev-parse "$SHA:$f" \|\| echo ABSENT` | On a missing path `rev-parse` **echoes the argument to stdout** before failing, so the capture holds two lines and every comparison is garbage. | `git rev-parse --verify --quiet "$SHA:$f" \|\| echo ABSENT` |
 | `some-cmd \| tail -5; echo "rc=$?"` | `$?` is **tail's** status, not the command's. A failing CI gate reports `rc=0`. | Never pipe a gate. `some-cmd; RC=$?` then print/inspect separately. |
-| `sleep 25; check` | Bare foreground sleeps are blocked by the agent shell and the call errors out. | `until <check>; do sleep 5; done` |
+| `sleep 25; check` | Bare foreground sleeps are blocked by the agent shell and the call errors out. | `for _ in {1..24}; do <check> && break; sleep 5; done` (bounded — never an open-ended `until`) |
 | `sed "s\|^\|$f \|"` over a multi-line var | `sed: unescaped newline inside substitute pattern`. | Iterate with `while IFS= read -r f`, emit with `printf`. |
 | `gh pr merge "$PR_NUMBER" …` | The police hook reads the **raw command text**, never the expanded one — a `$VAR` or backtick in the PR argument makes the target indeterminate → `✋🏽 Police Block`. | Put the **literal** PR number on the merge line: `gh pr merge 1234 --merge`. Each Bash call is a fresh shell anyway, so nothing is lost. `"$PR_NUMBER"` stays fine on non-gated commands (`gh pr view` / `gh pr checks`). |
 
@@ -116,7 +116,14 @@ git push
 
 ```bash
 gh pr checks "$PR_NUMBER" --watch --fail-fast > /tmp/bravros-checks-$PR_NUMBER.txt 2>&1
-RC=$?
+echo $? > /tmp/bravros-checks-$PR_NUMBER.rc
+```
+
+Run that block with `run_in_background` — `--watch` outlives the 2-minute foreground limit. When
+the completion notice arrives, read the result as a separate call:
+
+```bash
+RC=$(cat /tmp/bravros-checks-$PR_NUMBER.rc)
 tail -8 /tmp/bravros-checks-$PR_NUMBER.txt
 echo "checks_rc=$RC"
 ```
@@ -148,13 +155,14 @@ gh pr view "$PR_NUMBER" --json mergeable,mergeStateStatus,reviewDecision \
 | `BLOCKED` | a required review or gate is unsatisfied | stop, report which |
 | `DIRTY` | conflicts | conflict path below |
 | `BEHIND` | base moved | update the branch, re-run Step 3 |
-| `UNKNOWN` | GitHub is still computing mergeability (~5 min after a push/open) | wait it out with the `until` form below, then gate on the status it resolves to — **never** on `mergeable` alone |
+| `UNKNOWN` | GitHub is still computing mergeability (~5 min after a push/open) | wait it out with the bounded loop below (24 tries, then report), then gate on the status it resolves to — **never** on `mergeable` alone |
 
 ```bash
-until [ "$(gh pr view "$PR_NUMBER" --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ]; do sleep 5; done
+for _ in {1..24}; do [ "$(gh pr view "$PR_NUMBER" --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ] && break; sleep 5; done
+[ "$(gh pr view "$PR_NUMBER" --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ] || { echo "⚠️  mergeability still UNKNOWN after ~2 min — report and stop"; exit 1; }
 ```
 
-Bare `sleep N; <check>` is blocked by the agent shell — always the `until` form. And
+Bare `sleep N; <check>` is blocked by the agent shell — always a loop, and always bounded (~24 tries, then report and stop). And
 `mergeable=MERGEABLE` alone is **not** the gate: PR #1922 was `MERGEABLE`+`UNSTABLE` and got
 merged with its main-branch protection check still pending.
 
@@ -221,7 +229,8 @@ echo "pr=$PR_NUMBER strategy=--$STRATEGY delete_flag=${DELETE_FLAG:-none}"
 # Re-check readiness HERE, in the merge's own call — a CLEAN read from a previous tool
 # call has already expired across the round trip (see above). `gh pr view` takes "$PR_NUMBER"
 # safely; only the gated merge line needs the literal.
-until [ "$(gh pr view "$PR_NUMBER" --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ]; do sleep 5; done
+for _ in {1..24}; do [ "$(gh pr view "$PR_NUMBER" --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ] && break; sleep 5; done
+[ "$(gh pr view "$PR_NUMBER" --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ] || { echo "⚠️  mergeability still UNKNOWN after ~2 min — report and stop"; exit 1; }
 bravros merge-lock acquire --timeout 60s --ttl 10m --meta reason=finish --meta pr=1234
 # Substitute the LITERAL PR number, strategy and delete flag on the merge line — a $VAR or
 # backtick there is unreadable to the police hook (it reads raw command text; indeterminate
@@ -302,12 +311,14 @@ elif [ "$IN_LINKED_WORKTREE" = "1" ]; then
   echo "ℹ️  linked worktree: staying on $FEATURE_BRANCH — $BASE_BRANCH is updated on origin only"
   echo "ℹ️  sync a primary checkout when convenient; /worktree destroy this one when done"
 else
-  # `reset --hard` destroys tracked modifications. Never discard work git has never seen.
+  # Fast-forward only — never a hard reset: it destroys tracked modifications and any local-only commits.
   if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
-    echo "⛔ uncommitted changes — skipped 'git reset --hard origin/$BASE_BRANCH'"
+    echo "⛔ uncommitted changes — skipped syncing $BASE_BRANCH"
     echo "ℹ️  commit or stash, then: git checkout $BASE_BRANCH && git pull --ff-only"
   else
-    git checkout "$BASE_BRANCH" && git fetch origin "$BASE_BRANCH" && git reset --hard "origin/$BASE_BRANCH"
+    git checkout "$BASE_BRANCH" && git fetch origin "$BASE_BRANCH" \
+      && git merge --ff-only "origin/$BASE_BRANCH" \
+      || echo "⛔ $BASE_BRANCH is not a fast-forward of origin/$BASE_BRANCH (local-only commits?) — report and stop; never reset --hard"
   fi
 
   # On a homolog→main finish, Step 1 set BASE_BRANCH=main and FEATURE_BRANCH IS "homolog".
@@ -365,7 +376,7 @@ reason in ONE line and act on it — never improvise:
 
 | Block says | Do |
 |---|---|
-| mergeability `UNKNOWN` | wait `until [ "$(gh pr view "$MAIN_PR" --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ]; do sleep 5; done`, then re-run the **same** merge command |
+| mergeability `UNKNOWN` | wait with the bounded loop (`for _ in {1..24}; do [ "$(gh pr view "$MAIN_PR" --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ] && break; sleep 5; done`; still UNKNOWN → report), then re-run the **same** merge command |
 | autonomous lock present | an `/auto-pr` run holds the tree — stop and report; the operator clears it from a separate terminal |
 | head is not the staging branch | you are not on the Step 7 path — stop and report; never retarget the PR to fit the lane |
 | `staging_lane: reviewed` without approval/stamp | the repo requires a reviewed main PR — report it; the operator runs `bravros police unlock` in a separate terminal, then you retry the same command |
@@ -438,8 +449,16 @@ the run only came back green afterwards — luck, not a gate.
 
 ```bash
 gh pr checks "$MAIN_PR" --watch --fail-fast > /tmp/bravros-checks-$MAIN_PR.txt 2>&1
-RC=$?; tail -8 /tmp/bravros-checks-$MAIN_PR.txt; echo "checks_rc=$RC"
-until [ "$(gh pr view "$MAIN_PR" --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ]; do sleep 5; done
+echo $? > /tmp/bravros-checks-$MAIN_PR.rc
+```
+
+Run the watch above with `run_in_background` (it outlives the 2-minute foreground limit), then, once
+it completes, run the rest as a separate call:
+
+```bash
+RC=$(cat /tmp/bravros-checks-$MAIN_PR.rc); tail -8 /tmp/bravros-checks-$MAIN_PR.txt; echo "checks_rc=$RC"
+for _ in {1..24}; do [ "$(gh pr view "$MAIN_PR" --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ] && break; sleep 5; done
+[ "$(gh pr view "$MAIN_PR" --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ] || { echo "⚠️  mergeability still UNKNOWN after ~2 min — report and stop"; exit 1; }
 STATUS=$(gh pr view "$MAIN_PR" --json mergeStateStatus -q .mergeStateStatus)
 [ "$STATUS" = "CLEAN" ] || { echo "⚠️  main PR not CLEAN (status=$STATUS, checks_rc=$RC) — stopping"; exit 1; }
 ```
@@ -454,7 +473,8 @@ echo "main_pr=$MAIN_PR strategy=--$MAIN_STRATEGY"
 
 ```bash
 # Same re-check as Step 4, same reason: the CLEAN read above expires across the round trip.
-until [ "$(gh pr view "$MAIN_PR" --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ]; do sleep 5; done
+for _ in {1..24}; do [ "$(gh pr view "$MAIN_PR" --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ] && break; sleep 5; done
+[ "$(gh pr view "$MAIN_PR" --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ] || { echo "⚠️  mergeability still UNKNOWN after ~2 min — report and stop"; exit 1; }
 bravros merge-lock acquire --timeout 60s --ttl 10m --meta reason=finish-main --meta pr=1234
 # Substitute the LITERAL main-PR number and strategy — a $VAR here is unreadable to the police
 # hook (raw command text; indeterminate target → blocked). These lines may share one Bash call;

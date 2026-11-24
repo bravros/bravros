@@ -45,6 +45,7 @@ import (
 	"github.com/bravros/bravros/cli/internal/deploy"
 	"github.com/bravros/bravros/cli/internal/managed"
 	"github.com/bravros/bravros/cli/internal/payload"
+	"github.com/bravros/bravros/cli/internal/skillsretired"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
@@ -380,6 +381,7 @@ const (
 	setupActionMerge     setupAction = "merge"     // managed JSON deep-merge
 	setupActionRecord    setupAction = "record"    // nothing written (the binary)
 	setupActionPrune     setupAction = "prune"     // dropped from the selection, unmodified
+	setupActionRetire    setupAction = "retire"    // retired skill → moved to <root>/.trash (skillsretired)
 )
 
 // setupPlanItem is one planned filesystem outcome. src is the staged source
@@ -591,10 +593,11 @@ func setupCompare(src, dst string, rewrite bool) (setupAction, error) {
 // on-disk content still matches the embedded payload exactly (so it is
 // provably unmodified). Anything a user added by hand or edited fails at least
 // one of them and survives. Pruning is confined to setupPruneSubtrees.
+//
+// Retired skills (skillsretired list) are planned separately as
+// setupActionRetire — no previous run, ownership or byte-identity needed, since
+// a renamed skill can never match the current embed (I-11 / D3).
 func setupPlanPrune(root string, sels []payload.Selection, prev *setupState) ([]setupPlanItem, error) {
-	if prev == nil {
-		return nil, nil
-	}
 	keep := map[string]bool{}
 	installing := false
 	for _, sel := range sels {
@@ -611,6 +614,15 @@ func setupPlanPrune(root string, sels []payload.Selection, prev *setupState) ([]
 		return nil, nil
 	}
 
+	items := setupPlanRetire(root, keep)
+	retiring := map[string]bool{}
+	for _, it := range items {
+		retiring[path.Base(it.Rel)] = true
+	}
+	if prev == nil {
+		return items, nil
+	}
+
 	var prevSkills []string
 	for _, c := range prev.Components {
 		if c.ID == "claude-skills" {
@@ -618,9 +630,8 @@ func setupPlanPrune(root string, sels []payload.Selection, prev *setupState) ([]
 		}
 	}
 
-	var items []setupPlanItem
 	for _, name := range prevSkills {
-		if keep[name] {
+		if keep[name] || retiring[name] {
 			continue
 		}
 		rel := path.Join("skills", name)
@@ -654,6 +665,38 @@ func setupPlanPrune(root string, sels []payload.Selection, prev *setupState) ([]
 		})
 	}
 	return items, nil
+}
+
+// setupPlanRetire plans the removal of every retired skill present under
+// <root>/skills, unless skills.preserve lists it, it is plugin-managed, or this
+// payload still ships it (selected now, or present in the embed).
+func setupPlanRetire(root string, selected map[string]bool) []setupPlanItem {
+	shipped := func(name string) bool {
+		if selected[name] {
+			return true
+		}
+		_, err := fs.Stat(payload.FS, path.Join("skills", name))
+		return err == nil
+	}
+	var items []setupPlanItem
+	for _, name := range deploy.RetiredSkillCandidates(root, config.PreservedSkills(), shipped) {
+		rel := path.Join("skills", name)
+		if !setupSubtreeIsPrunable(rel) {
+			continue
+		}
+		note := "retired skill — will be moved to " + filepath.Join(root, ".trash")
+		if s, ok := skillsretired.Lookup(name); ok && s.Replacement != "" {
+			note = "retired, replaced by " + s.Replacement + " — will be moved to " + filepath.Join(root, ".trash")
+		}
+		items = append(items, setupPlanItem{
+			Component: "claude-skills",
+			Rel:       rel,
+			Abs:       filepath.Join(root, filepath.FromSlash(rel)),
+			Action:    setupActionRetire,
+			Note:      note,
+		})
+	}
+	return items
 }
 
 // setupSubtreeIsPrunable enforces the P-0014 Phase 4 scoping on every removal.
@@ -775,6 +818,20 @@ func setupApply(plan *setupPlan) (*setupApplyResult, error) {
 			}
 			if err := os.RemoveAll(it.Abs); err != nil {
 				return nil, fmt.Errorf("prune %s: %w", it.Abs, err)
+			}
+			res.Pruned = append(res.Pruned, it.Rel)
+
+		case setupActionRetire:
+			if !setupSubtreeIsPrunable(it.Rel) || deploy.IsPluginManaged(it.Rel) {
+				return nil, fmt.Errorf("internal invariant violated: refusing to retire %q", it.Rel)
+			}
+			if _, err := deploy.RetireSkills(plan.Root, []string{path.Base(it.Rel)}, os.Stderr); err != nil {
+				var rerr *deploy.RetireError
+				if !errors.As(err, &rerr) {
+					return nil, err
+				}
+				// Already logged by RetireSkills; leave it in place and move on.
+				continue
 			}
 			res.Pruned = append(res.Pruned, it.Rel)
 
@@ -1010,6 +1067,15 @@ func setupRenderPlan(w io.Writer, plan *setupPlan, scope payload.SkillScope) {
 			}
 		}
 	}
+	if n := plan.count(setupActionRetire); n > 0 {
+		fmt.Fprintln(w)
+		fmt.Fprintf(w, "  %d retired skill(s) will be moved to %s:\n", n, filepath.Join(plan.Root, ".trash"))
+		for _, it := range plan.Items {
+			if it.Action == setupActionRetire {
+				fmt.Fprintln(w, "      "+it.Rel+"  ("+it.Note+")")
+			}
+		}
+	}
 	// Warnings (including the plugin-managed skip reasons) are printed ONCE,
 	// in the final summary after apply — not here. Rendering the plan is a
 	// mid-run preview; printing the same warning text at both points is
@@ -1106,7 +1172,7 @@ func setupBuildResultRows(plan *setupPlan, res *setupApplyResult) []setupResultR
 					unchanged++
 				case setupActionConflict:
 					conflicts++
-				case setupActionPrune:
+				case setupActionPrune, setupActionRetire:
 					pruned++
 				}
 			}

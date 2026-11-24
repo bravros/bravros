@@ -3,13 +3,13 @@ icon: zap
 metadata:
   en:
     name: quick
-    description: Quick task execution without a full plan — just do it and commit.
+    description: Do a small task without a full plan — implement, verify, commit. Use on /quick for small, well-scoped changes that need no dossier.
   br:
     name: quick
-    description: Execução rápida de tarefas sem plano completo — apenas faça e faça commit.
+    description: Use em /quick para tarefas pequenas e bem delimitadas sem plano completo — implementa, verifica e commita.
   es:
     name: quick
-    description: Ejecución rápida de tareas sin un plan completo — solo hazlo y realiza el commit.
+    description: Usa /quick para tareas pequeñas y acotadas sin plan completo — implementa, verifica y commitea.
 body: |
   # Quick: Fast Task Execution
 
@@ -62,4 +62,4 @@ body: |
     wrapper, never bare `bravros ha say`; it prepends the opener and silences its own stdout.
   - `/quick` is the path for confident, contained fixes — scope is the operator's call. Want a
     planning pass? Run `/recon` instead.
-  - Use `/ship` to commit and push in one move.
+  - Use `/commit-push` to commit and push in one move.

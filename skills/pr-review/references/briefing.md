@@ -5,7 +5,7 @@ and posts back to the PR. This skill never reviews, never polls, never merges.
 
 PR number: `$ARGUMENTS` if numeric, else `gh pr view --json number -q .number`. None → STOP
 ("create one with /pr first"). Branch behind its base → rebase + `git push --force-with-lease`
-first (nothing is under review yet); conflicts — interactive: ask; autonomous: proceed, note it.
+first (nothing is under review yet) — except when the PR head is `main`, `master`, the staging branch (`bravros config get staging_branch`) or in `permanent_branches`: never rebase or force-push those, skip the sync and note it; conflicts — interactive: ask; autonomous: proceed, note it.
 
 ## The comment — keep BYTE-EXACT (wire contract)
 

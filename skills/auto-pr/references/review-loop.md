@@ -31,11 +31,11 @@ Do NOT wrap the line in an HTML comment, code fence, blockquote, or list item �
 ## 2. Wait (poll gh — max 30 min)
 
 The @claude Action posts as login `"claude"`, **not** `"claude[bot]"` — filtering on the
-wrong login silently returns nothing. Poll in background, ~60s intervals:
+wrong login silently returns nothing. Capture `TRIGGER_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)` right before posting the trigger and accept only `claude` comments whose `createdAt` is after it — an earlier round's verdict must never satisfy this one. Poll in background, ~60s intervals:
 
 ```bash
 gh pr view "$PR_NUM" --json comments \
-  --jq '[.comments[] | select(.author.login=="claude")] | last | .body' \
+  --jq '[.comments[] | select(.author.login=="claude" and .createdAt > "'"$TRIGGER_TS"'")] | last | .body' \
   | grep -E '^BRAVROS-VERDICT: (approved|changes-requested)$' | tail -1
 ```
 

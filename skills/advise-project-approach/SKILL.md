@@ -1,6 +1,6 @@
 ---
 name: advise-project-approach
-description: Research and advise how a software project should be built — stack selection, architecture, operating-cost tradeoffs, and real-world comparables. Use on `/advise-project-approach` or when asked for project strategy, stack choice, or an architecture/repo critique.
+description: Use on `/advise-project-approach` or for project strategy, stack choice, or an architecture/repo critique. Researches how to build a project — stack, architecture, cost, comparables — starting from the operator's house stack.
 ---
 
 # Advise Project Approach
@@ -15,10 +15,10 @@ FIRES ON: stack choice, architecture or repo critique, "is this the right approa
 
 ## Method
 
-1. **Intake gate.** If two or more decision-critical facts are unknown — primary user, core workflow, stage, must-haves, team capability, budget/deadline, deploy target, dominant priority — ask them in ONE batch of ≤7 questions and end the turn. Do not invent a target user, roadmap, or success metric. "Skip the questions" ⇒ continue with assumptions stated visibly.
+1. **Intake gate.** If two or more decision-critical facts are unknown — primary user, core workflow, stage, must-haves, team capability, budget/deadline, deploy target, dominant priority — ask them in ONE batch of ≤7 questions and end the turn. Do not invent a target user, roadmap, or success metric. Before asking, read the operator's house-stack rules (`~/.agent_config/CLAUDE.md` § New project stack) and treat them as a starting constraint — a default, not a verdict; recommend departing only with stated reasons and the cost of departing. "Skip the questions" ⇒ continue with assumptions stated visibly.
 2. **Pick the mode.** No repo ⇒ pre-build strategy · repo, code, or GitHub URL present ⇒ mid-build course correction · "finished / deployed / launch-ready" ⇒ post-build review. Description but no code ⇒ advisory review, and say plainly that file-level findings need a repo.
 3. **Ask before community sources.** X / Reddit / YouTube carry real signal and real noise — offer the choice (official docs + GitHub only · community too · selected sources) and record the answer in the evidence status.
-4. **Gather receipts, then stop.** Two comparables, primary documentation for each material claim, the official pricing page for each cost-sensitive claim. Expand only when sources conflict or a material claim stays unverified — not to look thorough. → `references/research-rules.md`
+4. **Gather receipts, then stop.** Two comparables, primary documentation for each material claim, the official pricing page for each cost-sensitive claim. Comparables may be researched in parallel (one sub-agent each, results merged). Expand only when sources conflict or a material claim stays unverified — not to look thorough. → `references/research-rules.md`
 5. **Judge, don't count.** Stars and adoption raise confidence, never decide. For every comparable state what transfers **and** what must not be copied — a mature project's heavy infrastructure usually reflects its team size, history, and business model, not the user's needs.
 6. **Price the reality, not the free tier.** → `references/cost-analysis.md`
 7. **Map before reading** on anything past ~100 files, and declare inspection scope. → `references/repo-inspection.md`

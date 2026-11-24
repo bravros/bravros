@@ -10,12 +10,14 @@ INTENT: promote accumulated homolog work to production — token check → PR �
 
 1. On `homolog`; working tree clean (`git status --porcelain` empty); not ahead of remote.
 2. No autonomous lock: `bravros autopr mode is-autonomous` exits non-zero.
-3. Commits to promote exist; promote token present (missing → print the unlock instructions above, fire the PT-BR announce in [`references/close-out.md`](close-out.md) § Announces, exit 1).
+3. Commits to promote exist; promote token — **advisory here**: if `bravros promote status --field present` is not `true`, print the unlock instructions above (and the PT-BR announce in [`references/close-out.md`](close-out.md) § Announces) but do NOT exit; the token is required at the TTL check right before the merge.
 4. `git fetch origin main --quiet` FIRST — a stale `origin/main` is as wrong as a lagging local main (B-0338).
 5. Snapshot the PRE-merge main tip **as a git ref** — shell vars do NOT survive between Bash tool calls; a ref does, and leaves git status clean:
 
 ```bash
-git update-ref refs/bravros/promote-base "$(git rev-parse origin/main)"
+MAIN_TIP=$(git rev-parse --verify --quiet origin/main)
+[ -n "$MAIN_TIP" ] || { echo "⛔ origin/main missing — stop and report"; exit 1; }
+git update-ref refs/bravros/promote-base "$MAIN_TIP"
 ```
 
 Load-bearing: `origin/main` moves the moment the promote PR merges, and Step 5 fast-forwards homolog onto it — a live `origin/main..homolog` is then empty by construction, so plan closure would walk zero commits.
@@ -27,9 +29,10 @@ Load-bearing: `origin/main` moves the moment the promote PR merges, and Step 5 f
 4. **Merge** per [`../shared/merge-flow.md`](../../shared/merge-flow.md) — TTL check first, then lock, then the merge with the **literal** PR number (no `cd … &&`, no `| tail`). The police hook reads the raw command text, so `"$PR_NUMBER"` or a backtick on the merge line makes the target indeterminate and the merge is blocked; each Bash call is a fresh shell anyway, and the variable stays fine on the non-gated `gh pr view` line:
 
 ```bash
-until [ "$(gh pr view "$PR_NUMBER" --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ]; do sleep 5; done
+for _ in {1..24}; do [ "$(gh pr view "$PR_NUMBER" --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ] && break; sleep 5; done
+[ "$(gh pr view "$PR_NUMBER" --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ] || { echo "⚠️  mergeability still UNKNOWN after ~2 min — report and stop"; exit 1; }
 TTL=$(bravros promote status --field ttl_remaining 2>/dev/null); echo "ttl_remaining=$TTL"
-# TTL expired / token gone → ask for ONE re-mint (`bravros promote unlock`, separate terminal), wait, then continue here. Never loop.
+# TTL expired / token missing → the token is REQUIRED here: ask for ONE mint/re-mint (`bravros promote unlock`, separate terminal), wait, then continue here. Never loop.
 ```
 
 ```bash

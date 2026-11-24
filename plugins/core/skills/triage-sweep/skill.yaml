@@ -3,7 +3,7 @@ icon: list-checks
 metadata:
   en:
     name: triage-sweep
-    description: Read-only drain of a stale issue + backlog queue — dedup, classify each item vs LIVE code (already-done / partial / superseded / no-longer-needed / open / human-only), adversarially verify every close, then apply closes/cancels serially. Use on /triage-sweep.
+    description: "Drain a stale issue + backlog queue read-only: dedup, classify each item against live code, adversarially verify every close, then apply serially. Use on /triage-sweep."
   br:
     name: triage-sweep
     description: Varredura de triagem somente leitura de fila de issues e backlog pendentes — remove duplicatas, classifica cada item contra o código LIVE, verifica adversarialmente cada fechamento e aplica cancelamentos/fechamentos serialmente.
@@ -26,7 +26,8 @@ body: |
 
   ```bash
   STAGING=$(bravros config get staging_branch 2>/dev/null); STAGING=${STAGING:-homolog}
-  git rev-parse --abbrev-ref HEAD        # expect "$STAGING"; tree clean
+  [ "$(git rev-parse --abbrev-ref HEAD)" = "$STAGING" ] || { echo "STOP: HEAD is not $STAGING"; exit 1; }
+  [ -z "$(git status --porcelain)" ] || { echo "STOP: working tree not clean"; exit 1; }   # hard stop — never sweep from another branch or a dirty tree
   git fetch origin --quiet
   mkdir -p .claude/workflows && cp -f ~/.bravros/skills/triage-sweep/scripts/triage-sweep.js .claude/workflows/triage-sweep.js
   LABELS=(done dropped dup skip deferred fix-ready)          # keep the ARRAY form — bare-string iteration breaks in zsh

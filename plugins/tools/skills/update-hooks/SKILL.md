@@ -1,6 +1,6 @@
 ---
 name: update-hooks
-description: Update git hooks in an existing project to the latest version from ~/.agent_config/templates.
+description: Use to refresh git hooks in an existing project from the latest templates, keeping graphify post-* hooks. Not for first-time setup (/start).
 ---
 
 # Update Hooks: Refresh Git Hooks

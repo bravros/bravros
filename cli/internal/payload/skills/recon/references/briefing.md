@@ -74,7 +74,7 @@ E() { echo '{"ts":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","id":"e_'"$(date +%s)_$RA
 E created  "$PLAN_ID" ""
 E reviewed "$PLAN_ID" ',"verdict":"approved","note":"<what this wave established>"'
 E promoted "B-NNNN"   ""        # only for /recon B-NNNN — the B- file stays put
-bravros commit "📋 plan: add P-NNNN <slug>" .planning/
+bravros commit "📋 plan: add P-NNNN <slug>" .planning/P-NNNN-<slug>/ .planning/events.jsonl
 ```
 
 A later wave that changes conclusions appends another `reviewed` with a `note:` saying what moved.

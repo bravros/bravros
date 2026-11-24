@@ -21,7 +21,7 @@ bash ~/.agent_config/scripts/announce.sh --force "Autenticação do 1Password ne
 - **Title:** `<Service> - <Project> <Purpose>`, ASCII only (letters, digits, spaces, `-`, `_`). Auto-rewrite anything with `— ( ) + & @ /` or emoji; show the rewrite and confirm. `scripts/validate-title.sh` checks + suggests.
 - **Category** `API Credential` by default (SSH key → `SSH Key`, DB URL → `Database`, seed phrase → `Wallet`). **Vault** `HomeLab` unless the user says otherwise; CI service accounts → dedicated `CI` vault. **Tags:** minimum 2 — service + project; add role/env when relevant.
 - **Required fields — refuse to create without them:** `credential` (concealed) · `token type` · `permissions` · `used by` · `env var` · `owner` · `rotated` (date, today on every create/rotation). Recommended: `rotation_interval`, `provider_url`, `expires`.
-- After create, verify `op read "op://HomeLab/<Title>/credential" | head -c 20` — failure means an invalid title char; archive and recreate. Print the `op://` reference and the `.env` line, never the raw token.
+- After create, verify with a length check only: `op read "op://HomeLab/<Title>/credential" | wc -c` — non-zero = ok; never print any part of the value (no truncated previews, no `cut`). Failure means an invalid title char; archive and recreate. Print the `op://` reference and the `.env` line, never the raw token.
 
 ## Workflows
 

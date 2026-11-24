@@ -6,7 +6,7 @@ Shared stage sequence: `pipeline.md`.
 ## Critical Rule: NEVER Use Interactive Questions
 
 Every decision point is handled autonomously. The `--auto` flag on delegated skills
-(`/plan`, `/orchestrate`, `/pr`) suppresses their checkpoint prompts too.
+(`/recon`, `/orchestrate`, `/pr`) suppresses their checkpoint prompts too.
 Autonomous mode never stops for context either — compact and continue; the pipeline must
 complete. The sanctioned stops are: catastrophic stage failure (commit what exists,
 create the PR with a failure note, report) and the acceptance-verify escape hatch
@@ -25,8 +25,8 @@ The coordinator orchestrates via `Subagent` calls and never writes feature code.
 "Autonomous" means zero `interactive user questions`, not zero delegation.
 
 - **The marker IS the model:** dispatch each phase at its `[H]`→haiku / `[S]`→sonnet /
-  `[O]`→opus tier from `/plan`'s inline review. A phase heading with no tier marker was not
-  reviewed — STOP and re-run `/plan` on the dossier first.
+  `[O]`→opus tier from `/orchestrate`'s execution plan. A phase heading with no tier marker was not
+  reviewed — STOP and re-run `/orchestrate` on the dossier first.
 - Dispatch independent phases in parallel, all in ONE message
   (`dispatch.md` owns the prompt template).
 - **Max 2 fix rounds per phase**, then move on and note the issue in the plan —

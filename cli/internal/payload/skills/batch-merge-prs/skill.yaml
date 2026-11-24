@@ -3,7 +3,7 @@ icon: git-merge
 metadata:
   en:
     name: batch-merge-prs
-    description: Verify N PRs, address review feedback, ordered-merge to the staging branch (never main), close linked issues/backlog per merge, then hand off the full test suite. Use on /batch-merge-prs.
+    description: "Merge N open PRs in order to the staging branch (never main): verify, fix review feedback, close linked issues, hand off the suite. Use on /batch-merge-prs."
   br:
     name: batch-merge-prs
     description: Verifica N PRs, aborda feedback de revisão, realiza mesclagem ordenada no ramo de homologação (nunca main), fecha issues/backlog vinculados por mesclagem e transfere a suíte de testes completa. Use em /batch-merge-prs.
@@ -13,7 +13,7 @@ metadata:
 body: |
   Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
-  INTENT: take N open PRs from open → verified → merged on the staging branch → linked issue/backlog closed per merge → full suite handed to operator. Staging is `homolog` unless project CLAUDE.md states otherwise. Run from repo root.
+  INTENT: take N open PRs from open → verified → merged on the staging branch → linked issue/backlog closed per merge → full suite handed to operator. Staging = `bravros config get staging_branch`. Run from repo root.
 
   ## Hard constraints
 
@@ -25,7 +25,7 @@ body: |
 
   ## Flow
 
-  1. **Verify (parallel, read-only).** `mkdir -p .claude/workflows && cp -f ~/.bravros/skills/batch-merge-prs/scripts/verify-prs.js .claude/workflows/` then run `Workflow({name:'verify-prs', args:{staging_branch, bot:'claude', guards:[…], prs:[…]}})`.
+  1. **Verify (parallel, read-only).** `STAGING=$(bravros config get staging_branch 2>/dev/null); STAGING=${STAGING:-homolog}; mkdir -p .claude/workflows; S=~/.bravros/skills/batch-merge-prs/scripts/verify-prs.js; D=.claude/workflows/verify-prs.js; cmp -s "$S" "$D" || cp -f "$S" "$D"` then run `Workflow({name:'verify-prs', args:{staging_branch, bot:'claude', guards:[…], prs:[…]}})`.
      Verdicts: clean → queue · needs-changes → fix-agent per PR, re-verify · superseded → close · blocked → stop. `deep` mode on free tree only.
   2. **Merge (SERIAL, ascending, one standalone call per PR).** Follow `skills/shared/merge-flow.md`. Re-check mergeability per PR. Default `--merge`. Conflict recovery & per-merge closeout: `references/merge-loop.md`.
   3. **Hand off suite — never deploy.** Operator runs suite in terminal. Staging regressions post-batch belong to the batch.

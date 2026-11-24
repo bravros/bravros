@@ -44,23 +44,15 @@ Hard rules for every new skill:
 - **Drop everything else** into the body: proactive triggers, "also use when…" rambles, justifications, lists of synonyms, internal mechanics, multiple example phrases.
 - **Preserve domain specificity.** `graphify-this-project` names graphify; `why-blocked-order` names the paylog pedido. Removing what makes a skill identifiable defeats the purpose.
 
-Run `/skill-hygiene` (Pass A) to retrofit existing skills if the metadata layer is already over-budget. The skill lives at `.claude/skills/skill-hygiene/`.
-
 ### Skill names — avoid Claude Code reserved/bundled identifiers + built-in concepts
 
-Two severities of conflict to watch for:
+Built-in slash commands and bundled skills **shadow** any user skill of the same name with no warning; names overlapping built-in concepts (Plan subagent/mode/tool) confuse users. Before naming a skill:
 
-**Hard conflicts** — built-in slash commands and bundled skills (e.g. `/clear`, `/compact`, `/resume`, `/agents`, `/fork`, `/branch`, `/debug`, `/simplify`, `/loop`, `/init`, `/review`, `/security-review`, …) **shadow** any user skill of the same name. Typing `/<name>` invokes the built-in, not yours, with no warning. **Always rename.**
+1. Check `tools/skillgen/reserved-names.json` — the canonical list. `skillgen` enforces it and fails on a collision.
+2. If the name collides, pick a disambiguated form (prefix `bravros-`, `sdlc-`, `repo-`, `write-`, or a domain word).
+3. Renaming? Add the old name to the retired list (`bravros skills retired`).
 
-**Soft conflicts** — names that overlap with a built-in **concept** (subagent / permission mode / tool) but aren't in the reserved slash-command table. The reference example is `plan` — overlapping with the **Plan subagent**, **plan permission mode**, and the **Plan tool**. The slash invocation still routes to your skill, but users get confused: "does `/plan` invoke my skill or Plan mode?". Community convention (e.g., the Superpowers skill collection's `/write-plan`) is to use a disambiguating prefix: `/write-plan`, `/sdlc-plan`, `/plan-design`. **Rename when the blast radius is small; document the overlap when it's large.**
-
-Before naming a new skill:
-
-1. Read `.claude/skills/skill-hygiene/references/reserved-commands.json` for the canonical list. Check three sets: `slash_commands.*.names`, `bundled_skills.names`, and `built_in_concepts_to_avoid.names`.
-2. If the candidate name appears in any of those sets, pick a disambiguated form (prefix `bravros-`, `sdlc-`, `repo-`, `write-`, or pull a domain word from the body).
-3. Run `/skill-hygiene` (Pass B) to audit existing skills for collisions and propose renames.
-
-When Anthropic ships new built-ins or new soft-conflict concepts surface, update `reserved-commands.json` (single source of truth), not this CLAUDE.md.
+When Anthropic ships new built-ins, update `reserved-names.json`, not this file.
 
 ## Writing the body
 
@@ -91,7 +83,7 @@ Rules of thumb:
 ## Complexity markers (plans only)
 
 Every plan **phase heading** carries one tier marker. This is a plan-authoring convention read
-by `/orchestrate`'s dispatcher and assigned by `/plan`'s inline review — it is no longer
+by `/orchestrate`'s dispatcher and assigned by `/orchestrate`'s execution plan — it is no longer
 mechanically enforced by an audit hook
 (the standalone audit engine was deleted in P-0187):
 
@@ -111,40 +103,15 @@ Skills do not emit `🏁`/`🤖` echo checkpoints — pure ceremony at runtime, 
 
 ## Shared references
 
-Shared skill content lives in `skills/shared/`. Skills reference it by relative path (`../shared/<file>.md`) and Read it on demand. A consumer may instead replace its own `references/*.md` with a symlink into `skills/shared/` — then edit only `skills/shared/<file>.md` and `bravros deploy` materializes a copy at install time via `cp -L`. No symlinked consumers remain as of P-0187 (the last two, `plan-review` and `plan-approved`, retired with the planning-chain collapse).
+Shared skill content lives in `skills/shared/` (repo-only, see below). A consumer may replace its own `references/*.md` with a symlink into `skills/shared/` — then edit only `skills/shared/<file>.md` and `bravros deploy` materializes a copy at install time via `cp -L`. No symlinked consumers remain as of P-0187.
 
-`skills/shared/` **is deployed** to `~/.agent_config/skills/shared/` (the host runtime skills dir) as a plain payload directory — not a skill (no `SKILL.md`, never in `.deploy-manifest.json`, unaffected by `skills.enabled`), and refreshed wholesale on every deploy. It was source-only until 2026-08-13, which was correct while every consumer symlinked into it, but P-0187 retired the last symlink and left the prose `../shared/*.md` links pointing at nothing in the runtime — so six core skills (`finish`, `promote`, `hotfix`, `batch-merge-prs`, `plan`, `auto-pr`) silently lost the shared merge gates at merge time. **A prose link into `../shared/` is a runtime dependency**: when you add one, the file must exist in the deployed runtime, and a safety-critical gate should also be restated in the consumer's own `references/` so it never depends on a cross-skill Read succeeding.
+`skills/shared/` is **repo-only — not deployed**. `bravros deploy` treats `shared/` and `_shared/` as non-runtime (`cli/internal/deploy/deploy.go`), so they never reach `~/.agent_config/skills/` and are not skills (no `SKILL.md`, never in `.deploy-manifest.json`). **A prose link into `../shared/` therefore dangles at runtime.** Do not link to it from a skill body: restate the needed content (especially safety-critical gates) in the consumer's own `references/`, or materialize it there at deploy time via a symlink (`cp -L`). History: the six core skills that linked `../shared/*.md` silently lost their merge gates when the last symlink consumer retired (P-0187).
 
 Note: `auto-pr/references/worktree-mode.md` covers the `--worktree` flag for `auto-pr`.
 
 ## Model Requirements in Skills
 
-Use this section when authoring or auditing `model:` frontmatter and prose model references.
-
-### (a) Frontmatter `model:` — use sparingly, never in hook skills
-
-The `model:` frontmatter key tells the Skill tool to switch the active model before loading the skill. This has a hidden cost: if the parent session's accumulated context (system prompt + CLAUDE.md stack + memory + tool schemas) already exceeds the target model's standard window, the runtime attempts the 1M-context variant — which requires its own **extra-usage grant separate from the parent session's grant**. Result: `API Error: Extra usage is required for 1M context` on every invocation.
-
-Rules:
-- **Never** add `model:` frontmatter to skills that auto-fire via hooks (e.g., `SessionStart`, `PostToolUse`). These fire inside an already-large session and will reliably trip the 1M-context gate.
-- **Only** use explicit `model:` when deterministic model selection is genuinely load-bearing (currently: none identified). Inheriting the parent session's model is almost always correct.
-- If you do need to constrain a skill to a specific tier, document the reasoning inline.
-
-### (b) Prose model references — prefer ungrounded tier names
-
-In prose sections (e.g., "## Model Requirement"), use the tier name without a version suffix:
-
-| Prefer | Avoid |
-|--------|-------|
-| **Sonnet** | ~~Sonnet 4.6~~ |
-| **Opus** | ~~Opus 4.6~~, ~~Opus 4.7~~ |
-| **Haiku** | ~~Haiku 3.5~~ |
-
-Version-locked names decay when the next point release ships. Ungrounded tier names stay valid across releases.
-
-### (c) Canonical model list — single source of truth
-
-Do not hard-code current model identifiers in individual skill files. The canonical current models (e.g., `claude-sonnet-4-6`, `claude-opus-4-7`) are tracked in the managed block of `~/.agent_config/CLAUDE.md` under "Execution & Model Tiers". Reference that file rather than duplicating version strings here.
+Avoid `model:` frontmatter (never on hook-fired skills), use unversioned tier names (Sonnet/Opus/Haiku) in prose, and don't hard-code model IDs. Detail: `docs/skills-authoring.md` § Model requirements in skills.
 
 ## Skill Targeting — retired (P-0187)
 
@@ -191,7 +158,7 @@ By default `bravros deploy` copies **all** skills from the source repo to `~/.ag
 }
 ```
 
-When non-empty, only the listed skills AND any skill with `core: true` in its SKILL.md frontmatter are deployed. SDLC essentials (`/plan`, `/orchestrate`, `/finish`, `/auto-pr`, `/batch-merge-prs`, `/commit`, `/ship`, `/push`, `/start`, `/promote`, `/hotfix`, `/pr`, `/pr-review`, `/address-pr`) all carry `core: true` — they deploy regardless of the allowlist so SDLC workflows always work.
+When non-empty, only the listed skills AND any skill with `core: true` in its SKILL.md frontmatter are deployed. SDLC essentials (`/orchestrate`, `/finish`, `/auto-pr`, `/batch-merge-prs`, `/commit`, `/commit-push`, `/push`, `/start`, `/promote`, `/hotfix`, `/pr`, `/pr-review`, `/address-pr`) all carry `core: true` — they deploy regardless of the allowlist so SDLC workflows always work.
 
 Use `--filter` to override per-invocation without editing config:
 
@@ -218,44 +185,10 @@ are excluded by omission:
 
 ---
 
-## Deprecation Policy
+## Renames and retirement
 
-Skills marked with `deprecated_aliases_to: "<new-skill>"` in their frontmatter are **kept for 3 release cycles** after the unified replacement ships.
+No `deprecated_aliases_to` field and no alias stubs. Retired names live in the CLI list (`bravros skills retired`); a rename or removal **must** add the old name there. Detail: `docs/skills-authoring.md`.
 
-### Removed in v4.4 — see git history
-
-The following deprecated alias stubs were removed in v4.4 (P-0128):
-
-| Removed skill | Was forwarding to |
-|---|---|
-| `/plan-wt` | `/plan --worktree` |
-| `/auto-pr-wt` | `/auto-pr --worktree` |
-| `/complete` | `/finish` |
-
-No active deprecations pending as of v4.4. Next cycle: v4.5 or later.
-
-### Authoring a deprecation stub
-
-Use this template for any future skill that is being replaced:
-
-```yaml
----
-name: <old-name>
-description: "⚠️ Deprecated alias for `/<new-name> [--flag]`. Forwards to the new skill. Will be removed in v4.4. Triggers: <list old triggers>"
-deprecated_aliases_to: "<new-name>"
-mode: utility
----
-
-# Deprecated: /<old> → /<new> [--flag]
-
-When invoked, emit one-line warning to user:
-> ⚠️ `/<old>` is deprecated and will be removed in v4.4. Forwarding to `/<new> --<flag>`.
-
-Then call:
-Skill({skill: "<new>", args: "<flag> $ARGUMENTS"})
-```
-
-Each stub is ~20 lines including frontmatter.
 
 ## Never
 
@@ -268,7 +201,7 @@ Each stub is ~20 lines including frontmatter.
 
 **`bravros detect-stack` / `bravros context refresh` were retired in P-0187** — there is no CLI
 verb for this anymore; the model reads the manifest/lockfiles directly. The one surviving writer
-of the managed block is the **`/context` skill** (Step 1: detect the stack from manifest + lock
+of the managed block is the **`/claudemd` skill** (Step 1: detect the stack from manifest + lock
 files, then refresh the block in the root CLAUDE.md), bounded by:
 
 ```
@@ -284,8 +217,8 @@ The block contains:
 - `Last refreshed: <ISO>` — timestamp
 
 The block is **idempotent**: byte-equal content (ignoring the timestamp) is never re-written.
-Worktrees each have their own CLAUDE.md — `/context` writes to `cwd/CLAUDE.md`. `/start` and
-`/plan` no longer read or write this block (see their own SKILL.md files for current behavior).
+Worktrees each have their own CLAUDE.md — `/claudemd` writes to `cwd/CLAUDE.md`. `/start` and
+`/recon` no longer read or write this block (see their own SKILL.md files for current behavior).
 
 ## Audible Completion Announces
 
@@ -342,7 +275,7 @@ Allowed substitution variables:
 |---|---|---|
 | `/finish` | Step 8/8 | `Plano {NUM} finalizado, mesclagem concluída.` |
 | `/promote` | Step 5/5 | `Versão {TAG} publicada em produção.` |
-| `/plan` | Step 5/5 | `Plano {NUM} criado e revisado, pronto para orquestração.` |
+| `/recon` | Step 5/5 | `Plano {NUM} criado e revisado, pronto para orquestração.` |
 | `/orchestrate` | Done | `Plano {NUM} orquestrado, todas as fases concluídas.` |
 | `/address-pr` | Step 8/8 | `Correções da revisão {PR} publicadas, próxima etapa pendente.` |
 | `/auto-pr` | final step | `Fluxo automático finalizado. Revisão pronta no repositório.` |

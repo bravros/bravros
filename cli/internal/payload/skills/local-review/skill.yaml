@@ -3,7 +3,7 @@ icon: file-search
 metadata:
   en:
     name: local-review
-    description: Run a local PR review without the @claude GitHub Action.
+    description: Use on `/local-review` to review a PR locally without the @claude GitHub Action — a fresh subagent reviews the diff, saves and posts findings. Built-in `/code-review` can serve as an optional engine.
   br:
     name: local-review
     description: Executa uma revisão local de PR sem a GitHub Action do @claude.
@@ -23,6 +23,6 @@ body: |
 
   WORKFLOW:
   1. **Gather**: Fetch PR metadata, diff (`gh pr diff "$PR"`), and changed file list. Stop if empty.
-  2. **Dispatch**: Send diff and context to `code-reviewer` agent (`sonnet` default, `opus` on `--deep`).
+  2. **Dispatch**: Send diff and context to `code-reviewer` agent (`sonnet` default, `opus` on `--deep`). Built-in `/code-review` may optionally serve as the reviewer engine inside it; the contract is unchanged.
   3. **Parse & Save**: Extract `VERDICT_BLOCK`. Save to `.planning/pr-reviews/${PR}-<TS>.md`.
   4. **Post & Route**: Post comment via `gh pr comment` unless `--no-post`. Route to `/finish` or `/address-pr`.

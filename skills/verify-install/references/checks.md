@@ -13,11 +13,11 @@ know *what* a line of output means, or before adding a check.
 | 4 | Deploy manifest present at `~/.bravros/skills/.deploy-manifest.json` | absence forces a full re-copy on next deploy | `bravros deploy` |
 | 5 | Per-skill content digest, source vs deployed | **the drift signal** | `bravros deploy --force --filter <skill>` |
 | 6 | Skill in source but not deployed | missing deploy | same |
-| 7 | Skill deployed but retired from source | orphan — its triggers still fire | `--fix` prunes |
-| 8 | `skills/shared` / `skills/_shared` deployed | install-hygiene failure (repo-only material) | `--fix` removes it |
+| 7 | Skill deployed but retired from source | orphan — its triggers still fire | `--fix` moves it to `~/.agent_config/.trash/` (only from a trusted source checkout) |
+| 8 | `skills/shared` / `skills/_shared` deployed | install-hygiene failure (repo-only material) | `--fix` moves it to `~/.agent_config/.trash/` |
 | 9 | `~/.agent_config/CLAUDE.md` managed block vs `home/CLAUDE.md` | managed-block drift | `scripts/reconcile-global-claude.py` |
 | 10 | `~/.bravros/settings.json` present + valid JSON; a locked file reports healthy | config presence | restore from `config/settings.json` |
-| 11 | `templates/.githooks/commit-msg` deployed and carrying the `bravros-managed-commit-msg-hook` marker | commit-format gate | `bravros hooks update --force` |
+| 11 | `templates/.githooks/commit-msg` deployed and carrying the `bravros-managed-commit-msg-hook` marker | commit-format gate | re-run `bravros init` in the repo (do not use `hooks update --force` where hooks live in `.bravros/hooks` — it switches `core.hooksPath` to `.githooks`) |
 | 12 | `hooks/*.{sh,py}` and `scripts/*.{sh,py}`, source vs deployed (md5) | file drift | `cp -f` (auto-fixed) |
 | 13 | Every `mcpServers` key in `config/mcp.json` registered in `~/.bravros.json` | MCP registration | `bravros mcp register --from config/mcp.json` |
 | 14 | `bravros doctor --quick --json` | gh / jq / curl / git / `~/.bravros` — **delegated, never re-implemented here** | per-check `fix_hint` |
@@ -47,6 +47,8 @@ SOURCE_REPO: missing at <path>
 SKILL_DRIFT: <name> — bravros deploy --force --filter <name>
 SKILL_MISSING: <name> — bravros deploy --force --filter <name>
 SKILL_ORPHAN: <name>
+RETIRED: <name> — <path> still installed (from `bravros skills retired`; needs no checkout)
+SOURCE_UNTRUSTED: <path> on '<branch>' — --fix redeploy/prune refused
 SHARED_LEAK: <path>
 CLAUDE_MD: managed block drift (<reason>)
 SETTINGS: <missing|invalid JSON>

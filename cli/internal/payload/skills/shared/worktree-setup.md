@@ -1,6 +1,6 @@
 # Worktree Setup and Isolation
 
-Worktree creation and teardown for `/auto-pr --worktree`. Contrast: `/plan --worktree`
+Worktree creation and teardown for `/auto-pr --worktree`. Contrast: `/recon --worktree`
 creates a full Herd site (SSL, browser testing, VS Code) for interactive work — this
 recipe is lightweight git-only isolation for parallel autonomous pipelines, auto-removed
 after the PR.
@@ -113,6 +113,8 @@ prints a JSON refusal and exits 1:
 bravros worktree cleanup "$WORKTREE_PATH" --force
 
 # Very-last-resort hard manual delete (only if the CLI itself is broken).
+# FIRST: `git -C "$WORKTREE_PATH" status --porcelain` must be empty. If dirty, preserve
+# the content (copy to /tmp or .trash/) before removing — never `--force` over unseen work.
 # BRAVROS_WORKTREE_DESTROY=1 is required — the floor guard blocks any
 # unflagged destructive removal of a git-registered worktree.
 BRAVROS_WORKTREE_DESTROY=1 git worktree remove --force "$WORKTREE_PATH"

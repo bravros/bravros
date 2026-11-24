@@ -16,7 +16,7 @@ Usage: bash destroy.sh <name> [--dry-run] [--force] [--yes] [--merged-into=<ref>
 
 <name>              worktree name (e.g. paylog109, mysiteloginfix)
 --dry-run           print the teardown scope and exit
---force             skip the merge safety check
+--force             skip the merge safety check; dirty files are preserved to .trash/ first
 --yes               skip the interactive confirmation prompt
 --merged-into=REF   require the branch to be merged into REF specifically
                     (e.g. --merged-into=main for "only if it shipped to prod").
@@ -139,6 +139,12 @@ else
     GATE_DESC="merged into origin/$BASE or origin/$MAIN_REF"
 fi
 
+# Dirty state of the worktree (uncommitted + untracked). Never destroyed silently.
+DIRTY=""
+if (( WORKTREE_EXISTS )); then
+    DIRTY=$(git -C "$WT_PATH" status --porcelain 2>/dev/null || true)
+fi
+
 status_label() {
     case "$1" in
         merged)    echo "${GREEN}merged ✓${RESET}" ;;
@@ -165,6 +171,10 @@ printf "  %-22s %s\n" "Herd link:" "$([ $HERD_LINKED == 1 ] && echo "$NAME" || e
 printf "  %-22s %s\n" "Herd cert:" "$([ $HERD_SECURED == 1 ] && echo "$DOMAIN" || echo "${DIM}(not secured)${RESET}")"
 printf "  %-22s %s\n" "Cloned DB:" "$([ $DB_EXISTS == 1 ] && echo "$CLONE_DB_NAME" || echo "${DIM}(no clone — parent DB untouched)${RESET}")"
 printf "  %-22s %s\n" "Redis keys (prefix):" "$REDIS_KEY_COUNT key(s) under ${PREFIX}*"
+if [[ -n "$DIRTY" ]]; then
+    printf "  %-22s %s\n" "Dirty files:" "${YELLOW}uncommitted/untracked work present${RESET}"
+    while IFS= read -r _l; do printf '    %s\n' "$_l"; done <<< "$DIRTY"
+fi
 echo
 
 print_merge_caveat() {
@@ -195,6 +205,9 @@ print_merge_caveat() {
 }
 
 if (( DRY_RUN )); then
+    if [[ -n "$DIRTY" ]]; then
+        echo "${YELLOW}⚠ Worktree is dirty — destroy will refuse without --force (files are preserved to .trash/ first).${RESET}"
+    fi
     if (( GATE_OK )); then
         echo "${GREEN}→ safe to destroy${RESET} ($GATE_DESC)"
     else
@@ -210,6 +223,14 @@ if (( GATE_OK == 0 )) && (( FORCE == 0 )); then
     echo
     print_merge_caveat
     exit 3
+fi
+
+# Dirty gate: uncommitted/untracked work is never discarded without --force.
+if [[ -n "$DIRTY" ]] && (( FORCE == 0 )); then
+    fail "Refusing destroy — worktree has uncommitted or untracked files:"
+    echo "$DIRTY" | sed 's/^/    /'
+    echo "  Commit or move them, or pass --force to preserve them into <repo>/.trash/ and remove."
+    exit 5
 fi
 
 # ─── Confirm ──────────────────────────────────────────────────────────────────
@@ -240,13 +261,30 @@ fi
 # 2. Herd unsecure
 (( HERD_SECURED )) && step "herd unsecure $DOMAIN" "$HERD" unsecure "$DOMAIN"
 
-# 3. git worktree remove
+# 3. git worktree remove. Dirty files (only reachable with --force) are copied
+# into <repo>/.trash/ first; there is no automatic --force retry.
 if (( WORKTREE_EXISTS )); then
-    if git -C "$TARGET_REPO" worktree remove "$WT_PATH" >/dev/null 2>&1; then
-        ok "git worktree remove"
-    else
-        warn "clean remove failed — retrying with --force"
-        step "git worktree remove --force" git -C "$TARGET_REPO" worktree remove --force "$WT_PATH"
+    PRESERVE_OK=1
+    if [[ -n "$DIRTY" ]]; then
+        TRASH_DIR="$TARGET_REPO/.trash/$(date -u +%Y%m%dT%H%M%SZ)-worktree-$NAME"
+        mkdir -p "$TRASH_DIR"
+        while IFS= read -r line; do
+            f="${line:3}"
+            f="${f##* -> }"
+            f="${f#\"}"; f="${f%\"}"
+            [[ -e "$WT_PATH/$f" || -L "$WT_PATH/$f" ]] || continue
+            mkdir -p "$TRASH_DIR/$(dirname "$f")"
+            cp -R -P "$WT_PATH/$f" "$TRASH_DIR/$f" || PRESERVE_OK=0
+        done <<< "$DIRTY"
+        if (( PRESERVE_OK )); then ok "dirty files preserved → $TRASH_DIR"
+        else warn "could not preserve every dirty file — NOT removing worktree"; ERRORS+=("preserve dirty files"); fi
+    fi
+    if (( PRESERVE_OK )); then
+        if [[ -n "$DIRTY" ]]; then
+            step "git worktree remove (dirty, preserved)" git -C "$TARGET_REPO" worktree remove --force "$WT_PATH"
+        else
+            step "git worktree remove" git -C "$TARGET_REPO" worktree remove "$WT_PATH"
+        fi
     fi
 fi
 

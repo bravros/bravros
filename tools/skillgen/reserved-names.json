@@ -1,0 +1,5 @@
+{
+  "claude_code_version": "2.1.331",
+  "refused": ["ship", "ship-local", "steward", "ship:steward"],
+  "shadowed": ["context", "doctor", "init", "review", "help", "config", "model", "memory", "clear", "compact", "cost", "status", "login", "logout", "mcp", "hooks", "agents", "permissions", "resume", "export", "vim", "usage", "plugin", "loop", "schedule", "simplify", "code-review", "security-review"]
+}

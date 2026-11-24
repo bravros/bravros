@@ -33,7 +33,7 @@ BACKLOG_ROOT=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)
 PRIMARY_BRANCH=$(cd "$BACKLOG_ROOT" && git branch --show-current)
 # Primary checkout not on the base branch (homolog here) → STOP and tell the user;
 # never write the item onto whatever branch happens to be checked out there.
-( cd "$BACKLOG_ROOT" && bravros commit "📋 chore: add B-NNNN <title>" .planning/ && git push origin "$PRIMARY_BRANCH" )
+( cd "$BACKLOG_ROOT" && bravros commit "📋 chore: add B-NNNN <title>" .planning/backlog/B-NNNN-<slug>.md .planning/events.jsonl && git push origin "$PRIMARY_BRANCH" )
 ```
 
 ## Commands

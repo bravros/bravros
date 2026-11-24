@@ -18,7 +18,7 @@ HARD CONSTRAINTS:
 
 ## Flow
 
-1. Materialize engine: `mkdir -p .bravros/workflows && cp -f ~/.bravros/skills/scout/scripts/scout-investigate.js .bravros/workflows/scout-investigate.js`
+1. Materialize engine: `mkdir -p .claude/workflows && cp -f ~/.bravros/skills/scout/scripts/scout-investigate.js .claude/workflows/scout-investigate.js`
 2. Reserve dir: `SCOUT_DIR=$(bravros nextid reserve scout --slug "$SLUG"); SCOUT_ID=$(basename "$SCOUT_DIR" | grep -oE 'S-[0-9]+')`.
 3. Build candidate lead list (`graphify`/`grep`/`git`/`error`).
 4. Run parallel engine:

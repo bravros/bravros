@@ -128,6 +128,22 @@ Replacing a dossier → add a `⚠️ Superseded by P-NNNN` banner at the top of
 folder as evidence. Never delete it, never rename it. The same rule applies inside a folder: a
 superseded section keeps its text under a banner.
 
+## Confidence tags
+
+**Confidence is mandatory on every issue and every load-bearing claim.** Same vocabulary as `/scout`:
+code reading produces hypotheses, only runtime observation produces proof.
+
+| Tag | Means | Must cite |
+|---|---|---|
+| `OBSERVED` | seen at runtime — live browser, production log, live DB query, executed command | the artefact, or the pasted command + output |
+| `READ` | traced in source, not executed | `file:line` |
+| `CERTIFIED` | `READ` and `OBSERVED` agree | both |
+| `ASSUMED` | neither — states what would settle it | the settling command or question |
+| `SUPERSEDED → <ptr>` | kept for history, no longer load-bearing | the pointer |
+
+Never dress an `ASSUMED` claim as `CERTIFIED`. "Correct by construction" is a hypothesis until
+something ran.
+
 ## What recon must NOT write
 
 No `### Phase N`, no `[H]/[S]/[O]` markers, no `**Touches:**`, no `**Verify:**`, no ordering claims

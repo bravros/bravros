@@ -18,13 +18,13 @@ PR number: `$ARGUMENTS` if numeric, else `PR=$(gh pr view --json number -q .numb
 1. **Fetch Review**: GitHub bot comment + local `.planning/pr-reviews/${PR}-*.md`.
 2. **Classify against HEAD, then fix**: check every finding against the current tree before editing — already satisfied → skip and say so. A **non-blocking finding that names a concrete code change is a fix, not informational** (operator rule: "always fix the nits on address pr"); "informational" is reserved for findings with no code to change. Apply blockers → code issues → style → suggestions. Touch only files named in the review.
 3. **Push, Verify, Stamp** — skip this whole step when no fixes were applied; HEAD has not moved, so there is nothing to ship and the stamp still keys to HEAD:
-   - `/ship` with `🐛 fix: address PR #XX review feedback`
-   - `gh pr checks "$PR" --watch --fail-fast > /tmp/bravros-checks-$PR.txt 2>&1` then `RC=$?` — **never pipe the gate**; `| tail` returns the pipe's status and a red build reads as success.
+   - `/commit-push` with `🐛 fix: address PR <n> review feedback` — **no bare `#<n>`** in the message (GitHub autolinks it and stamps a cross-reference on that PR's timeline); write the number plain.
+   - Run the CI watch with `run_in_background`: `gh pr checks "$PR" --watch --fail-fast > /tmp/bravros-checks-$PR.txt 2>&1` then `RC=$?` into an RC file (`echo $? > /tmp/bravros-checks-$PR.rc`) — **never pipe the gate**; `| tail` returns the pipe's status and a red build reads as success. Read the RC file when the background job exits.
    - `bravros pr-review "$PR" --write-stamp` is commit-sha-keyed and safe to re-run every round: same HEAD → no-op, new HEAD → refreshes in place. No manual stamp deletion needed.
 4. **Route** — the routing act is the LAST tool call of this same turn:
    - **🟢 No fixes**: ZERO code changes this round — every finding informational (no code to change), out of scope, or already satisfied -> `Skill({skill: "finish"})` **in this same turn, no args, no ask**. At most one line ("nothing actionable") before it. A gate table, "ready for /finish", or "run /finish when you want" that ends the turn is a **failed round** — the operator then types `/finish` by hand. If the tool answers that `finish` is already loaded, execute the finish flow anyway.
      Only four anomalies may interrupt the hand-off, each as ONE `ask_question` that names the anomaly (never "what's next?" / "how far should I take it?"): sentinel `changes-requested` · an actionable finding you skipped · PR base ≠ the repo's staging branch (unless `bravros config get police.direct_main` prints `true` — then `main` is the expected base) · PR stacked on / sharing a tree with another open PR or session. Anything else is 🟢.
-   - **⚠️ Re-review**: blockers fixed, logic changed, test behavior modified, or security files touched -> `Skill({skill: "pr-review"})`.
+   - **⚠️ Re-review**: blockers fixed, logic changed, test behavior modified, or security files touched -> `Skill({skill: "pr-review"})`; when security files were touched, built-in `/security-review` may also be run as an extra pass.
    - **✅ Optional**: fixes applied and all cosmetic (style/typos/comments/simple additions/nits) -> ONE `ask_question` under a **`Main merge`** header, in `/finish` Step 7 vocabulary: *Yes — merge to homolog, then main* (`--merge-main`) · *Merge to homolog only* (`--no-main`) · *Re-review anyway* · *Not yet — accumulate*. Never the word "promote".
    - **Third review round on the same PR**: say so and offer a fresh-context `/local-review --deep` instead of a fourth loop.
 
@@ -37,7 +37,7 @@ bash ~/.agent_config/scripts/announce.sh --force "Correções da revisão $PR pu
 ---
 
 ## Skill: advise-project-approach
-Research and advise how a software project should be built — stack selection, architecture, operating-cost tradeoffs, and real-world comparables. Use on `/advise-project-approach` or when asked for project strategy, stack choice, or an architecture/repo critique.
+Use on `/advise-project-approach` or for project strategy, stack choice, or an architecture/repo critique. Researches how to build a project — stack, architecture, cost, comparables — starting from the operator's house stack.
 
 # Advise Project Approach
 
@@ -51,10 +51,10 @@ FIRES ON: stack choice, architecture or repo critique, "is this the right approa
 
 ## Method
 
-1. **Intake gate.** If two or more decision-critical facts are unknown — primary user, core workflow, stage, must-haves, team capability, budget/deadline, deploy target, dominant priority — ask them in ONE batch of ≤7 questions and end the turn. Do not invent a target user, roadmap, or success metric. "Skip the questions" ⇒ continue with assumptions stated visibly.
+1. **Intake gate.** If two or more decision-critical facts are unknown — primary user, core workflow, stage, must-haves, team capability, budget/deadline, deploy target, dominant priority — ask them in ONE batch of ≤7 questions and end the turn. Do not invent a target user, roadmap, or success metric. Before asking, read the operator's house-stack rules (`~/.agent_config/CLAUDE.md` § New project stack) and treat them as a starting constraint — a default, not a verdict; recommend departing only with stated reasons and the cost of departing. "Skip the questions" ⇒ continue with assumptions stated visibly.
 2. **Pick the mode.** No repo ⇒ pre-build strategy · repo, code, or GitHub URL present ⇒ mid-build course correction · "finished / deployed / launch-ready" ⇒ post-build review. Description but no code ⇒ advisory review, and say plainly that file-level findings need a repo.
 3. **Ask before community sources.** X / Reddit / YouTube carry real signal and real noise — offer the choice (official docs + GitHub only · community too · selected sources) and record the answer in the evidence status.
-4. **Gather receipts, then stop.** Two comparables, primary documentation for each material claim, the official pricing page for each cost-sensitive claim. Expand only when sources conflict or a material claim stays unverified — not to look thorough. → `references/research-rules.md`
+4. **Gather receipts, then stop.** Two comparables, primary documentation for each material claim, the official pricing page for each cost-sensitive claim. Comparables may be researched in parallel (one sub-agent each, results merged). Expand only when sources conflict or a material claim stays unverified — not to look thorough. → `references/research-rules.md`
 5. **Judge, don't count.** Stars and adoption raise confidence, never decide. For every comparable state what transfers **and** what must not be copied — a mature project's heavy infrastructure usually reflects its team size, history, and business model, not the user's needs.
 6. **Price the reality, not the free tier.** → `references/cost-analysis.md`
 7. **Map before reading** on anything past ~100 files, and declare inspection scope. → `references/repo-inspection.md`
@@ -73,7 +73,7 @@ Preserve the user's ambition: the job is to make the project easier to build wel
 ---
 
 ## Skill: after-merge
-Generate an after-merge.md operational deploy checklist for homolog-to-main aggregate releases. Use when the user mentions deploying multiple PRs to production, needs a post-merge runbook, or asks what to do after merging to main.
+Use after a homolog-to-main release, or when asked for a post-merge runbook or what to deploy after merging to main. Generates a gitignored after-merge.md operational deploy checklist covering all merged PRs.
 
 # /after-merge — operational deploy checklist
 
@@ -96,7 +96,7 @@ review thread in parallel, then render a local-only `after-merge.md`: Pre-deploy
 ## Flow
 
 1. **Resolve the PR set.** Range `$(git describe --tags --abbrev=0 origin/main)..origin/main`; no tags → `origin/homolog..origin/main` (avoids full history). Extract `#N` from merge commits; `--pr <N>` overrides. Empty set → exit cleanly, mentioning the last tag and the `--pr` escape hatch. List the PRs before pulling context.
-2. **Per-PR context, in parallel.** One Sonnet sub-agent per PR (`subagent_type: "pr-deploy-context-extractor"`, shipped in `agents/`) from the template in `references/extraction-prompts.md` — echo its JSON schema + one-shot example into each prompt; on validation failure, one retry with the validator error verbatim. Sources: `gh pr view <N> --json body,title,number,mergedAt`; plan file via `grep -r "#<N>" .planning/ --include="*.md"`; review thread via `gh pr view <N> --json reviews --jq '.reviews[].body'`.
+2. **Per-PR context, in parallel.** One Sonnet sub-agent per PR (`subagent_type: "pr-deploy-context-extractor"`, shipped in `agents/`) from the template in `references/extraction-prompts.md` — echo its JSON schema + one-shot example into each prompt; on validation failure, one retry with the validator error verbatim. Sources: `gh pr view <N> --json body,title,number,mergedAt`; plan file via `grep -rwF "#<N>" .planning/ --include="*.md"`; review thread via `gh pr view <N> --json reviews --jq '.reviews[].body'`.
 3. **Bucket** into the 5 sections. Blast radius per PR when the repo has a graph: get the PR impact through graphify — a community the PR touches that no reviewer mentioned is a monitoring item; the graph is a HINT, never a substitute for a documented rollback command. Detect the stack from `.bravros/config.json`'s cached `stack` object (fall back to project markers) and emit the matching deploy block from `references/checklist-template.md`.
 4. **Render** `references/checklist-template.md` as-is to `${OUTPUT_PATH:-./after-merge.md}`.
 5. **Verify the gitignore guard still holds**, then summarize: output path, per-bucket counts (highlight ⚠️ CANDIDATE items), next steps.
@@ -157,13 +157,13 @@ later. The backlog never implements; promotion hands off to `/recon`.
 ---
 
 ## Skill: batch-merge-prs
-Verify N PRs, address review feedback, ordered-merge to the staging branch (never main), close linked issues/backlog per merge, then hand off the full test suite. Use on /batch-merge-prs.
+Merge N open PRs in order to the staging branch (never main): verify, fix review feedback, close linked issues, hand off the suite. Use on /batch-merge-prs.
 
 # batch-merge-prs
 
 Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
-INTENT: take N open PRs from open → verified → merged on the staging branch → linked issue/backlog closed per merge → full suite handed to operator. Staging is `homolog` unless project CLAUDE.md states otherwise. Run from repo root.
+INTENT: take N open PRs from open → verified → merged on the staging branch → linked issue/backlog closed per merge → full suite handed to operator. Staging = `bravros config get staging_branch`. Run from repo root.
 
 ## Hard constraints
 
@@ -175,7 +175,7 @@ INTENT: take N open PRs from open → verified → merged on the staging branch 
 
 ## Flow
 
-1. **Verify (parallel, read-only).** `mkdir -p .claude/workflows && cp -f ~/.agent_config/skills/batch-merge-prs/scripts/verify-prs.js .claude/workflows/` then run `Workflow({name:'verify-prs', args:{staging_branch, bot:'claude', guards:[…], prs:[…]}})`.
+1. **Verify (parallel, read-only).** `STAGING=$(bravros config get staging_branch 2>/dev/null); STAGING=${STAGING:-homolog}; mkdir -p .claude/workflows; S=~/.agent_config/skills/batch-merge-prs/scripts/verify-prs.js; D=.claude/workflows/verify-prs.js; cmp -s "$S" "$D" || cp -f "$S" "$D"` then run `Workflow({name:'verify-prs', args:{staging_branch, bot:'claude', guards:[…], prs:[…]}})`.
    Verdicts: clean → queue · needs-changes → fix-agent per PR, re-verify · superseded → close · blocked → stop. `deep` mode on free tree only.
 2. **Merge (SERIAL, ascending, one standalone call per PR).** Follow `skills/shared/merge-flow.md`. Re-check mergeability per PR. Default `--merge`. Conflict recovery & per-merge closeout: `references/merge-loop.md`.
 3. **Hand off suite — never deploy.** Operator runs suite in terminal. Staging regressions post-batch belong to the batch.
@@ -190,36 +190,10 @@ bash ~/.agent_config/scripts/announce.sh --force "Mesclagem em lote concluída: 
 
 ---
 
-## Skill: commit
-Commit staged changes with emoji+type conventions and formatting.
+## Skill: claudemd
+Use on /claudemd to generate or audit CLAUDE.md files with stack auto-detection and Context7 docs. Not the built-in /context (token usage).
 
-# commit
-
-INTENT: commit the current changes. Commit only — never push.
-
-HARD CONSTRAINTS:
-- Always `bravros commit "<emoji> <type>[(scope)]: <subject>" <files...>` — never raw
-  `git add && git commit`. The verb runs the project formatter (pint / prettier / ruff /
-  gofmt / cargo fmt) before committing, and the commit-msg hook enforces the format.
-- Name files explicitly — never blanket-stage. Never stage `.env`, `.env.*`, credentials, or API keys.
-- NEVER add AI signatures — **no `Co-Authored-By:` trailer of any kind** (not `Claude`, not `Claude Sonnet …`), no "Generated with…" line. The harness may append one by default: omit it from the message; the hook rejects it ("AI signature detected!").
-- **Stale-hook error:** if the commit-msg hook rejects a message that matches the format above (e.g. `✨ feat(orders): …` → `Invalid commit message format … Required format: <emoji> <type>: <description>`), the repo's hook is stale (older than the `(scope)` template). Do NOT silently retry without the scope or hand-edit the hook — report it and run `/update-hooks`, then recommit with the original message.
-- Subject ≤ 50 chars (hard 72), present tense, lowercase, why over what; detail goes in the body.
-- No branch gate here — that lives in `/push` and `/ship`. Committing on `main` is normal in a direct-main repo — `bravros config get police.direct_main` prints `true` (`/git-this` personal repos); anything else (empty, an error, an older CLI reporting an unknown key) means PR-gated: branch first, then commit. `staging_branch` is never the discriminator — it never prints empty.
-
-REPO FACT — the only accepted `<emoji> <type>` pairs:
-✨ feat · 🐛 fix · 📚 docs · 💄 style · ♻️ refactor · ⚡ perf · 🧪 test · 🔧 build · 🧹 chore ·
-📋 plan · 🔒 security · 🗃️ migration · 📦 deps · 🚀 deploy · 🤖 ci · 🔥 remove · 🩹 hotfix ·
-🔀 merge · 🔍 debug · 🔙 revert · 🌐 i18n
-
-Use $ARGUMENTS as context for the commit message if provided.
-
----
-
-## Skill: context
-Scan project and generate/audit CLAUDE.md files with stack auto-detection and Context7 docs.
-
-# Context — generate & audit CLAUDE.md files
+# claudemd — generate & audit CLAUDE.md files
 
 Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
@@ -246,18 +220,63 @@ HARD CONSTRAINTS:
 
 ---
 
+## Skill: commit
+Commit current changes with emoji+type conventions and formatting, never pushing. Use on /commit when work is done and only a local commit is wanted.
+
+# commit
+
+INTENT: commit the current changes. Commit only — never push.
+
+HARD CONSTRAINTS:
+- Always `bravros commit "<emoji> <type>[(scope)]: <subject>" <files...>` — never raw
+  `git add && git commit`. The verb runs the project formatter (pint / prettier / ruff /
+  gofmt / cargo fmt) before committing, and the commit-msg hook enforces the format.
+- Name files explicitly — never blanket-stage. Never stage `.env`, `.env.*`, credentials, or API keys.
+- NEVER add AI signatures — **no `Co-Authored-By:` trailer of any kind** (not `Claude`, not `Claude Sonnet …`), no "Generated with…" line. The harness may append one by default: omit it from the message; the hook rejects it ("AI signature detected!").
+- **Stale-hook error:** if the commit-msg hook rejects a message that matches the format above (e.g. `✨ feat(orders): …` → `Invalid commit message format … Required format: <emoji> <type>: <description>`), the repo's hook is stale (older than the `(scope)` template). Do NOT silently retry without the scope or hand-edit the hook — report it and run `/update-hooks`, then recommit with the original message.
+- Subject ≤ 50 chars (hard 72), present tense, lowercase, why over what; detail goes in the body.
+- No branch gate here — that lives in `/push` and `/commit-push`. Committing on `main` is normal in a direct-main repo — `bravros config get police.direct_main` prints `true` (`/git-this` personal repos); anything else (empty, an error, an older CLI reporting an unknown key) means PR-gated: branch first, then commit. `staging_branch` is never the discriminator — it never prints empty.
+
+REPO FACT — the only accepted `<emoji> <type>` pairs:
+✨ feat · 🐛 fix · 📚 docs · 💄 style · ♻️ refactor · ⚡ perf · 🧪 test · 🔧 build · 🧹 chore ·
+📋 plan · 🔒 security · 🗃️ migration · 📦 deps · 🚀 deploy · 🤖 ci · 🔥 remove · 🩹 hotfix ·
+🔀 merge · 🔍 debug · 🔙 revert · 🌐 i18n
+
+Use $ARGUMENTS as context for the commit message if provided.
+
+---
+
+## Skill: commit-push
+Commit and push the current branch in one step after a branch-safety gate. Use on /commit-push when changes are ready to ship, with no PR.
+
+# commit-push
+
+INTENT: `/commit` then `/push`, with one branch gate first. Never creates a PR.
+
+HARD CONSTRAINTS:
+- Refuse on `main`/`master` **in a PR-gated repo** — there those branches move only via PR (`homolog → main`).
+  Every other branch, including `homolog`, is shippable directly.
+- **Direct-main repos ship on `main` by design.** `.bravros/config.json` with `police.direct_main: true` (`bravros police direct-main on`, or a `/git-this` personal repo) has no staging branch — commit and push `main` there without ceremony. The gate is a pure binary: `bravros config get police.direct_main` prints `true` → direct-main, ship allowed; anything else (empty, an error, an older CLI reporting an unknown key) → PR-gated, refuse and point to a PR. `staging_branch` is never the discriminator — `config get staging_branch` never prints empty.
+- `/commit`'s rules apply in full: emoji format, no secrets staged, no AI signatures (no `Co-Authored-By` trailer). A `Invalid commit message format … Required format: <emoji> <type>: <description>` rejection of a valid scoped message means a stale repo hook → tell the operator and suggest `/update-hooks`; never drop the scope silently to get past it.
+
+Run `/commit`, then `Skill({skill: "push"})` — `/push` is the canonical push primitive.
+
+Report one line — `✅ <emoji> <type>: <subject> — pushed to origin/<branch>` — or the relevant error.
+
+---
+
 ## Skill: doctor-plus
-Runs Claude Code's built-in /doctor health check, then audits the workspace against Anthropic's 6 then-and-now context-engineering shifts (rules→judgement, examples→interfaces, progressive disclosure, one-home instructions, auto-memory, rich references). Reports first, fixes only on approval. Use on /doctor-plus or "context checkup".
+Use on /doctor-plus or "context checkup" to audit workspace context (guidance files, skills, rules, memory) against Anthropic's 6 context-engineering shifts. Reports first; fixes only on approval. Built-in /doctor is separate.
 
 # Doctor Plus
 
-Runs standard `claude doctor` health check and audits workspace context against Anthropic's 6 context-engineering shifts.
+Audits workspace context against Anthropic's 6 context-engineering shifts. The built-in `/doctor` health check is separate — point the user to it; never run `claude doctor` from Bash.
 
 Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 ## Key Workflow Summary
 
-1. **Standard Checkup**: Run `claude doctor` (60s timeout). Summarize findings or note manual execution if interactive.
+1. **Built-in checkup**: do not run `claude doctor`; tell the user to run the built-in `/doctor` themselves, then continue.
 2. **Context Shift Audit**: Audit guidance files, skills, rules, and memory indexes against 6 shifts:
    - Judgement over rules
    - Interfaces over examples
@@ -301,7 +320,7 @@ readiness gates, and the blob verification all have to run **verbatim**.
 ---
 
 ## Skill: git-this
-Bootstrap a private GitHub repo for the current folder and wire the origin remote. Invoke via /git-this.
+Use on /git-this to bootstrap a private GitHub repo for the current folder, wire origin, and push the initial commit.
 
 # /git-this — bootstrap a private GitHub repo from the current folder
 
@@ -325,9 +344,9 @@ direct-main policy for personal/scratch repos. Owner: `gh api user -q .login`.
 1. **Preflight**: `gh auth status`; owner; sanitize folder name to repo slug; check `gh repo view "$OWNER/$NAME"` collision.
 2. **One ask**: "Set up a `homolog` staging branch from day one?" (default **No** — most personal repos are main-only). Record `WANT_HOMOLOG`.
 3. **Collision**: announce, propose 3 free alternatives, ask user via user prompt, loop max 3.
-4. **Create + wire**: `gh repo create "$OWNER/$NAME" --private`; `git init -b main`; `git remote add origin git@github.com:$OWNER/$NAME.git`. Then, per constraint 7: no `WANT_HOMOLOG` → `bravros police direct-main on`; `WANT_HOMOLOG` → write `.bravros/config.json` with `{"staging_branch": "homolog"}` instead. Do NOT create `homolog` yet — there is no commit for it to point at, and `git push -u origin homolog` fails with `src refspec homolog does not match any`.
+4. **Wire**: `git init -b main`; `git remote add origin git@github.com:$OWNER/$NAME.git`. Then, per constraint 7: no `WANT_HOMOLOG` → `bravros police direct-main on`; `WANT_HOMOLOG` → write `.bravros/config.json` with `{"staging_branch": "homolog"}` instead. Do NOT create `homolog` yet — there is no commit for it to point at, and `git push -u origin homolog` fails with `src refspec homolog does not match any`.
 5. **Scaffold**: empty folder → `README.md` (`# {NAME}`) + `CLAUDE.md`; non-empty → `CLAUDE.md` only if missing. The CLAUDE.md branch-policy paragraph switches on `WANT_HOMOLOG` (direct-main text vs `feature/* → homolog → main`). `.bravros/config.json` from step 4 is always included.
-6. **Commit + push**: `bravros commit` (stage `.bravros/config.json` alongside the scaffolded files), `git push -u origin main`. Then, only with `WANT_HOMOLOG`: `git branch homolog main && git push -u origin homolog` — stay on `main`. Print repo URL summary.
+6. **Commit + push**: `bravros commit` (stage `.bravros/config.json` alongside the scaffolded files); only once it succeeds, `gh repo create "$OWNER/$NAME" --private` (a failed commit leaves no orphan GitHub repo), then `git push -u origin main`. Then, only with `WANT_HOMOLOG`: `git branch homolog main && git push -u origin homolog` — stay on `main`. Print repo URL summary.
 
 ---
 
@@ -352,14 +371,14 @@ Print the table verbatim. Do not re-measure by hand or re-format it — the scri
 
 Options:
 - `--json`: machine-readable rows instead of table
-- `--depth N`: walk depth per root (default 3)
+- `--depth N`: walk depth per root (default 4)
 - `--no-prompt`: skip auto-generating labelling prompts
 - `<root> ...`: scan specific roots instead of the defaults (`~/Code`, plus `~/Sites` if present)
 
 ## Key Rules
 
 - **Degraded graphs**: If a run reports degraded coverage, follow the prompt verdict in `/tmp/graphify-label/<project>-relabel-prompt-N.md`.
-- **Merge results**: Merge completed label JSONs using `merge-missing-labels.py` (additive, never overwrites without `--force`).
+- **Merge results**: Merge completed label JSONs with `uv run ~/.agent_config/skills/graphify-status/scripts/merge-missing-labels.py <project> <results.json> [...] [--dry-run] [--force]` (additive, never overwrites without `--force`).
 - **Never use `collate-labels.py`** for partial relabels.
 
 ---
@@ -418,11 +437,11 @@ INTENT: ship an urgent production fix now, bypassing the plan workflow. Flow: co
 
 0. **Confirm repo identity** before anything: `git remote get-url origin` + `basename "$(git rev-parse --show-toplevel)"` — a hotfix in the wrong checkout is the worst possible mistake.
 1. Refuse on `main`/`master`. Strip issue ref for PR title / `Closes #42`.
-2. Format files → `bravros commit "🩹 hotfix: <description>" <changed files only>`.
+2. `bravros commit "🩹 hotfix: <description>" <changed files only>`.
 3. Push & merge to `homolog` → `gh pr create --base main --head homolog --title "🩹 hotfix: <description>"` (body written with the Write tool to a **literal absolute path** in a previous step, then `--body-file <that path>` as its own call — never `$VAR`, `cp`, or a relative path; no attribution lines).
-4. **Wait for mergeability**, or the first merge hits the `UNKNOWN` block: `until [ "$(gh pr view "$PR_NUMBER" --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ]; do sleep 2; done`.
+4. **Wait for mergeability**, or the first merge hits the `UNKNOWN` block: `for _ in {1..24}; do [ "$(gh pr view "$PR_NUMBER" --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ] && break; sleep 2; done` (24 tries max, then report — never an open-ended loop).
 5. Check autopr gate → `gh pr merge 1234 --merge > /tmp/bravros-merge-1234.txt 2>&1` (substitute the literal number — a `$VAR` here is unreadable to the hook; no `cd … &&`, no `| tail`) → verify state == `MERGED`. A `✋🏽 Police Block` names its reason — relay it in one line; never `gh api`/raw HTTP, never `/promote`.
-6. Sync `homolog` from `main` (`git checkout homolog && git pull && git fetch origin main && git merge ...`).
+6. Sync `homolog` from `main` without checking anything out: `git fetch origin main homolog && git push origin origin/main:homolog` (plain fast-forward push; rejected → report, never force).
 7. Close plan if applicable (`.planning/events.jsonl`) → `bravros commit`.
 8. **Deploy status line, explicit**: `merged main @ <sha> · deploy: <auto-triggered / manual / none> · built+restarted: <yes / no / n-a> · verified: <how / not yet>`. Compiled or infra targets (Go binaries, containers, homelab) must say whether a rebuild + restart on the server is still required.
 9. Announce via `bash ~/.agent_config/scripts/announce.sh --force "<PT-BR>" studio || true` (template in briefing).
@@ -430,7 +449,7 @@ INTENT: ship an urgent production fix now, bypassing the plan workflow. Flow: co
 ---
 
 ## Skill: interview-me
-Stress-test a plan or design via a round-by-round interview — ask the whole frontier of independent questions each round until every branch of the decision tree is locked. Use on `/interview-me`, "interview me", or when the user signals doubt about a plan.
+Use on `/interview-me`, "interview me", or when the user doubts a plan. Stress-tests a plan or design round by round, asking each round's whole frontier of independent questions until every decision branch is locked.
 
 # Interview Me
 
@@ -469,6 +488,17 @@ FIFO queues, edge caching, and Horizon — before the deploy finds them.
 
 Verified against **Laravel 13.25.0**. The mailable/notification asymmetry in § FIFO is
 framework-internal; re-read the vendor source before trusting it on a newer major.
+
+## 0. Preflight — before touching anything
+
+```bash
+composer show aws/aws-sdk-php >/dev/null 2>&1; echo "aws-sdk rc=$?"
+```
+
+**`aws/aws-sdk-php` must be a composer dependency.** Laravel Cloud's managed queue is SQS
+underneath, and a deploy without this package fails with "Your application has a managed queue
+but is missing the [aws/aws-sdk-php] package." rc≠0 ⇒ `composer require aws/aws-sdk-php` now,
+before the first deploy that enables the managed queue, not after the failure.
 
 ## 1. SQS FIFO — three paths, three different hooks
 
@@ -518,33 +548,72 @@ trait GroupsQueuedMail
 directions. `NotificationSender::queueNotification()` already reads `messageGroup()` off the
 notification and forwards it via `->onGroup()` to the wrapper. Just declare the method.
 
+**Queued listeners** — declare `messageGroup()` too, and confirm in the vendor source that the
+event dispatcher forwards it to `CallQueuedListener` on the installed Laravel version.
+
 **Choosing the group key.** Group per entity (`post-{id}`, `lead-{id}`, `media-{id}`), never a
 constant — a single group serializes everything in it. Deliberately *share* a key only when
 ordering matters: a lead's download link, follow-up mail, and scheduled sends all belong in
 `lead-{id}` so sequence 1 precedes sequence 2.
 
-## 2. The guard test — hand-written datasets always miss one
+## 2. The guard test — recursive, every queued folder, never vacuous
 
-A dataset only proves the classes someone remembered to list. Walk the source tree instead, and
-cover `app/Notifications` as well as `app/Jobs` — in practice the notification is what gets missed:
+A hand-written dataset only proves the classes someone remembered to list. Walk the source tree
+instead: **recursively** (subfolders), over **every** folder that holds queued classes — Jobs,
+Notifications, Listeners, Mail. Mailables are held to a different rule: they must use the
+`GroupsQueuedMail` trait, because a `messageGroup()` on a mailable is never read.
 
 ```php
-it('leaves no queued job or notification without a group', function (string $dir, string $ns) {
-    $missing = collect(glob(app_path($dir.'/*.php')))
-        ->map(fn (string $path) => $ns.'\\'.basename($path, '.php'))
-        ->filter(fn (string $class) => is_subclass_of($class, ShouldQueue::class))
-        ->reject(fn (string $class) => method_exists($class, 'messageGroup'))
-        ->values();
+use App\Concerns\GroupsQueuedMail;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Symfony\Component\Finder\Finder;
 
-    expect($missing)->toBeEmpty("No messageGroup(): {$missing->implode(', ')}");
-})->with([['Jobs', 'App\\Jobs'], ['Notifications', 'App\\Notifications']]);
+/** @return list<class-string> every class under app/<dir>, recursively */
+function classesUnder(string $dir, string $ns): array
+{
+    if (! is_dir(app_path($dir))) {
+        return [];
+    }
+
+    $classes = [];
+    foreach ((new Finder)->files()->in(app_path($dir))->name('*.php') as $file) {
+        $relative = str_replace(['/', '.php'], ['\\', ''], $file->getRelativePathname());
+        $classes[] = $ns.'\\'.$relative;
+    }
+
+    return $classes;
+}
+
+dataset('queued-folders', [
+    'Jobs' => ['Jobs', 'App\\Jobs'],
+    'Notifications' => ['Notifications', 'App\\Notifications'],
+    'Listeners' => ['Listeners', 'App\\Listeners'],
+    'Mail' => ['Mail', 'App\\Mail'],
+]);
+
+it('scans a non-empty folder', function (string $dir, string $ns) {
+    // Non-vacuous: a glob/namespace typo or a deleted folder fails here instead of passing forever.
+    expect(classesUnder($dir, $ns))->not->toBeEmpty("app/{$dir} has no classes — wrong path or namespace?");
+})->with('queued-folders');
+
+it('leaves no queued class without a message group', function (string $dir, string $ns) {
+    $queued = collect(classesUnder($dir, $ns))
+        ->filter(fn (string $class) => class_exists($class) && is_subclass_of($class, ShouldQueue::class));
+
+    $missing = $dir === 'Mail'
+        ? $queued->reject(fn (string $class) => in_array(GroupsQueuedMail::class, class_uses_recursive($class), true))
+        : $queued->reject(fn (string $class) => method_exists($class, 'messageGroup'));
+
+    expect($missing->values()->all())->toBeEmpty("Missing message group: {$missing->implode(', ')}");
+})->with('queued-folders');
 ```
 
-**Prove it is not vacuous.** A glob typo makes this pass over an empty set forever. Print the
-enumeration once and confirm the real classes appear:
+Drop a dataset row only when the app genuinely has no such folder — and say so in the test file.
+
+Confirm once that the enumeration sees the real queued classes:
 
 ```bash
-php artisan tinker --execute 'echo collect(glob(app_path("Jobs/*.php")))->map(fn($p) => "App\\Jobs\\".basename($p, ".php"))->filter(fn($c) => is_subclass_of($c, \Illuminate\Contracts\Queue\ShouldQueue::class))->implode(", ");'
+php artisan tinker --execute 'echo collect(File::allFiles(app_path("Jobs")))->count()." job files";'
 ```
 
 Assert the wrapper too, not just the method — the method is not what SQS reads:
@@ -567,52 +636,42 @@ carrying `Set-Cookie`** — which Laravel queues on every web response. Two non-
 - **Livewire's `DisableBackButtonCacheMiddleware`** stamps `no-store` plus `Pragma` and a 1990
   `Expires` on every full-page component. Laravel Cloud honours all three — clear all three.
 
-`prepend()` to the **global** stack so the middleware unwinds last: after the session cookie is
-queued and encrypted, and after Livewire's globally pushed middleware.
+`prepend()` to the **global** stack so the middleware unwinds last. **`s-maxage` only** —
+`Cache-Control: public, max-age=0, s-maxage=3600, must-revalidate`; the edge is purged on every
+deploy, a private browser copy is not.
 
-```php
-$response->headers->remove('Set-Cookie');
-$response->headers->remove('Pragma');
-$response->headers->remove('Expires');
-$response->headers->set('Cache-Control', 'public, max-age=0, s-maxage=3600, must-revalidate');
-```
+**Never cache:** Livewire form routes (shared CSRF token ⇒ 419 on every post) · authenticated
+requests (leaks one user's page) · non-200 / non-cacheable methods · UTM-tagged requests (no
+session exists to record attribution). **Strip the CSRF meta tag** from cacheable HTML and remove
+`Content-Length` after `setContent()`.
 
-**`s-maxage` only.** Laravel Cloud purges the edge on every deployment, so an edge copy can never
-outlive the deploy that replaced it. A private browser copy gets no such purge — hence
-`max-age=0, must-revalidate`. Revalidation is answered by the edge, not the origin, so hibernation
-still works.
-
-**Never cache** — each of these is a real outage, not a precaution:
-
-| Excluded | Why |
-|---|---|
-| Livewire form routes | one shared CSRF token vs each visitor's own session ⇒ 419 on every post |
-| Authenticated requests | leaks one user's page to everyone |
-| Non-200, non-cacheable methods | caches errors |
-| UTM-tagged requests | a cached response sets no cookie, so no session exists to record attribution |
-
-**Strip the CSRF meta tag** from cacheable HTML. `<meta name="csrf-token">` bakes in the token of
-whichever request populated the edge. Inert while no JS reads it — then silently 419s for a whole
-TTL window the moment some does. An absent tag fails loudly; a wrong one fails for an hour. After
-`setContent()`, remove `Content-Length` — a stale length truncates the body.
+The middleware, its feature tests, and the rationale for each rule:
+**`references/edge-cache.md`** — read it before writing the middleware.
 
 ## 4. Horizon is incompatible
 
-Laravel Cloud manages queue workers itself. Remove `laravel/horizon`, `config/horizon.php`, the
-`HorizonServiceProvider`, its panel/nav registration, and any `horizon:snapshot` schedule entry.
-Removing the composer dep means production needs a `composer install` on deploy.
+Laravel Cloud manages queue workers itself. **Grep for leftovers first** — the starter kit ships
+Horizon, so references hide in more places than the composer dep:
+
+```bash
+grep -rniE 'horizon' composer.json config app routes bootstrap resources database tests .env.example
+```
+
+Remove `laravel/horizon`, `config/horizon.php`, the `HorizonServiceProvider` (and its entry in
+`bootstrap/providers.php`), the Horizon panel/nav/gate registration, any `horizon:snapshot`
+schedule entry, `HORIZON_*` env keys, and Horizon-specific tests. Re-run the grep until it is
+empty. Removing the composer dep means production needs a `composer install` on deploy.
 
 ## Verify
 
 ```bash
 php artisan route:list --except-vendor >/dev/null; echo "boot rc=$?"   # boots without Horizon
-composer show aws/aws-sdk-php >/dev/null 2>&1; echo "aws-sdk rc=$?"    # required for the managed queue
+composer show aws/aws-sdk-php >/dev/null 2>&1; echo "aws-sdk rc=$?"    # step 0 requirement still holds
 ```
 
-**`aws/aws-sdk-php` must be a composer dependency.** Laravel Cloud's managed queue is SQS
-underneath, and a deploy without this package fails with "Your application has a managed queue
-but is missing the [aws/aws-sdk-php] package." Add it (`composer require aws/aws-sdk-php`) before
-the first deploy that enables the managed queue, not after the failure.
+Run the guard test by path (`php artisan test --compact tests/Feature/QueueGroupsTest.php`) —
+never the full suite yourself in an interactive session; hand the operator the full-suite command
+for a separate tab (background it only when AFK/autonomous).
 
 **Scale-to-zero / hibernation wake interval is a dashboard setting, not code.** The hourly (or
 other) wake cadence that keeps a hibernating environment checking in is configured in the Laravel
@@ -653,21 +712,29 @@ The prefix keeps it beside its sibling skill.
 **A green suite, unfiltered.** This rewrites hundreds of test files at once; without a known-good
 baseline you cannot attribute a single failure afterwards.
 
-```bash
-./vendor/bin/pest --parallel --no-tia
+**Never run the full suite yourself in an interactive session** — it pins the operator's machine for
+minutes. Hand over the exact command and wait for the result:
+
 ```
+Suíte completa, rode numa aba separada:
+! cd <repo> && ./vendor/bin/pest --parallel --no-tia
+```
+
+Only when the operator is AFK / the run is autonomous may you background it yourself. Targeted runs
+(paths, `--filter`) are always fine.
 
 `--no-tia` matters even here. If the repo followed `/laravel-pest5-upgrade`, `pest()->tia()->locally()`
 makes a bare `--parallel` run impact-filtered — a green that proves nothing about the files Rector
 is about to touch. **Every suite run in this skill is `--no-tia`.**
 
-Working tree clean before step 4 — Rector rewrites in place with no backup, and a dirty tree makes
-its diff unreviewable.
+**Hard gate — clean working tree before step 4.** Check `git status --porcelain`; any output ⇒ stop
+and ask the operator to commit or stash. Rector rewrites in place with no backup, and a dirty tree
+makes its diff unreviewable and its undo impossible.
 
 ## 2. Install
 
 ```bash
-composer require pestphp/pest-plugin-rector --dev
+composer require pestphp/pest-plugin-rector:^5.0.2 --dev
 composer require rector/rector --dev
 ```
 
@@ -675,11 +742,10 @@ The plugin already depends on `rector/rector ^2.6.1`, so `vendor/bin/rector` arr
 The second line is what the docs prescribe and it pins Rector at top level — worth having when the
 plugin's own constraint later widens.
 
-**Require v5.0.2 or newer.** v5.0.0–v5.0.1 shipped a `ChainExpectCallsRector` bug that collapsed
+**Require v5.0.2 or newer — the constraint above enforces it at install time.** v5.0.0–v5.0.1 shipped a `ChainExpectCallsRector` bug that collapsed
 two `expect()` calls on an AST-equal *side-effectful* subject into a single chain, silently dropping
 the second evaluation and turning passing tests red. Fixed in v5.0.2 by an `isSideEffectFree()`
-guard. `composer require` takes the latest by default — confirm with
-`composer show pestphp/pest-plugin-rector`.
+guard. Confirm the resolved version with `composer show pestphp/pest-plugin-rector`.
 
 Not this plugin's job: converting PHPUnit class-style tests to Pest. That is
 `pestphp/pest-plugin-drift`, a separate package — and `/laravel-pest5-upgrade` step 3.
@@ -771,11 +837,8 @@ it off only if you dislike the shape:
 
 ## 5. Prove no regression
 
-```bash
-./vendor/bin/pest --parallel --no-tia
-```
-
-Same command as step 1, same expected result. **`--no-tia` is not optional here** — Rector just
+Hand the operator the same command as step 1 (`./vendor/bin/pest --parallel --no-tia`, separate tab;
+background it yourself only when AFK) — same expected result. **`--no-tia` is not optional here** — Rector just
 rewrote a large share of the suite, and a filtered run would grade its own homework.
 
 Failures are almost always a rewritten assertion that changed meaning. Fix the test, do not revert
@@ -825,9 +888,13 @@ Sources: [Rector plugin docs](https://pestphp.com/docs/rector) ·
 ---
 
 ## Skill: laravel-pest5-upgrade
-Upgrade a PHP/Laravel repo from Pest 4 to Pest 5 and enable Test Impact Analysis locally.
+Upgrade a PHP/Laravel repo from Pest 4 to Pest 5 and enable Test Impact Analysis locally. Use on /laravel-pest5-upgrade, or when a Pest bump or `Tia mode requires Pest tests` breaks tests.
 
 # Pest 4 → 5 + Test Impact Analysis
+
+Also use it for: `pestphp/pest ^5`, `--tia`, "why is my test suite so slow", speeding up a slow
+PHP suite, `WorkerCrashedException` after enabling TIA, converting PHPUnit class-style tests to
+Pest, a TIA baseline, or a Pest/PHPUnit dependency bump that broke tests (attributing the fallout).
 
 Turn a full local run into one that executes only the tests the current diff can reach. Measured
 on a real 18,594-test Laravel suite: **655 s cold → 5.83 s** for a one-file change.
@@ -840,11 +907,20 @@ diagnosable.
 graph) is out of scope — it was attempted, three bugs were found in the upstream recipe, and it
 was parked. If asked for it, read `references/ci-baseline.md` first.
 
+## 0. Early exit — already on Pest 5?
+
+`vendor/bin/pest --version` reports 5.x (the starter kit ships it) ⇒ skip steps 2–3's install work:
+check only that TIA is configured (step 4) and the gate is documented (step 5), then stop.
+
 ## 1. Preconditions
 
 Needs PHP 8.4+ (`pest@5` requires `^8.4`, pulls `phpunit ^13.3`), a **coverage driver** (pcov or
 Xdebug — TIA records its graph through it and cannot run without one; prefer pcov, several times
-faster), and a **green full suite** to attribute fallout against.
+faster), and a **green full suite** to attribute fallout against. **Never run the full suite yourself in an
+interactive session** — hand the operator the exact command (`cd <repo> && vendor/bin/pest --parallel
+--no-tia`) for a separate tab and wait; background it yourself only when AFK/autonomous. Targeted
+runs (paths, `--filter`) are fine. The working tree must be clean (`git status --porcelain` empty) —
+hard gate before step 2.
 
 Then count the real work, because it sets the schedule — two class-style tests is an afternoon,
 fifty is a different project:
@@ -878,6 +954,9 @@ Encountered PHPUnit class Tests\Feature\...  (EnsureTiaIsRunningPestTestsOnly.ph
 ```
 
 Anyone who hasn't seen this starts debugging a file that is fine.
+
+Many files? Fan out one worker per `tests/` subfolder (disjoint files, so no write collisions)
+instead of converting serially; re-run the grep afterwards to catch stragglers.
 
 **Checkpoint:** the step-1 grep returns nothing, and each converted file passes with the same
 assertion count as before. Patterns, the helper-name collision trap, and dataset merges:
@@ -951,7 +1030,7 @@ docs' own CI recipe was self-contradictory, and only the source explained why.
 ---
 
 ## Skill: local-review
-Run a local PR review without the @claude GitHub Action.
+Use on `/local-review` to review a PR locally without the @claude GitHub Action — a fresh subagent reviews the diff, saves and posts findings. Built-in `/code-review` can serve as an optional engine.
 
 Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
@@ -968,7 +1047,7 @@ Flags: `<PR>` · `--deep` · `--post`/`--no-post`.
 ## Overview
 
 1. **Gather**: `gh pr view "$PR"` + `gh pr diff "$PR"` + file stats.
-2. **Dispatch**: Send diff and repo checks to subagent (`sonnet` / `opus` on `--deep`).
+2. **Dispatch**: Send diff and repo checks to subagent (`sonnet` / `opus` on `--deep`). The built-in `/code-review` may optionally serve as the reviewer engine inside that subagent; the contract (fresh zero-context reviewer, verdict block, no stamp write) is unchanged.
 3. **Parse + save**: Extract verdict block and save `.planning/pr-reviews/${PR}-<TS>.md`.
 4. **Post + route**: Comment on PR (unless `--no-post`) and route to `/finish` or `/address-pr`.
 
@@ -995,7 +1074,7 @@ bash ~/.agent_config/scripts/announce.sh --force "Autenticação do 1Password ne
 - **Title:** `<Service> - <Project> <Purpose>`, ASCII only (letters, digits, spaces, `-`, `_`). Auto-rewrite anything with `— ( ) + & @ /` or emoji; show the rewrite and confirm. `scripts/validate-title.sh` checks + suggests.
 - **Category** `API Credential` by default (SSH key → `SSH Key`, DB URL → `Database`, seed phrase → `Wallet`). **Vault** `HomeLab` unless the user says otherwise; CI service accounts → dedicated `CI` vault. **Tags:** minimum 2 — service + project; add role/env when relevant.
 - **Required fields — refuse to create without them:** `credential` (concealed) · `token type` · `permissions` · `used by` · `env var` · `owner` · `rotated` (date, today on every create/rotation). Recommended: `rotation_interval`, `provider_url`, `expires`.
-- After create, verify `op read "op://HomeLab/<Title>/credential" | head -c 20` — failure means an invalid title char; archive and recreate. Print the `op://` reference and the `.env` line, never the raw token.
+- After create, verify with a length check only: `op read "op://HomeLab/<Title>/credential" | wc -c` — non-zero = ok; never print any part of the value (no truncated previews, no `cut`). Failure means an invalid title char; archive and recreate. Print the `op://` reference and the `.env` line, never the raw token.
 
 ## Workflows
 
@@ -1096,19 +1175,19 @@ Create a Pull Request with plan context and base branch detection.
 
 # pr
 
-INTENT: ship everything (`/ship`), open the PR against the right base, hand off to review.
+INTENT: ship everything (`/commit-push`), open the PR against the right base, hand off to review.
 
 > [!IMPORTANT]
 > Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 HARD CONSTRAINTS:
-- PRs NEVER target `main` directly (`feature/* → homolog → main`).
+- In a PR-gated repo, feature PRs NEVER target `main` (`feature/* → homolog → main`); only `homolog → main`. In a direct-main repo (`bravros config get police.direct_main` prints `true`) `main` is the expected base.
 - Title: `<emoji> <type>: <description>`, **under 70 characters**.
 - NEVER add AI signatures to title or body — no `Generated with Claude Code` line, no `Co-Authored-By`, no 🤖 footer. Don't write one; there is nothing to strip (no `sed -i`/`perl` cleanup of the body file — the police hook blocks the rewrite dance and the attribution is disabled in settings). On a public repo this would be a leak, not a style nit.
 - **NEVER write a bare `#N` in the body except for an issue/PR you mean to link.** GitHub
   autolinks it and stamps a cross-reference onto that issue's timeline; a "finding #3" reference
   silently spams an unrelated old issue. Write `finding 3` or backtick it.
-- Never open a PR with uncommitted changes (`/ship` first).
+- Never open a PR with uncommitted changes (`/commit-push` first).
 - **Creating the PR is not the end of the task — the review trigger is.** `/pr` is one unit of
   work that finishes at HANDOFF below. The user says `/pr`, never `/pr` *and* `/pr-review`.
   Stopping after `gh pr create` leaves the job half done, so do not report success until the
@@ -1116,7 +1195,8 @@ HARD CONSTRAINTS:
   tool failure, a new instruction — resume the handoff before answering anything else.
 
 BASE BRANCH:
-`homolog` if present (or `main` if current is `homolog` / missing `homolog`). Rebase if behind.
+`BASE=$(bravros config get staging_branch)`; if `bravros config get police.direct_main` prints `true`, `BASE=main`; if the current branch is the staging branch, `BASE=main`.
+If behind `origin/$BASE`: rebase and `git push --force-with-lease` — this **rewrites the remote branch**. Never rebase or force-push when the current branch is `main`, `master`, the staging branch, or listed in `permanent_branches`; open the PR as-is instead.
 
 CREATE — two steps, two tool calls, in this order:
 1. **Write the body with the Write tool** to an absolute path — the scratchpad (`<scratchpad>/pr-body-<branch>.md`) by default; `<repo>/.planning/pr-body-<branch>.md` only when no scratchpad exists, deleted after the PR opens (`/recon` commits `.planning/` wholesale) — with Summary, Changes, Technical Notes, Test Plan, References. The path must be a **literal absolute path** — never `$S/…`, `$TMPDIR/…`, `~`, or a relative `./.pr-body.md`, and never produced by `cp`/`mv` from elsewhere (the hook reads raw command text: an unexpanded variable or a not-yet-existing file is blocked as "unreadable body").
@@ -1132,7 +1212,7 @@ HANDOFF (mandatory final step — the routing IS the contract):
 ---
 
 ## Skill: pr-review
-Post @claude review comment on the current PR and ask what's next. Use on `/pr-review` to trigger the GitHub Actions review workflow.
+Use on `/pr-review` to post the @claude comment that triggers the GitHub Actions review of the current PR. Unlike built-in `/code-review --comment`, it reviews nothing itself.
 
 # pr-review
 
@@ -1144,7 +1224,7 @@ and posts back to the PR. This skill never reviews, never polls, never merges.
 ## Core Steps
 
 1. **Determine PR Number**: Use `$ARGUMENTS` if numeric, else `gh pr view --json number -q .number`. If none, STOP ("create one with /pr first").
-2. **Branch Sync**: If behind base branch, rebase and `git push --force-with-lease` first. Handle conflicts according to mode (ask in interactive / note & proceed in autonomous).
+2. **Branch Sync**: If behind base branch, rebase and `git push --force-with-lease` first — **but never rebase or force-push when the PR head branch is `main`, `master`, the staging branch (`bravros config get staging_branch`), or listed in `permanent_branches`**; skip the sync and note it. Feature branches keep `--force-with-lease`. Handle conflicts according to mode (ask in interactive / note & proceed in autonomous).
 3. **Post Comment**: Copy the canonical body from [briefing.md](references/briefing.md) § *The comment* **byte-for-byte** and send it inline with the literal PR number. Never compose your own ("@claude please review this PR. Focus areas…" is blocked: wrong opening sentence, no closing block). Focus areas are allowed only as extra lines *between* the opening sentence and the `Required:` block. Send verbatim `@claude` comment with visible sentinel verdict lines (`BRAVROS-VERDICT: approved` / `BRAVROS-VERDICT: changes-requested`).
    - **NEVER write a bare `#N` for a review-finding number.** GitHub autolinks `#N` in every
      issue/PR body — it cannot be disabled, and it also writes a cross-reference event onto that
@@ -1165,13 +1245,21 @@ and posts back to the PR. This skill never reviews, never polls, never merges.
 ---
 
 ## Skill: premium-website
-Eliminates generic AI slop from React/Next.js frontends with premium typography, color calibration, and motion choreography. Triggers on /premium-website or requests for anti-slop design.
+Use on /premium-website or when a UI looks generic and needs anti-slop polish — premium typography, color calibration, motion. Adapts to the house stack (Inertia + React + shadcn + Vite+); also covers Next.js.
 
 # premium-website — anti-slop design system router
 
 Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 Overrides default LLM design biases (Inter font, purple gradients, centered 3-card layouts, neon glows, fake "John Doe" data) with a curated system.
+
+## House-stack adapter (apply before any pack)
+
+Packs were written for Next.js/RSC. New apps use the private Laravel starter kit — see `~/.agent_config/CLAUDE.md` § New project stack: Laravel + Inertia + React + TypeScript + Tailwind 4 + shadcn/ui (vendored) + Vite+ (`vp`). Livewire products stay Livewire (Blade/Tailwind; no React). Translate pack advice:
+- Ignore RSC, `"use client"`, `next/*` imports and Next-only APIs; use Inertia pages and plain React components.
+- Motion: CSS (transitions, keyframes, `@starting-style`, scroll-driven animations) first; at most ONE already-approved animation lib, and only if CSS cannot do it. Never add Framer Motion or similar by default.
+- No extra UI kits on top of shadcn; edit the vendored shadcn components instead of installing new libraries.
+- Never install packages unasked; propose first.
 
 | Pack | File | When to read |
 |---|---|---|
@@ -1198,12 +1286,12 @@ INTENT: Promote accumulated `homolog` work to production (`homolog → main`). C
 
 1. **Pre-flight**:
    - Verify on `homolog`, working tree clean, up to date with remote.
-   - Check authority token via `bravros promote status --field present`. If false, instruct operator to run `bravros promote unlock` in a non-Claude-Code terminal.
+   - Check authority token via `bravros promote status --field present` — **advisory only**: inform the operator if it is missing (`bravros promote unlock` in a non-Claude-Code terminal) but keep going; the token is only *required* at the TTL check right before the merge.
    - Run `git fetch origin main --quiet` and snapshot pre-merge main tip:
-     `git update-ref refs/bravros/promote-base "$(git rev-parse origin/main)"`.
+     `MAIN_TIP=$(git rev-parse --verify --quiet origin/main)`; empty → stop and report (missing `origin/main`); otherwise `git update-ref refs/bravros/promote-base "$MAIN_TIP"`.
 2. **PR & Merge** — PR and CI first, token check last:
    - Create PR from `"$PROMOTE_BASE..homolog"`; wait until `mergeStateStatus` is `CLEAN`.
-   - **TTL check right before the merge**: `bravros promote status --field ttl_remaining`. The token is 5-minute; PR creation + CI + a review has burnt it in 3 sessions. Expired → ask for ONE re-mint (`bravros promote unlock` in a separate terminal), wait, never loop.
+   - **TTL check right before the merge**: `bravros promote status --field ttl_remaining`. The token is 5-minute; PR creation + CI + a review has burnt it in 3 sessions. Missing or expired → this is where the token is **required**: ask for ONE mint/re-mint (`bravros promote unlock` in a separate terminal), wait, never loop.
    - Acquire merge lock: `bravros merge-lock acquire --timeout 60s --ttl 10m --meta reason=promote --meta pr="$PR_NUMBER"`.
    - Merge PR: `gh pr merge 1234 --merge > /tmp/bravros-merge-1234.txt 2>&1` — substitute the **literal** PR number (the police hook reads raw command text; a `$VAR` there is unreadable → blocked), no `cd … &&`, no `| tail` — then verify `MERGED` state. The `bravros police` hook honours the promote token — **no second token** (`police unlock`) is needed; a `✋🏽 Police Block` here names its reason (usually expired token or `UNKNOWN` mergeability) — relay it in one line, never `gh api`/raw HTTP.
 3. **Sync & Close-out**:
@@ -1214,7 +1302,7 @@ INTENT: Promote accumulated `homolog` work to production (`homolog → main`). C
 ---
 
 ## Skill: prune-merged
-Safely prune already-merged branches (local + remote) with 7-day tombstone recovery. Manual-only — nothing auto-triggers it. Invoke via `/prune-merged`.
+Use only on `/prune-merged` to delete already-merged branches (local + remote) safely, with 7-day tombstone recovery. Manual-only; nothing auto-triggers it.
 
 # Prune Merged Branches
 
@@ -1241,7 +1329,7 @@ Safely delete branches already merged to the base branch. Dual-signal merge-trut
 ---
 
 ## Skill: push
-Push current branch to remote with branch safety checks.
+Push the current branch to origin with branch safety checks, never committing. Use on /push when commits already exist and only the push is missing.
 
 # push
 
@@ -1251,12 +1339,12 @@ HARD CONSTRAINTS:
 - Never push `main`/`master` directly **in a PR-gated repo** — refuse and point to a PR from homolog. `homolog` itself IS directly pushable (plan commits, hotfixes).
 - **Direct-main repos are the exception, by design.** A repo whose `.bravros/config.json` declares `police.direct_main: true` (set by `bravros police direct-main on`, or scaffolded by `/git-this` for personal/scratch repos) has no staging branch and works on `main`; pushing `main` there is the normal flow. The gate is a pure binary: `bravros config get police.direct_main` prints `true` → direct-main, push allowed; anything else (empty, an error, an older CLI reporting an unknown key) → PR-gated, refuse. `staging_branch` is never the discriminator — `config get staging_branch` never prints empty.
 - No force push unless the operator explicitly asked for one.
-- Dirty working tree → stop and point to `/ship` or `/commit` first — committing is their job, not this skill's.
+- Dirty working tree → stop and point to `/commit-push` or `/commit` first — committing is their job, not this skill's.
 
 ---
 
 ## Skill: quick
-Quick task execution without a full plan — just do it and commit.
+Do a small task without a full plan — implement, verify, commit. Use on /quick for small, well-scoped changes that need no dossier.
 
 # Quick: Fast Task Execution
 
@@ -1348,19 +1436,8 @@ Falsifier:   <one sentence: what observation would prove this analysis wrong>
 `Implicates:` is the one field `/orchestrate` cannot derive cheaply — without it, it must re-read
 every issue body to find the file map, which is the re-investigation this split exists to avoid.
 
-**Confidence is mandatory on every issue and every load-bearing claim.** Same vocabulary as `/scout`:
-code reading produces hypotheses, only runtime observation produces proof.
-
-| Tag | Means | Must cite |
-|---|---|---|
-| `OBSERVED` | seen at runtime — live browser, production log, live DB query, executed command | the artefact, or the pasted command + output |
-| `READ` | traced in source, not executed | `file:line` |
-| `CERTIFIED` | `READ` and `OBSERVED` agree | both |
-| `ASSUMED` | neither — states what would settle it | the settling command or question |
-| `SUPERSEDED → <ptr>` | kept for history, no longer load-bearing | the pointer |
-
-Never dress an `ASSUMED` claim as `CERTIFIED`. "Correct by construction" is a hypothesis until
-something ran.
+**Confidence is mandatory on every issue and every load-bearing claim** — tags, citation rules and the
+never-dress-`ASSUMED`-as-`CERTIFIED` rule are in [dossier-template.md § Confidence tags](references/dossier-template.md#confidence-tags).
 
 ## 4 — Review your own output
 
@@ -1377,7 +1454,7 @@ something ran.
 ## 5 — Record, commit, hand off
 
 Append `created` and `reviewed` events to `.planning/events.jsonl` (`by: "agent:recon"`), then
-`bravros commit "📋 plan: add P-NNNN <slug>" .planning/`. Give the operator exactly one next step:
+`bravros commit "📋 plan: add P-NNNN <slug>" .planning/P-NNNN-<slug>/ .planning/events.jsonl`. Give the operator exactly one next step:
 `/orchestrate .planning/P-NNNN-<slug>/`, and name the branch it will cut from the staging branch —
 `feature/p-NNNN-<slug>` for a change, `fix/p-NNNN-<slug>` for a defect. Print it; do not create it.
 
@@ -1409,7 +1486,7 @@ HARD CONSTRAINTS:
 
 ## Flow
 
-1. Materialize engine: `mkdir -p .bravros/workflows && cp -f ~/.bravros/skills/scout/scripts/scout-investigate.js .bravros/workflows/scout-investigate.js`
+1. Materialize engine: `mkdir -p .claude/workflows && cp -f ~/.bravros/skills/scout/scripts/scout-investigate.js .claude/workflows/scout-investigate.js`
 2. Reserve dir: `SCOUT_DIR=$(bravros nextid reserve scout --slug "$SLUG"); SCOUT_ID=$(basename "$SCOUT_DIR" | grep -oE 'S-[0-9]+')`.
 3. Build candidate lead list (`graphify`/`grep`/`git`/`error`).
 4. Run parallel engine:
@@ -1423,27 +1500,8 @@ Close investigation by appending `completed`/`cancelled` event to `.planning/eve
 
 ---
 
-## Skill: ship
-Commit and push changes in one step with safety checks.
-
-# ship
-
-INTENT: `/commit` then `/push`, with one branch gate first. Never creates a PR.
-
-HARD CONSTRAINTS:
-- Refuse on `main`/`master` **in a PR-gated repo** — there those branches move only via PR (`homolog → main`).
-  Every other branch, including `homolog`, is shippable directly.
-- **Direct-main repos ship on `main` by design.** `.bravros/config.json` with `police.direct_main: true` (`bravros police direct-main on`, or a `/git-this` personal repo) has no staging branch — commit and push `main` there without ceremony. The gate is a pure binary: `bravros config get police.direct_main` prints `true` → direct-main, ship allowed; anything else (empty, an error, an older CLI reporting an unknown key) → PR-gated, refuse and point to a PR. `staging_branch` is never the discriminator — `config get staging_branch` never prints empty.
-- `/commit`'s rules apply in full: emoji format, no secrets staged, no AI signatures (no `Co-Authored-By` trailer). A `Invalid commit message format … Required format: <emoji> <type>: <description>` rejection of a valid scoped message means a stale repo hook → tell the operator and suggest `/update-hooks`; never drop the scope silently to get past it.
-
-Run `/commit`, then `Skill({skill: "push"})` — `/push` is the canonical push primitive.
-
-Report one line — `✅ <emoji> <type>: <subject> — pushed to origin/<branch>` — or the relevant error.
-
----
-
 ## Skill: start
-EXPLICIT-INVOCATION ONLY — trigger only when the user types /start. Initializes a new project with stack-aware CLAUDE.md, .bravros/config.json, .gitignore, and base structure. Do NOT trigger on natural-language phrases like init or setup without the slash.
+Use only on explicit /start. Initializes a project with stack-aware CLAUDE.md, .bravros/config.json, hooks, and base structure. Not for natural-language init/setup.
 
 # /start — initialize or refresh project workflow files
 
@@ -1458,7 +1516,7 @@ overwrite. Update: NEVER touch an existing CLAUDE.md; refresh `claude.yml` only.
 3. **sync-db.sh** (relational-DB projects only): `cp -n ~/.agent_config/templates/sync-db.sh` + `.db-sync.env.example`, `chmod +x`, `mkdir -p database/backups`. Non-Laravel: swap the post-restore command (Prisma → `npx prisma migrate deploy`, Drizzle → `npx drizzle-kit push`). Gitignore `.db-sync.env` and `database/backups/`.
 4. **Hooks + planning dir**: `git config core.hooksPath .githooks`; `mkdir -p .planning`. **Update mode — don't clobber graphify's hooks:** if the repo has `.graphify` or `graphify-out/graph.json`, the `post-{merge,commit,checkout}` slots are graphify refresh delegators — preserve them.
 5. **`.bravros/config.json` staging branch.** A legacy `.bravros.yml`/`.sbravros.yml` is migrated to `.bravros/config.json` automatically by any `bravros` verb — never `git mv` it. If `.bravros/config.json` has no `staging_branch`, announce (below), then ask_question: "What is your staging/integration branch name? (say none for a main-only repo)" (default `homolog`). A named branch → write `{"staging_branch": "<answer>"}` to `.bravros/config.json`. No staging branch → run `bravros police direct-main on` instead (writes `.bravros/config.json` with `police.direct_main: true` so `main` isn't gated) and do not set `staging_branch`.
-6. **Homolog branch before workflows.** If neither `refs/heads/homolog` nor `origin/homolog` exists: `git checkout -b homolog && git push -u origin homolog` (no origin is fine), then switch back.
+6. **Homolog branch before workflows.** If neither `refs/heads/homolog` nor `origin/homolog` exists: `git branch homolog && git push -u origin homolog` (skip the push when there is no origin). Never `checkout` it — the working branch must not change.
 7. **GitHub Actions** (only for homolog→main repos): write `claude.yml` + `tests.yml` per `references/github-workflows.md` — its GitHub gotchas are hard-won, do not deviate. Starter-kit workflow cleanup: fresh-init repos (≤1 commit) remove other workflows automatically; brownfield repos require explicit ask_question approval — never delete silently.
 8. **graphify section**: if a graph exists and CLAUDE.md lacks a `## graphify` heading, append the section from `~/.agent_config/skills/graphify-this-project/references/claude-md-section.md`, filling real counts/labels — never ship placeholders.
 9. **Report** created/skipped files and next steps. Don't commit automatically — the user reviews first.
@@ -1473,7 +1531,7 @@ Use $ARGUMENTS for any additional context.
 ---
 
 ## Skill: triage-sweep
-Read-only drain of a stale issue + backlog queue — dedup, classify each item vs LIVE code (already-done / partial / superseded / no-longer-needed / open / human-only), adversarially verify every close, then apply closes/cancels serially. Use on /triage-sweep.
+Drain a stale issue + backlog queue read-only: dedup, classify each item against live code, adversarially verify every close, then apply serially. Use on /triage-sweep.
 
 # Triage Sweep — dedup → classify-vs-code → adversarial-verify → serial apply
 
@@ -1491,7 +1549,8 @@ Read [briefing.md](references/briefing.md) on demand for detailed context and in
 1. **Step 0 — Preflight + materialize:**
    ```bash
    STAGING=$(bravros config get staging_branch 2>/dev/null); STAGING=${STAGING:-homolog}
-   mkdir -p .agent_config/workflows && cp -f ~/.agent_config/skills/triage-sweep/scripts/triage-sweep.js .agent_config/workflows/triage-sweep.js
+   [ "$(git rev-parse --abbrev-ref HEAD)" = "$STAGING" ] && [ -z "$(git status --porcelain)" ] || { echo "STOP: HEAD must be $STAGING with a clean tree"; exit 1; }   # hard stop
+   mkdir -p .claude/workflows && cp -f ~/.agent_config/skills/triage-sweep/scripts/triage-sweep.js .claude/workflows/triage-sweep.js
    ```
 2. **Step 1 — Triage (parallel, read-only):** Run `triage-sweep` workflow across code, worktrees, open PRs, and `.planning/` plan folders.
 3. **Step 2 — Apply (SERIAL):** Append event to `.planning/events.jsonl` or run `gh issue close`.
@@ -1500,7 +1559,7 @@ Read [briefing.md](references/briefing.md) on demand for detailed context and in
 ---
 
 ## Skill: update-hooks
-Update git hooks in an existing project to the latest version.
+Use to refresh git hooks in an existing project from the latest templates, keeping graphify post-* hooks. Not for first-time setup (/start).
 
 # Update Hooks: Refresh Git Hooks
 
@@ -1536,7 +1595,7 @@ bash $S --fix      # report + repair bash $S --json   # machine-readable
 ---
 
 ## Skill: workflow-sync
-Sync an existing project with the latest workflow setup — hooks, GitHub Action, and DB sync template.
+Use to sync an existing project with the latest workflow files — hooks and claude.yml (diff + backup). Not for first-time setup (/start).
 
 # Workflow Sync: Update Project Workflow Files
 
@@ -1579,8 +1638,8 @@ Laravel repos additionally get a Herd URL, isolated `.env`, and optionally a clo
 ## Commands
 
 - **create** — `bash <skill>/scripts/create.sh [<app>] [<id>] [flags]`, stream stdout. Non-Laravel repo → plain `git worktree` + runtime-dir clone, no Herd/.env/DB (auto-detected from `stack.framework` in `.bravros/config.json`, else `artisan`). Several worktrees = several calls, report every path. `--branch=<name>` tracks `origin/<name>` when it exists remotely.
-- **destroy** — `--dry-run` first, confirm via `ask_question` unless authorized, then `--yes`. Relay refusals verbatim.
-- **list** — `list.sh [--app=<repo>]`. Clean unmanaged with `bravros worktree cleanup <path> --force`.
+- **destroy** — `--dry-run` first, confirm via `ask_question` unless authorized, then `--yes`. Relay refusals verbatim. Dirty worktree (uncommitted/untracked files) → refused; `--force` preserves them into `<repo>/.trash/` first, then removes.
+- **list** — `list.sh [--app=<repo>]`. Clean unmanaged with `bravros worktree cleanup <path>` (dry-run first, no `--force` by default). Herd MCP `workspaces` is an alternative only for Herd link/DB.
 - **sync** — `sync.sh <name> [--onto=<ref>]`. Rebases (`--merge`), never pushes.
 
 ---

@@ -13,7 +13,8 @@ INTENT: drain a stale open-issue + pending-backlog queue by establishing, for **
 
 ```bash
 STAGING=$(bravros config get staging_branch 2>/dev/null); STAGING=${STAGING:-homolog}
-git rev-parse --abbrev-ref HEAD        # expect "$STAGING"; tree clean
+[ "$(git rev-parse --abbrev-ref HEAD)" = "$STAGING" ] || { echo "STOP: HEAD is not $STAGING"; exit 1; }
+[ -z "$(git status --porcelain)" ] || { echo "STOP: working tree not clean"; exit 1; }   # hard stop — never sweep from another branch or a dirty tree
 git fetch origin --quiet
 mkdir -p .claude/workflows && cp -f ~/.bravros/skills/triage-sweep/scripts/triage-sweep.js .claude/workflows/triage-sweep.js
 LABELS=(done dropped dup skip deferred fix-ready)          # keep the ARRAY form — bare-string iteration breaks in zsh

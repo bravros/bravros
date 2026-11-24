@@ -1,17 +1,17 @@
 ---
 name: doctor-plus
-description: Runs Claude Code's built-in /doctor health check, then audits the workspace against Anthropic's 6 then-and-now context-engineering shifts (rules→judgement, examples→interfaces, progressive disclosure, one-home instructions, auto-memory, rich references). Reports first, fixes only on approval. Use on /doctor-plus or "context checkup".
+description: Use on /doctor-plus or "context checkup" to audit workspace context (guidance files, skills, rules, memory) against Anthropic's 6 context-engineering shifts. Reports first; fixes only on approval. Built-in /doctor is separate.
 ---
 
 # Doctor Plus
 
-Runs standard `claude doctor` health check and audits workspace context against Anthropic's 6 context-engineering shifts.
+Audits workspace context against Anthropic's 6 context-engineering shifts. The built-in `/doctor` health check is separate — point the user to it; never run `claude doctor` from Bash.
 
 Read [briefing.md](references/briefing.md) on demand for detailed context and instructions.
 
 ## Key Workflow Summary
 
-1. **Standard Checkup**: Run `claude doctor` (60s timeout). Summarize findings or note manual execution if interactive.
+1. **Built-in checkup**: do not run `claude doctor`; tell the user to run the built-in `/doctor` themselves, then continue.
 2. **Context Shift Audit**: Audit guidance files, skills, rules, and memory indexes against 6 shifts:
    - Judgement over rules
    - Interfaces over examples

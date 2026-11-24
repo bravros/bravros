@@ -2,7 +2,7 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#   "graphifyy>=0.7.10",
+#   "graphifyy==0.9.38",  # keep in lockstep with references/.graphify-version
 # ]
 # ///
 """suppress-hyperedges-viz.py — regenerate graph.html WITHOUT the hyperedge polygon overlay.

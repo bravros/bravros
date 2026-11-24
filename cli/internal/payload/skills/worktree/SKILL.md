@@ -27,6 +27,6 @@ Laravel repos additionally get a Herd URL, isolated `.env`, and optionally a clo
 ## Commands
 
 - **create** — `bash <skill>/scripts/create.sh [<app>] [<id>] [flags]`, stream stdout. Non-Laravel repo → plain `git worktree` + runtime-dir clone, no Herd/.env/DB (auto-detected from `stack.framework` in `.bravros/config.json`, else `artisan`). Several worktrees = several calls, report every path. `--branch=<name>` tracks `origin/<name>` when it exists remotely.
-- **destroy** — `--dry-run` first, confirm via `ask_question` unless authorized, then `--yes`. Relay refusals verbatim.
-- **list** — `list.sh [--app=<repo>]`. Clean unmanaged with `bravros worktree cleanup <path> --force`.
+- **destroy** — `--dry-run` first, confirm via `ask_question` unless authorized, then `--yes`. Relay refusals verbatim. Dirty worktree (uncommitted/untracked files) → refused; `--force` preserves them into `<repo>/.trash/` first, then removes.
+- **list** — `list.sh [--app=<repo>]`. Clean unmanaged with `bravros worktree cleanup <path>` (dry-run first, no `--force` by default). Herd MCP `workspaces` is an alternative only for Herd link/DB.
 - **sync** — `sync.sh <name> [--onto=<ref>]`. Rebases (`--merge`), never pushes.

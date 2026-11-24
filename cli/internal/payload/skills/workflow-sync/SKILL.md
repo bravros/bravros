@@ -1,6 +1,6 @@
 ---
 name: workflow-sync
-description: Sync an existing project with the latest workflow setup — hooks, GitHub Action, and DB sync template.
+description: Use to sync an existing project with the latest workflow files — hooks and claude.yml (diff + backup). Not for first-time setup (/start).
 ---
 
 # Workflow Sync: Update Project Workflow Files

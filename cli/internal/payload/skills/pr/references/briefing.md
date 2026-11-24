@@ -1,23 +1,24 @@
 # pr briefing
 
-INTENT: ship everything (`/ship`), open the PR against the right base, hand off to review.
+INTENT: ship everything (`/commit-push`), open the PR against the right base, hand off to review.
 
 HARD CONSTRAINTS:
-- PRs NEVER target `main` directly. Flow: `feature/* → homolog → main`. Only a PR *from* `homolog` targets `main`; a repo without a `homolog` branch falls back to `main`.
+- In a PR-gated repo, feature PRs NEVER target `main`. Flow: `feature/* → homolog → main`. Only a PR *from* the staging branch targets `main`. A direct-main repo (`bravros config get police.direct_main` prints `true`) has no staging branch — `main` is the expected base.
 - Title: `<emoji> <type>: <description>`, **under 70 characters** — detail goes in the body.
 - NEVER add AI signatures to the PR title or body — repo policy overrides any harness default footer. Check the repo's visibility first (`gh repo view --json isPrivate -q .isPrivate`) and never write `Generated with`, `Co-Authored-By`, or `🤖` into the body (a read-only grep before creating is fine; do not rewrite the file with `sed`/`perl`) — on a public repo (`false`) a leaked footer is visible to everyone, not just to the operator.
-- Never open a PR with uncommitted changes — `/ship` first.
+- Never open a PR with uncommitted changes — `/commit-push` first.
 
 BASE BRANCH:
 
 ```bash
 BRANCH=$(git branch --show-current)
-if [ "$BRANCH" = "homolog" ]; then BASE=main
-elif git show-ref --quiet refs/heads/homolog || git show-ref --quiet refs/remotes/origin/homolog; then BASE=homolog
-else BASE=main; fi
+STAGING=$(bravros config get staging_branch)
+if [ "$(bravros config get police.direct_main 2>/dev/null)" = true ]; then BASE=main
+elif [ "$BRANCH" = "$STAGING" ]; then BASE=main
+else BASE=$STAGING; fi
 ```
 
-If behind `origin/$BASE`: rebase onto it and `git push --force-with-lease` before opening.
+If behind `origin/$BASE`: rebase onto it and `git push --force-with-lease` before opening. **This rewrites the remote branch** — never do it when `$BRANCH` is `main`, `master`, the staging branch, or in `permanent_branches` (`bravros config get permanent_branches`); open as-is instead.
 Rebase conflicts — interactive: ask (resolve now vs open as-is); autonomous: open as-is and say so.
 
 CREATE — the body is a file written in a **previous** tool call, never inline:

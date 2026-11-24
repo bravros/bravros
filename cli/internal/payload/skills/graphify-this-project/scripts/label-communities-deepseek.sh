@@ -293,6 +293,11 @@ print(json.dumps(all_labels, separators=(',', ':')))
 done
 
 # Write community-labels.json
+if [ "$SUCCEEDED" -eq 0 ]; then
+    log "  ✗ no batch produced labels ($FAILED_BATCHES failed) — leaving $LABELS_JSON untouched"
+    rm -rf "$BATCHES_DIR"
+    exit 1
+fi
 echo "$ALL_LABELS" > "$LABELS_JSON"
 TOTAL_LABELS=$(uv run python -c "import json; print(len(json.load(open('$LABELS_JSON'))))")
 log "  labels written: $TOTAL_LABELS (succeeded: $SUCCEEDED batches, failed: $FAILED_BATCHES batches)"
@@ -300,15 +305,21 @@ log "  labels written: $TOTAL_LABELS (succeeded: $SUCCEEDED batches, failed: $FA
 # Apply labels onto graph.json nodes (stamp community_label — no re-cluster)
 log "  applying labels via apply-labels.py..."
 APPLY_SCRIPT="$(cd "$(dirname "$0")" >/dev/null && pwd)/apply-labels.py"
-if uv run python "$APPLY_SCRIPT" "$GRAPH_JSON" "$LABELS_JSON" 2>&1 | tee -a "$LOG"; then
+APPLY_RC=0
+uv run python "$APPLY_SCRIPT" "$GRAPH_JSON" "$LABELS_JSON" >> "$LOG" 2>&1 || APPLY_RC=$?
+if [ "$APPLY_RC" -eq 0 ]; then
     log "  ✓ labels applied to graph.json"
 else
-    log "  ⚠ apply-labels.py had non-zero exit"
+    log "  ✗ apply-labels.py failed (exit $APPLY_RC) — see $LOG"
 fi
 
 # Cleanup
 rm -rf "$BATCHES_DIR"
 
-log "✓ label-communities-deepseek done ($SUCCEEDED/$((SUCCEEDED + FAILED_BATCHES)) batches)"
+if [ "$FAILED_BATCHES" -gt 0 ] || [ "$APPLY_RC" -ne 0 ]; then
+    log "✗ label-communities-deepseek incomplete ($SUCCEEDED/$((SUCCEEDED + FAILED_BATCHES)) batches ok, apply rc=$APPLY_RC)"
+    exit 1
+fi
 
+log "✓ label-communities-deepseek done ($SUCCEEDED/$((SUCCEEDED + FAILED_BATCHES)) batches)"
 exit 0

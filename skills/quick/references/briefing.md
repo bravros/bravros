@@ -49,4 +49,4 @@ Quick task execution. No plan, no team, no worktree, no subagents. Just do it an
   wrapper, never bare `bravros ha say`; it prepends the opener and silences its own stdout.
 - `/quick` is the path for confident, contained fixes — scope is the operator's call. Want a
   planning pass? Run `/recon` instead.
-- Use `/ship` to commit and push in one move.
+- Use `/commit-push` to commit and push in one move.

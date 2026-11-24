@@ -8,7 +8,7 @@ while the binary's real path is `FindPlanFile → ParsePlanHeader`, and the seam
 broken. This recipe closes that gap: **build the real artifact, run the real verb**,
 record the exact invocation and observed output. Nothing else counts as evidence.
 
-Used by `/plan` (its inline review injects a smoke acceptance criterion when a phase
+Used by `/orchestrate` (its execution plan injects a smoke acceptance criterion when a phase
 touches `cli/`) and by any flow that must answer "does the shipped binary actually do
 the thing?" before its final step.
 

@@ -2,15 +2,14 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#   "graphifyy>=0.7.10",
+#   "graphifyy==0.9.38",  # keep in lockstep with references/.graphify-version
 # ]
 # ///
 """ast-only-extract.py — run graphify detect + AST extraction WITHOUT an LLM backend.
 
-NOTE on the patched dedup: when run via `uv run --script`, uv creates an isolated
-venv with the upstream graphifyy package (no afterpay dedup patch). If you need
-the patched dedup behavior (PSR-4 per-class disambiguation), invoke this script
-with the graphifyy uv-tool interpreter instead:
+NOTE on the pin: the inline `graphifyy==` dependency above must match
+references/.graphify-version (one pin source — bump both together). Running via the
+graphifyy uv-tool interpreter instead also works:
   $HOME/.local/share/uv/tools/graphifyy/bin/python3 ast-only-extract.py [project_root]
 
 WHY THIS EXISTS:

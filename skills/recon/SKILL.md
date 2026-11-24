@@ -72,19 +72,8 @@ Falsifier:   <one sentence: what observation would prove this analysis wrong>
 `Implicates:` is the one field `/orchestrate` cannot derive cheaply — without it, it must re-read
 every issue body to find the file map, which is the re-investigation this split exists to avoid.
 
-**Confidence is mandatory on every issue and every load-bearing claim.** Same vocabulary as `/scout`:
-code reading produces hypotheses, only runtime observation produces proof.
-
-| Tag | Means | Must cite |
-|---|---|---|
-| `OBSERVED` | seen at runtime — live browser, production log, live DB query, executed command | the artefact, or the pasted command + output |
-| `READ` | traced in source, not executed | `file:line` |
-| `CERTIFIED` | `READ` and `OBSERVED` agree | both |
-| `ASSUMED` | neither — states what would settle it | the settling command or question |
-| `SUPERSEDED → <ptr>` | kept for history, no longer load-bearing | the pointer |
-
-Never dress an `ASSUMED` claim as `CERTIFIED`. "Correct by construction" is a hypothesis until
-something ran.
+**Confidence is mandatory on every issue and every load-bearing claim** — tags, citation rules and the
+never-dress-`ASSUMED`-as-`CERTIFIED` rule are in [dossier-template.md § Confidence tags](references/dossier-template.md#confidence-tags).
 
 ## 4 — Review your own output
 
@@ -101,7 +90,7 @@ something ran.
 ## 5 — Record, commit, hand off
 
 Append `created` and `reviewed` events to `.planning/events.jsonl` (`by: "agent:recon"`), then
-`bravros commit "📋 plan: add P-NNNN <slug>" .planning/`. Give the operator exactly one next step:
+`bravros commit "📋 plan: add P-NNNN <slug>" .planning/P-NNNN-<slug>/ .planning/events.jsonl`. Give the operator exactly one next step:
 `/orchestrate .planning/P-NNNN-<slug>/`, and name the branch it will cut from the staging branch —
 `feature/p-NNNN-<slug>` for a change, `fix/p-NNNN-<slug>` for a defect. Print it; do not create it.
 

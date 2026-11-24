@@ -49,7 +49,7 @@ against `cli/cmd/*.go` `Use:` and flag definitions.
 | `secrets` | Manage bravros secrets (`op` / `env` / `none` backends) | — |
 | `selfupdate` | Refresh installed components from this binary's embedded payload | ✅ |
 | `setup` | Install bravros components from the embedded payload | ✅ |
-| `skills` | Manage bravros skills (`skills deps`) | — |
+| `skills` | Manage bravros skills (`skills deps`, `skills retired` ✅) | — |
 | `statusline` | Render Claude Code status line (reads JSON from stdin) | — |
 | `trash` | Inspect and manage the `.trash/` preserve area | — |
 | `update` | Download, verify and install the newest bravros binary | ✅ |
@@ -238,6 +238,35 @@ one line naming the correct command is not buried.
 Platform note: on POSIX the replace is a single atomic `rename(2)`. On Windows the running image
 is locked, so the current binary is renamed aside first and the leftover `bravros.exe.old-<rand>`
 is swept on a later run.
+
+---
+
+## `skills retired` ✅
+
+List the skill names the toolkit used to ship and no longer does (renamed or removed), one per
+line, exit 0. An empty list prints nothing. `verify-install` calls it to flag stale skill dirs:
+`bravros skills retired 2>/dev/null`.
+
+```
+bravros skills retired [--json]
+```
+
+| Flag | Type | Default | Effect |
+|---|---|---|---|
+| `--json` | bool | `false` | Array of `{"name", "replacement", "retired_in"}` instead of bare names. |
+
+```
+$ bravros skills retired
+pest5-upgrade
+ship
+context
+```
+
+`setup`, `deploy` and `update`/`selfupdate` (including its filtered lane) move any listed name
+found in the host skills dir to `<host>/.trash/<UTC-stamp>-retired-skills/<name>`. It doesn't
+matter which lane recorded the skill, or whether any did. Exceptions: names in `skills.preserve`,
+names the payload still ships, and plugin-managed copies. A symlinked entry only loses its link.
+A symlinked `skills/` dir (dev mode) is left alone. `deploy --no-prune` skips the move.
 
 ---
 

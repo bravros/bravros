@@ -3,13 +3,13 @@ icon: git-commit
 metadata:
   en:
     name: commit
-    description: Commit staged changes with emoji+type conventions and formatting.
+    description: Commit current changes with emoji+type conventions and formatting, never pushing. Use on /commit when work is done and only a local commit is wanted.
   br:
     name: commit
-    description: Realiza o commit de alterações preparadas com convenções de emoji+tipo e formatação.
+    description: Use em /commit para commitar as alterações com emoji+tipo e formatação, sem fazer push.
   es:
     name: commit
-    description: Realiza el commit de los cambios preparados con convenciones de emoji+tipo y formato.
+    description: Usa /commit para commitear los cambios con emoji+tipo y formato, sin hacer push.
 body: |
   INTENT: commit the current changes. Commit only — never push.
 
@@ -21,7 +21,7 @@ body: |
   - NEVER add AI signatures — no `Co-Authored-By:` trailer of any kind, no "Generated with…" line. The harness may append one by default: omit it; the hook rejects it ("AI signature detected!").
   - Stale-hook error: if the commit-msg hook rejects a message matching the format above (e.g. `✨ feat(orders): …` → `Invalid commit message format … Required format: <emoji> <type>: <description>`), the repo's hook is stale. Do NOT silently retry without the scope — report it and run `/update-hooks`, then recommit.
   - Subject ≤ 50 chars (hard 72), present tense, lowercase, why over what; detail goes in the body.
-  - No branch gate here — that lives in `/push` and `/ship`. Committing on `main` is normal in a direct-main repo — `bravros config get police.direct_main` prints `true` (`/git-this` personal repos); anything else (empty, an error, an older CLI reporting an unknown key) means PR-gated: branch first, then commit. `staging_branch` is never the discriminator — it never prints empty.
+  - No branch gate here — that lives in `/push` and `/commit-push`. Committing on `main` is normal in a direct-main repo — `bravros config get police.direct_main` prints `true` (`/git-this` personal repos); anything else (empty, an error, an older CLI reporting an unknown key) means PR-gated: branch first, then commit. `staging_branch` is never the discriminator — it never prints empty.
 
   REPO FACT — the only accepted `<emoji> <type>` pairs:
   ✨ feat · 🐛 fix · 📚 docs · 💄 style · ♻️ refactor · ⚡ perf · 🧪 test · 🔧 build · 🧹 chore ·

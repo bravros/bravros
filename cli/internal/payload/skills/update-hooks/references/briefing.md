@@ -14,8 +14,10 @@ Update git hooks in an existing project to the latest version from ~/.bravros/te
 
 ### 2. Update Hooks
 ```bash
-bravros init --skip-workflows --skip-staging-branch
+bravros init
 ```
+
+**Preserve graphify delegators.** If the repo has `.graphify` or `graphify-out/graph.json`, the `post-{merge,commit,checkout}` hooks are graphify refresh delegators — back them up first (`cp` to a temp dir) and restore them after the refresh; never overwrite them.
 
 ### 3. Output
 ```
@@ -29,7 +31,7 @@ Git hooks path: core.hooksPath = .bravros/hooks
 ```
 
 ## Rules
-- ALWAYS overwrite hook files (intentional update)
+- Overwrite bravros hook files (intentional update) — but never graphify's `post-*` delegators
 - Do NOT touch .github/workflows or .planning
 - Do NOT commit automatically — let user review
 

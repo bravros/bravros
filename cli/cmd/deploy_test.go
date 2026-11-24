@@ -233,7 +233,7 @@ func TestPrintDeploySummary_Default(t *testing.T) {
 	printDeploySummary(&deploy.DeployResult{
 		FilesDeployed:  277,
 		SkillsDeployed: []string{"plan", "finish"},
-		SkillsSkipped:  []string{"audit", "commit", "ship"},
+		SkillsSkipped:  []string{"audit", "commit", "commit-push"},
 	}, &buf)
 	out := buf.String()
 

@@ -66,7 +66,8 @@ bash <skill-dir>/scripts/apply-dedup-fix.sh    # idempotent; installs the pin fr
 ```
 
 - The `[mcp]` extra is required or the user-scoped `graphify-mcp` server dies on import.
-- The old 0.8.1 dedup patch is a no-op now (upstream merged it in 0.9 #1504); the script gates it off — applying the vendored v0.7.10 copy onto 0.9.x would downgrade extraction.
+- The old dedup patch is retired (upstream merged it in 0.9, #1504); the script refuses pins below 0.9.0 and fails if `references/.graphify-version` is missing. The pin may install in parallel (background) while you do Steps 1–2. Inline `graphifyy==` pins in `ast-only-extract.py`, `regen-html-with-labels.py` and `suppress-hyperedges-viz.py` must match the pin file.
+- Framework-verb limitation (still live): the AST extractor collapses JS/template verbs (Livewire `$set`, `$dispatch`, Alpine `x-data`) into single false-hub nodes — `strip-framework-verbs.py` (Step 5) removes them.
 - **Every machine must run the same pin.** 0.8.1 vs 0.9.x produce structurally different graphs from identical code (paylog: 26,240 vs 59,383 nodes) — mixed pins overwrite each other's committed graph on every refresh and `resync-labels.py` aborts (~7–19% node-identity match), leaving the graph unlabeled. Symptom: `graphify query` answers `Community NN`. Verify with `/graphify-status`.
 - **Upgrading the pin invalidates every existing label** — budget one full relabel per project.
 
@@ -81,7 +82,7 @@ PY=$(find ~/.local/share/uv/tools/graphifyy -name python3 -type l | head -1)
 
 Paid semantic alternatives (only when the user explicitly wants LLM-derived semantic *edges*; comparison in `references/llm-routing-table.md`):
 
-- **DeepSeek headless:** `bash <skill-dir>/scripts/extract-deepseek.sh .` (~$0.50–2.00, ~10–20 min, comes out labelled — skip Step 6).
+- **DeepSeek headless:** `bash <skill-dir>/scripts/extract-deepseek.sh .` (~$0.50–2.00, ~10–20 min — run it in the background (`run_in_background`) and poll; comes out labelled — skip Step 6).
 - **DeepSeek 10-terminal opencode swarm** (max quality, big repos): AST extract, then `sed -i.bak 's/MAX_PER_GROUP = 50/MAX_PER_GROUP = 200/' <skill-dir>/scripts/make-code-groups.py && uv run python <skill-dir>/scripts/make-code-groups.py .` (restore the `.bak`); HAND OFF — the operator opens 10 opencode terminals on DeepSeek, pastes `references/worker-prompt.md` as system context, dispatches one group per task line ("Process group `<name>`. Files in `graphify-out/groups/<name>.txt`. Write JSON to `graphify-out/.graphify_chunk_<name>.json`"), biggest first; then `bash graphify-out/finalize.sh`. Announce the handoff:
   <!-- announce-template: "Extração do grafo pronta, abra os terminais externos conforme as instruções. Ramo {BRANCH}, projeto {PROJECT}." -->
   `bash ~/.agent_config/scripts/announce.sh --force "Extração do grafo pronta, abra os terminais externos conforme as instruções. Ramo $(git branch --show-current), projeto $(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")." studio || true`
@@ -172,7 +173,10 @@ Ask first — announce that a decision is pending:
 ## Step 10 — Verify + commit set
 
 ```bash
-graphify query "smoke test" --graph graphify-out/graph.json | head -20   # non-empty
+graphify query "smoke test" --graph graphify-out/graph.json > /tmp/graphify-smoke.txt 2>&1
+RC=$?   # own line — never pipe the gate
+[ "$RC" -eq 0 ] && [ -s /tmp/graphify-smoke.txt ] || echo "⚠️ smoke test failed (rc=$RC)"
+head -20 /tmp/graphify-smoke.txt
 test "$(git config --get core.hooksPath)" = ".githooks" || echo "⚠️ hooksPath"
 git config --get merge.graphify.driver >/dev/null || echo "⚠️ merge driver"
 git check-ignore -q graphify-out/graph.json && echo "⚠️ graph.json gitignored — fix .gitignore"

@@ -23,12 +23,13 @@ INTENT: ship an urgent production fix now, bypassing the plan workflow. Flow: co
 
 0. **Confirm repo identity before anything else**: `git remote get-url origin` and `basename "$(git rev-parse --show-toplevel)"` — print both. Several product repos share a workspace (`paylog/{paylog,afterpay,payloglp}`), and an emergency merge into the wrong one is not recoverable by a revert alone.
 1. Refuse on `main`/`master`. Strip a leading issue ref (`#42` / `issue 42`) from `$ARGUMENTS` for the description; carry it as `Closes #42` in the PR body.
-2. Run the stack's formatter on the changed files, then `bravros commit "🩹 hotfix: <description>" <changed files only>` — review the file list first and drop anything unrelated to the hotfix.
+2. `bravros commit "🩹 hotfix: <description>" <changed files only>` — review the file list first and drop anything unrelated to the hotfix.
 3. `git push`; if not on `homolog`: merge the branch into homolog (`🔀 merge: <branch> into homolog (hotfix)`) and push it. Write the body with the Write tool to an absolute path in a **previous** step (what/why, the `origin/main..homolog` commit list, a verification checklist), then `gh pr create --base main --head homolog --title "🩹 hotfix: <description>" --body-file <abs path>` — the police hook validates the body before the command runs, so a heredoc in the same command is blocked.
 4. **Wait for mergeability** — GitHub computes it asynchronously after PR creation, and the police lane refuses `UNKNOWN`:
 
 ```bash
-until [ "$(gh pr view "$PR_NUMBER" --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ]; do sleep 2; done
+for _ in {1..24}; do [ "$(gh pr view "$PR_NUMBER" --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ] && break; sleep 2; done
+[ "$(gh pr view "$PR_NUMBER" --json mergeStateStatus -q .mergeStateStatus)" != "UNKNOWN" ] || { echo "⚠️  mergeability still UNKNOWN after ~48 s — report and stop"; exit 1; }
 gh pr view "$PR_NUMBER" --json mergeStateStatus -q .mergeStateStatus
 ```
 
@@ -42,7 +43,7 @@ MERGE_RC=$?; cat /tmp/bravros-merge-1234.txt; echo "merge_rc=$MERGE_RC"
 ```
 
    Then verify `state` == `MERGED`. On `✋🏽 Police Block`, act on the named reason (constraint above).
-6. Sync homolog from main so the next homolog→main merge has no conflicts: `git checkout homolog && git pull && git fetch origin main`, then `git merge --ff-only origin/main` falling back to `--no-ff -m "🔀 merge: sync hotfix from main"`; push; return to the original branch.
+6. Sync homolog from main so the next homolog→main merge has no conflicts — without checking anything out: `git fetch origin main homolog && git push origin origin/main:homolog` (plain fast-forward push; the merge commit on main is a descendant of homolog, so it fast-forwards). Rejected as non-fast-forward → report and stop, never force.
 7. **Plan closure — events model, no renames** (`.planning/CONVENTIONS.md`; the old advance verbs are retired). Resolve `P-NNNN` from `$ARGUMENTS`, else a single plan file matching the branch slug (empty-slug guard above). Found → append `completed` events for the plan and its `backlog:` B-ids, then commit + push:
 
 ```bash

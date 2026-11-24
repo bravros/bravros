@@ -1,7 +1,7 @@
 ---
 name: prune-merged
 core: true
-description: Safely prune already-merged branches (local + remote) with 7-day tombstone recovery. Manual-only — nothing auto-triggers it. Invoke via `/prune-merged`.
+description: Use only on `/prune-merged` to delete already-merged branches (local + remote) safely, with 7-day tombstone recovery. Manual-only; nothing auto-triggers it.
 ---
 
 # Prune Merged Branches

@@ -37,18 +37,22 @@ fi
 #    triggers Touch ID on macOS, system auth on Linux/Windows. Diagnostic
 #    output goes to stderr so callers that do `mode=$(preflight.sh)` still
 #    capture the mode string cleanly.
-echo "🔐 1Password session not active — attempting op signin (Touch ID / system auth)..." >&2
-if op signin 2>/dev/null; then
-  if op whoami >/dev/null 2>&1; then
-    echo "desktop"
-    exit 0
+# Interactive sign-in only when stdin is a TTY. An agent session has no TTY, so
+# `op signin` there can hang on a prompt nobody can answer — never attempt it.
+if [ -t 0 ]; then
+  echo "🔐 1Password session not active — attempting op signin (Touch ID / system auth)..." >&2
+  if op signin 2>/dev/null; then
+    if op whoami >/dev/null 2>&1; then
+      echo "desktop"
+      exit 0
+    fi
   fi
 fi
 
 cat >&2 <<'EOF'
-Auto-signin failed. Enable one of:
+1Password is not authenticated. Sign in from a SEPARATE terminal (this session has no TTY):
   1) Desktop app: 1Password → Settings → Developer → Integrate with 1Password CLI
-     Then run `op signin` once interactively in your terminal to establish the account.
+     Then run `op signin` once in your own terminal to establish the account, and rerun preflight.
   2) Service account: export OP_SERVICE_ACCOUNT_TOKEN=ops_...
 EOF
 exit 1

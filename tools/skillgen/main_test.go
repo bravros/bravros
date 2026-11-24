@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -87,5 +88,72 @@ func TestSanitize(t *testing.T) {
 				t.Errorf("Sanitize() got = %q, want = %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestCheckReservedName(t *testing.T) {
+	r, err := LoadReservedNames()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.ClaudeCodeVersion == "" {
+		t.Fatal("reserved-names.json must record claude_code_version")
+	}
+	tests := []struct {
+		name    string
+		skill   string
+		wantErr string
+	}{
+		{"free name", "commit", ""},
+		{"refused", "ship", "refused"},
+		{"refused alias", "steward", "refused"},
+		{"shadowed", "context", "shadowed"},
+		{"shadowed builtin", "doctor", "shadowed"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := CheckReservedName("skills/x/SKILL.md", tt.skill, r)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("want error containing %q, got %v", tt.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestCheckDescription(t *testing.T) {
+	ok := strings.Repeat("word ", MaxDescriptionWords)
+	long := strings.Repeat("word ", MaxDescriptionWords+1)
+	if err := CheckDescription("p", "n", ok); err != nil {
+		t.Fatalf("exactly %d words must pass: %v", MaxDescriptionWords, err)
+	}
+	err := CheckDescription("skills/n/SKILL.md", "n", long)
+	if err == nil || !strings.Contains(err.Error(), "51 words") {
+		t.Fatalf("want 51-word error, got %v", err)
+	}
+}
+
+func TestCheckSkillMetasListsAllOffenders(t *testing.T) {
+	r, _ := LoadReservedNames()
+	skills := []SkillItem{
+		{Path: "a", Meta: SkillMeta{Name: "ship", Description: "ok"}},
+		{Path: "b", Meta: SkillMeta{Name: "fine", Description: strings.Repeat("w ", 60)}},
+		{Path: "c", Meta: SkillMeta{Name: "good", Description: "short"}},
+	}
+	err := CheckSkillMetas(skills, r)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "2 skill metadata violation") || !strings.Contains(msg, `"ship"`) || !strings.Contains(msg, `"fine"`) {
+		t.Fatalf("unexpected message: %s", msg)
+	}
+	if err := CheckSkillMetas(skills[2:], r); err != nil {
+		t.Fatalf("clean set failed: %v", err)
 	}
 }

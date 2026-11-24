@@ -267,7 +267,7 @@ idea you are not ready to act on.
 | `/scout` | Find the culprit and certify it with runtime proof — never edits code |
 | `/orchestrate` | Execute a dossier phase by phase, verifying each one before moving on |
 | `/quick` | Small contained fix, no ceremony |
-| `/commit` `/ship` `/push` | Formatted commits, enforced by hook rather than hope |
+| `/commit` `/commit-push` `/push` | Formatted commits, enforced by hook rather than hope |
 | `/pr` `/pr-review` `/address-pr` `/local-review` | Open, review, and answer review feedback |
 | `/finish` `/promote` `/after-merge` | Merge, release to production behind a human gate, and run the post-deploy checklist |
 
@@ -279,7 +279,7 @@ idea you are not ready to act on.
 | `/triage-sweep` | Drain a stale issue and backlog queue, verifying every close against live code |
 | `/batch-merge-prs` `/prune-merged` | Land a queue of PRs, then clean up the branches |
 | `/doctor-plus` `/verify-install` | Health-check the toolkit and the workspace |
-| `/context` | Generate or audit `CLAUDE.md` / `AGENTS.md` from the actual code |
+| `/claudemd` | Generate or audit `CLAUDE.md` / `AGENTS.md` from the actual code |
 | `/worktree` | Isolated worktrees with real provisioning |
 
 **Understand a codebase**

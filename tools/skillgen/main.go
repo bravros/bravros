@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -126,6 +127,68 @@ func LintSkill(path, content string) error {
 				return fmt.Errorf("%s:%d: forbidden token %q found", path, i+1, f.name)
 			}
 		}
+	}
+	return nil
+}
+
+//go:embed reserved-names.json
+var reservedNamesJSON []byte
+
+// MaxDescriptionWords is the description budget enforced on every skill.
+const MaxDescriptionWords = 50
+
+// ReservedNames lists names Claude Code refuses or shadows with built-ins.
+type ReservedNames struct {
+	ClaudeCodeVersion string   `json:"claude_code_version"`
+	Refused           []string `json:"refused"`
+	Shadowed          []string `json:"shadowed"`
+}
+
+// LoadReservedNames parses the embedded reserved-names.json.
+func LoadReservedNames() (ReservedNames, error) {
+	var r ReservedNames
+	if err := json.Unmarshal(reservedNamesJSON, &r); err != nil {
+		return r, fmt.Errorf("parse reserved-names.json: %w", err)
+	}
+	return r, nil
+}
+
+// CheckReservedName returns an error naming the tier when name collides.
+func CheckReservedName(path, name string, r ReservedNames) error {
+	for _, n := range r.Refused {
+		if n == name {
+			return fmt.Errorf("%s: name %q is refused (reserved by Claude Code %s; the skill is dropped on load)", path, name, r.ClaudeCodeVersion)
+		}
+	}
+	for _, n := range r.Shadowed {
+		if n == name {
+			return fmt.Errorf("%s: name %q is shadowed (built-in typed command in Claude Code %s wins over the skill)", path, name, r.ClaudeCodeVersion)
+		}
+	}
+	return nil
+}
+
+// CheckDescription returns an error when desc exceeds MaxDescriptionWords.
+func CheckDescription(path, name, desc string) error {
+	if n := len(strings.Fields(desc)); n > MaxDescriptionWords {
+		return fmt.Errorf("%s: description of %q has %d words (max %d)", path, name, n, MaxDescriptionWords)
+	}
+	return nil
+}
+
+// CheckSkillMetas runs the name and description checks, collecting all offenders.
+func CheckSkillMetas(skills []SkillItem, r ReservedNames) error {
+	var violations []string
+	for _, s := range skills {
+		if err := CheckReservedName(s.Path, s.Meta.Name, r); err != nil {
+			violations = append(violations, err.Error())
+		}
+		if err := CheckDescription(s.Path, s.Meta.Name, s.Meta.Description); err != nil {
+			violations = append(violations, err.Error())
+		}
+	}
+	if len(violations) > 0 {
+		return fmt.Errorf("%d skill metadata violation(s):\n  %s", len(violations), strings.Join(violations, "\n  "))
 	}
 	return nil
 }
@@ -280,6 +343,16 @@ func main() {
 
 	if err != nil {
 		fmt.Printf("Generation failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	reserved, err := LoadReservedNames()
+	if err != nil {
+		fmt.Printf("Generation failed: %v\n", err)
+		os.Exit(1)
+	}
+	if err := CheckSkillMetas(skills, reserved); err != nil {
+		fmt.Printf("Skill metadata error: %v\n", err)
 		os.Exit(1)
 	}
 

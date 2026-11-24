@@ -3,10 +3,10 @@ icon: gauge
 metadata:
   en:
     name: laravel-pest5-upgrade
-    description: Upgrade a PHP/Laravel repo from Pest 4 to Pest 5 and enable Test Impact Analysis locally.
+    description: Upgrade a PHP/Laravel repo from Pest 4 to Pest 5 and enable Test Impact Analysis locally. Use on /laravel-pest5-upgrade, or when a Pest bump or `Tia mode requires Pest tests` breaks tests.
   br:
     name: laravel-pest5-upgrade
-    description: Atualiza um repositório PHP/Laravel do Pest 4 para o Pest 5 e liga a Análise de Impacto de Testes localmente.
+    description: Atualiza um repositório PHP/Laravel do Pest 4 para o Pest 5 e liga a Análise de Impacto de Testes localmente. Use em /laravel-pest5-upgrade, ou quando uma atualização do Pest ou `Tia mode requires Pest tests` quebrar os testes.
   es:
     name: laravel-pest5-upgrade
-    description: Actualiza un repositorio PHP/Laravel de Pest 4 a Pest 5 y activa el Análisis de Impacto de Pruebas localmente.
+    description: Actualiza un repositorio PHP/Laravel de Pest 4 a Pest 5 y activa el Análisis de Impacto de Pruebas localmente. Use en /laravel-pest5-upgrade, o cuando una actualización de Pest o `Tia mode requires Pest tests` rompa las pruebas.

@@ -3,17 +3,17 @@ icon: stethoscope
 metadata:
   en:
     name: doctor-plus
-    description: Runs Claude Code's built-in /doctor health check, then audits the workspace against Anthropic's 6 then-and-now context-engineering shifts (rules→judgement, examples→interfaces, progressive disclosure, one-home instructions, auto-memory, rich references). Reports first, fixes only on approval. Use on /doctor-plus or "context checkup".
+    description: Use on /doctor-plus or "context checkup" to audit workspace context (guidance files, skills, rules, memory) against Anthropic's 6 context-engineering shifts. Reports first; fixes only on approval. Built-in /doctor is separate.
   br:
     name: doctor-plus
-    description: Executa o diagnóstico integrado /doctor do Claude Code e auditoria do espaço de trabalho com base nas 6 mudanças de engenharia de contexto da Anthropic (regras→julgamento, exemplos→interfaces, divulgação progressiva, instruções em local único, auto-memória, referências ricas). Relata primeiro e aplica correções apenas após aprovação. Use com /doctor-plus ou "context checkup".
+    description: Use com /doctor-plus ou "context checkup" para auditar o contexto do espaço de trabalho (arquivos de guia, skills, regras, memória) segundo as 6 mudanças de engenharia de contexto da Anthropic. Relata primeiro; corrige só após aprovação. O /doctor integrado é separado.
   es:
     name: doctor-plus
-    description: Ejecuta la verificación de salud integrada /doctor de Claude Code y audita el espacio de trabajo según los 6 cambios de ingeniería de contexto de Anthropic (reglas→juicio, ejemplos→interfaces, divulgación progressiva, instrucciones de un solo origen, auto-memoria, referencias ricas). Informa primero y aplica correcciones solo tras su aprobación. Use con /doctor-plus o "context checkup".
+    description: Use con /doctor-plus o "context checkup" para auditar el contexto del espacio de trabajo (archivos de guía, skills, reglas, memoria) según los 6 cambios de ingeniería de contexto de Anthropic. Informa primero; corrige solo con aprobación. El /doctor integrado es aparte.
 body: |
   # Doctor Plus
 
-  The standard /doctor checkup, plus a workspace audit for the 6 then & now shifts from Anthropic's context-engineering article (Thariq @trq212, Jul 2026 - they cut ~80% of the Claude Code system prompt for the Claude 5 models). Read the article if a check needs the original reasoning: https://x.com/trq212/status/2080710971228918066
+  A workspace audit for the 6 then & now shifts from Anthropic's context-engineering article (Thariq @trq212, Jul 2026 - they cut ~80% of the Claude Code system prompt for the Claude 5 models). Read the article if a check needs the original reasoning: https://x.com/trq212/status/2080710971228918066
 
   ## The 6 shifts (the principles part 2 audits against)
 
@@ -28,10 +28,9 @@ body: |
 
   ## Workflow
 
-  ### Part 1 - the standard checkup
+  ### Part 1 - built-in checkup (not run here)
 
-  1. Run `claude doctor` via Bash with a 60s timeout. If it completes, summarize its findings.
-  2. If it hangs or needs an interactive screen, note "run /doctor in your session for the built-in half" and move on. Never block on it.
+  Do not run `claude doctor` (it is interactive and hangs under Bash). Tell the user to run the built-in `/doctor` in their session for the installation/config half, then continue with Part 2.
 
   ### Part 2 - the 6 shift checks
   Scope: whatever the workspace actually loads as context - guidance files (CLAUDE.md and kin), skills, rules, memory indexes. Map that set first; don't assume the workspace's layout. Always exclude version-control internals, sync backups, node_modules, caches, temp folders, and generated output.

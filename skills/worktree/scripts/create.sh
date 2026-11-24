@@ -423,11 +423,16 @@ if (( LARAVEL )) && (( HERD_OK )); then
                 [[ -z "$p" ]] && continue
                 git checkout -- "$p" 2>/dev/null || true
             done <<< "$RESTORE_PATHS"
-            git clean -fdq .agents .claude 2>/dev/null || true
+            # Only on the first pass: a later settle pass must never delete untracked
+            # work the operator started in the meantime.
+            if [[ -z "${_CHURN_CLEANED:-}" ]]; then
+                git clean -fdq .agents .claude 2>/dev/null || true
+            fi
         )
     }
     info "Restoring files the Herd link may have regenerated…"
     restore_link_churn
+    _CHURN_CLEANED=1
     ok "post-link churn reverted"
 elif (( LARAVEL )); then
     warn "Herd not found — skipping link/TLS. The worktree has no .test URL."
